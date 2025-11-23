@@ -19,14 +19,23 @@ This document tracks our understanding of the data, feature definitions, and eng
 
 We need to extract the following deep features from the `listing` JSONB:
 
+*   **Offer Type**: `offerType` (BUY vs RENT).
+    *   **Price**: Extract `prices.buy.price` OR `prices.rent.gross` (or `net` if gross missing).
+*   **Characteristics**:
+    *   Numeric: `livingSpace`, `numberOfRooms`, `yearBuilt`, `floor`, `numberOfFloors`.
+    *   Boolean: `isNewBuilding`, `hasBalcony`, `hasElevator`, `hasParking`, `isOldBuilding`.
 *   **Lister Info**:
-    *   `lister.username`: Account username.
-    *   `lister.email`: Contact email? (Need to verify schema).
-    *   `lister.address`: Billing address?
-*   **Contact Info**:
-    *   `contactForm`?
-*   **Billing Info**:
-    *   (Need to verify exact path in schema).
+    *   `lister.username`: Account username (often the registration email).
+    *   `lister.email`: Contact email.
+    *   `lister.phone`, `lister.mobile`: Contact phones.
+    *   `lister.address`: Lister's physical address.
+*   **Billing Info** (Sensitive/Private):
+    *   `lister.billing.email`: Email for invoices (often different from contact).
+    *   `lister.billing.address`: Address for invoices.
+    *   `lister.billing.phoneDay`, `phoneMobile`: Billing phones.
+*   **Contact Persons**:
+    *   `lister.contacts.inquiry`: The person handling inquiries.
+        *   `givenName`, `familyName`, `email`, `phone`, `mobile`.
 
 ## 4. Temporal Filtering
 
@@ -37,39 +46,30 @@ We need to extract the following deep features from the `listing` JSONB:
 
 *   **User Node**:
     *   ID: `owner_id`
-    *   Features: `account_age` (derived from `created_at`), `email_domain`.
-    *   **Note**: `users.created_at` corresponds to the timestamp of their **first listing creation**. It is not a separate registration event.
+    *   Features: `account_age`, `email_domain`.
 *   **Listing Node**:
     *   ID: `object_reference`
-    *   Features: `price`, `size`, `rooms`, `zip`, `city`, `platform`, `auto_approval_criteria` (as feature?), `embeddings`.
+    *   Features: `offer_type`, `price`, `living_space`, `rooms`, `zip`, `city`, `platform`, `characteristics_vector`.
 *   **IP Node**:
     *   ID: `user_ip_address`
 *   **Email Node**:
     *   ID: Email Address (normalized).
-    *   Sources: 
-        *   `users.contact_emails`
-        *   `listing.lister.email`
-        *   `listing.lister.billing.email`
-        *   `listing.lister.contacts.inquiry.email`
-        *   `listing.lister.contacts.viewing.email`
+    *   **Types/Edges**:
+        *   `HAS_CONTACT_EMAIL` (from `lister.email`, `contacts.inquiry.email`) - Visible to seekers.
+        *   `HAS_BILLING_EMAIL` (from `lister.billing.email`) - Private, likely real owner.
+        *   `HAS_USERNAME_EMAIL` (from `lister.username`) - Account login.
 *   **Phone Node**:
     *   ID: Phone Number (normalized).
-    *   Sources:
-        *   `listing.lister.phone`, `listing.lister.mobile`
-        *   `listing.lister.billing.phoneDay`, `listing.lister.billing.phoneEvening`, `listing.lister.billing.phoneMobile`
-        *   `listing.lister.contacts.inquiry.phone`, `listing.lister.contacts.inquiry.mobile`
-        *   `listing.lister.contacts.viewing.phone`, `listing.lister.contacts.viewing.mobile`
-*   **Location Node** (New):
-    *   ID: `ZipCode_City` (Composite Key).
-    *   Sources:
-        *   Property Address: `listing.address`
-        *   Lister Address: `listing.lister.address`
-        *   Billing Address: `listing.lister.billing.address`
-*   **Edges**:
-    *   User -> Posts -> Listing
-    *   User -> Uses -> IP
-    *   User -> Has -> Email
-    *   Listing -> Has -> Email
-    *   Listing -> Has -> Phone
-    *   Listing -> Located_At -> Location
-    *   User -> Located_At -> Location (via Lister/Billing address)
+    *   **Types/Edges**:
+        *   `HAS_CONTACT_PHONE` (from `lister.phone`, `contacts.inquiry.phone`)
+        *   `HAS_BILLING_PHONE` (from `lister.billing.phone*`)
+*   **Address Node** (New Granularity):
+    *   ID: `Street_Zip_City` (Composite Key).
+    *   **Types/Edges**:
+        *   `LOCATED_AT` (Property Address: `listing.address`) - The bait.
+        *   `LISTER_ADDRESS` (Lister Address: `lister.address`) - The declared entity.
+        *   `BILLING_ADDRESS` (Billing Address: `lister.billing.address`) - The money trail.
+*   **Person Node** (New):
+    *   ID: `GivenName_FamilyName` (Normalized).
+    *   Source: `lister.contacts.inquiry.givenName` + `familyName`.
+    *   Edge: `Listing -> HAS_CONTACT_PERSON -> Person`.

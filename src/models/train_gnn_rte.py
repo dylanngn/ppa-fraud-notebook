@@ -67,13 +67,14 @@ def train_with_rte(epochs=20, split_percent=0.8):
     min_time = timestamps.min()
     max_time = timestamps.max()
     
-    import pandas as pd
-    min_date = pd.to_datetime(min_time)
-    max_date = pd.to_datetime(max_time)
+    from datetime import datetime
+    # Convert nanoseconds to seconds for datetime
+    min_date = datetime.fromtimestamp(min_time / 1e9)
+    max_date = datetime.fromtimestamp(max_time / 1e9)
     print(f"Data Range: {min_date} to {max_date}")
     
     split_time = np.percentile(timestamps, split_percent * 100)
-    split_date = pd.to_datetime(split_time)
+    split_date = datetime.fromtimestamp(split_time / 1e9)
     print(f"Splitting at: {split_date} ({split_percent*100}%)")
     
     # Create Training Graph with RTE info
