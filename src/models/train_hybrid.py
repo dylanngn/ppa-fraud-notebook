@@ -3,7 +3,7 @@ import xgboost as xgb
 import torch
 import numpy as np
 import os
-from train_baseline import load_data, feature_engineering, train_sliding_window
+from src.models.train_baseline import load_data, feature_engineering, train_sliding_window
 
 def load_embeddings(df):
     """
@@ -40,7 +40,7 @@ def load_embeddings(df):
     
     return df, embed_cols
 
-if __name__ == "__main__":
+def main():
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
     else:
@@ -73,7 +73,7 @@ if __name__ == "__main__":
         results = []
         
         # Define Features: Original + Embeddings
-        base_features = ["account_age_days", "log_price", "living_space", "rooms", "user_type_encoded"]
+        base_features = ["account_age_days", "log_price", "living_space", "rooms"]
         features = base_features + embed_cols
         target = "is_fraud"
         

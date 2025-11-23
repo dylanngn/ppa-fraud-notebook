@@ -37,7 +37,8 @@ We need to extract the following deep features from the `listing` JSONB:
 
 *   **User Node**:
     *   ID: `owner_id`
-    *   Features: `user_type`, `email_domain` (from listing contact/billing).
+    *   Features: `account_age` (derived from `created_at`), `email_domain`.
+    *   **Note**: `users.created_at` corresponds to the timestamp of their **first listing creation**. It is not a separate registration event.
 *   **Listing Node**:
     *   ID: `object_reference`
     *   Features: `price`, `size`, `rooms`, `zip`, `city`, `platform`, `auto_approval_criteria` (as feature?), `embeddings`.

@@ -43,19 +43,22 @@ This document details the specific experiments to run to validate the hybrid fra
     *   **Recall @ Precision k**: "What % of fraud do we catch if we want 95% precision?" (Important for reducing false positives).
     *   **AUC-ROC**: Secondary metric.
 
-## 5. Handling Concept Drift (Sliding Window Backtesting)
+## 5. Handling Concept Drift (Monthly Split & Inductive Learning)
 
-To **simulate** the production retraining loop and measure robustness to drift, we will not just do a single split. Instead, we will perform **Sliding Window Backtesting**:
+To avoid "Time Travel" and simulate real-world drift, we will split the dataset by **Month**:
 
-1.  **Methodology**:
-    *   Define a **Training Window** (e.g., 3 months).
-    *   Define a **Test Window** (e.g., 1 week immediately following training).
-    *   Define a **Step Size** (e.g., move forward by 1 week).
-2.  **Process**:
-    *   **Fold 1**: Train on `[Jan-Mar]`, Test on `[Apr Week 1]`.
-    *   **Fold 2**: Train on `[Jan Week 2 - Apr Week 1]`, Test on `[Apr Week 2]`.
-    *   ...and so on.
-3.  **Goal**: This measures how the model performs *if we were to retrain it weekly*. If performance degrades over time despite retraining, it indicates fundamental shifts in fraud patterns that the model architecture cannot capture.
+1.  **Temporal Split**:
+    *   Data is partitioned into $M_1, M_2, ..., M_N$ (e.g., Nov '23, Dec '23...).
+    *   **Training**: Train on $M_1...M_k$.
+    *   **Testing**: Test on $M_{k+1}$.
+    *   **Retrain**: Slide window forward.
+
+2.  **Handling New Users (Inductive GNN)**:
+    *   **Challenge**: Users are created at the time of their first listing. A user in $M_{k+1}$ might be completely new (unseen in training).
+    *   **Solution**: We must use an **Inductive GNN** (HGT).
+        *   **No ID Embeddings**: We cannot use `torch.nn.Embedding(num_users)` because the vocab size changes.
+        *   **Feature-Based Initialization**: We initialize User nodes using a linear projection of their *features* (`email_domain`, `account_age`).
+        *   This allows the model to generate embeddings for *any* user, new or old, based on their attributes and graph connections.
 
 ## 6. Implementation Roadmap
 

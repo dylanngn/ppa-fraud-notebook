@@ -27,7 +27,18 @@ def extract_data():
     print("Extracting data from Database...")
     
     # 1. Users
-    query_users = "SELECT id as user_id, created_at, contact_emails, user_type, platform FROM hginsertionapiprod.users"
+    query_users = f"""
+    SELECT 
+        id as user_id, 
+        owner_id, 
+        created_at, 
+        contact_emails, 
+        platform
+    FROM hginsertionapiprod.users
+    WHERE 
+        created_at <= '2025-11-01'
+    ORDER BY created_at
+    """
     df_users = pl.read_database_uri(query_users, DB_URI, engine="connectorx")
     
     # 2. Insertions (Listings) - Chunked Extraction
@@ -73,7 +84,7 @@ def extract_data():
         WHERE sh.transition_timestamp BETWEEN '2023-11-01' AND '2025-11-01'
         AND platform <> 're.smg'
         AND meta -> 'migratedFromPersonId' is null
-        ORDER BY i.id
+        ORDER BY sh.transition_timestamp
         LIMIT {chunk_size} OFFSET {offset}
         """
         
@@ -274,36 +285,39 @@ def generate_embeddings(df_listings):
 
 def create_nodes_and_edges(df_users, df_listings):
     """
-    Creates the final Node and Edge DataFrames.
+    Creates the nodes and edges for the Heterogeneous Graph.
     """
     print("Creating Nodes and Edges...")
     
     # --- NODES ---
     
+    # Prepare mapping DataFrames (Moved up)
+    user_id_map = df_users.select(["user_id", "owner_id"])
+    listing_id_map = df_listings.select(["insertion_id", "object_reference"])
+
     # 1. User Nodes
-    # Feature Engineering for Users could happen here (e.g. email domain extraction)
+    # ID: owner_id
     nodes_user = df_users.select([
-        pl.col("user_id"),
-        pl.col("account_created_at"),
-        pl.col("user_type"),
-        pl.col("contact_emails").str.split("@").list.get(1).alias("email_domain") # Simple domain extraction
+        pl.col("owner_id").alias("user_id"), # Rename owner_id to user_id for graph consistency
+        pl.col("created_at").alias("account_created_at"),
+        pl.col("contact_emails").str.extract(r"@([^@,]+)", 1).alias("email_domain")
     ]).unique(subset=["user_id"])
     
     # 2. Listing Nodes
-    nodes_listing = df_listings.select([
-        "insertion_id", 
-        "object_reference", 
-        "platform",
-        "is_fraud", 
-        "is_slip_through_fraud",
-        "listing_created_at", 
-        "submission_at",
-        "first_published_date",
-        "auto_approval_criteria",
-        "lister_username",
-        "price_buy", "price_rent_gross", "living_space", "rooms", 
-        "zip_code", "city", "description_embedding"
-    ])
+    # ID: object_reference
+    # We join with user_id_map to get owner_id (as user_id FK)
+    nodes_listing = df_listings.join(user_id_map, on="user_id", how="left").select([
+        pl.col("object_reference").alias("insertion_id"), # Rename object_reference to insertion_id for graph consistency
+        pl.col("owner_id").alias("user_id"), # Foreign Key to User Node
+        pl.col("price_rent_gross"),
+        pl.col("living_space"),
+        pl.col("rooms"),
+        pl.col("zip_code"),
+        pl.col("city"),
+        pl.col("description_embedding"),
+        pl.col("fraud_flag").is_not_null().alias("is_fraud"),
+        pl.col("submission_at")
+    ]).unique(subset=["insertion_id"])
     
     # 3. IP Address Nodes
     nodes_ip = df_listings.select("user_ip_address").unique().drop_nulls()
@@ -350,21 +364,37 @@ def create_nodes_and_edges(df_users, df_listings):
 
     # --- EDGES ---
     
+    # Helper to map Integer IDs to String IDs
+    # We need to join df_listings (contains both int ID and string ID) and df_users (contains both)
+    
     # 1. User -> Posts -> Listing
-    edges_user_posts_listing = df_listings.select([
-        pl.col("user_id").alias("source"),
-        pl.col("insertion_id").alias("target")
+    # Source: User (owner_id), Target: Listing (object_reference)
+    # Join on integer user_id and insertion_id
+    
+    # Prepare mapping DataFrames
+    user_id_map = df_users.select(["user_id", "owner_id"])
+    listing_id_map = df_listings.select(["insertion_id", "object_reference"])
+    
+    edges_user_posts_listing = df_listings.select(["user_id", "insertion_id"]).join(
+        user_id_map, on="user_id"
+    ).join(
+        listing_id_map, on="insertion_id"
+    ).select([
+        pl.col("owner_id").alias("source"),
+        pl.col("object_reference").alias("target")
     ])
     
     # 2. User -> Uses -> IP
-    edges_user_uses_ip = df_listings.select([
-        pl.col("user_id").alias("source"),
+    edges_user_uses_ip = df_listings.select(["user_id", "user_ip_address"]).join(
+        user_id_map, on="user_id"
+    ).select([
+        pl.col("owner_id").alias("source"),
         pl.col("user_ip_address").alias("target")
     ]).drop_nulls().unique()
 
     # 3. User -> Has -> Email
     edges_user_has_email = df_users.select([
-        pl.col("user_id").alias("source"),
+        pl.col("owner_id").alias("source"),
         pl.col("contact_emails").str.split(",").explode().str.strip_chars().alias("target")
     ]).drop_nulls().unique()
 
@@ -372,7 +402,7 @@ def create_nodes_and_edges(df_users, df_listings):
     edge_dfs = []
     for col in email_cols:
         edge_dfs.append(df_listings.select([
-            pl.col("insertion_id").alias("source"),
+            pl.col("object_reference").alias("source"),
             pl.col(col).alias("target")
         ]))
     edges_listing_has_email = pl.concat(edge_dfs).drop_nulls().unique()
@@ -381,30 +411,33 @@ def create_nodes_and_edges(df_users, df_listings):
     edge_dfs = []
     for col in phone_cols:
         edge_dfs.append(df_listings.select([
-            pl.col("insertion_id").alias("source"),
+            pl.col("object_reference").alias("source"),
             pl.col(col).alias("target")
         ]))
     edges_listing_has_phone = pl.concat(edge_dfs).drop_nulls().unique()
 
     # 6. Listing -> Located_At -> Location (Property)
     edges_listing_located_at = df_listings.select([
-        pl.col("insertion_id").alias("source"),
+        pl.col("object_reference").alias("source"),
         (pl.col("zip_code") + "_" + pl.col("city")).alias("target")
     ]).drop_nulls().unique()
-
-    # 7. User -> Located_At -> Location (via Lister/Billing)
-    # This is a bit tricky as we don't have direct User address, but we can infer from their listings
-    # Let's link User to the locations found in their listings (Lister/Billing)
-    user_loc_dfs = []
-    user_loc_dfs.append(df_listings.select([
-        pl.col("user_id").alias("source"),
+    # 7. User -> Located_At -> Location (Lister/Billing)
+    # Join user_id to get owner_id
+    user_loc_lister = df_listings.select(["user_id", "lister_zip", "lister_city"]).join(
+        user_id_map, on="user_id"
+    ).select([
+        pl.col("owner_id").alias("source"),
         (pl.col("lister_zip") + "_" + pl.col("lister_city")).alias("target")
-    ]))
-    user_loc_dfs.append(df_listings.select([
-        pl.col("user_id").alias("source"),
+    ])
+    
+    user_loc_billing = df_listings.select(["user_id", "billing_zip", "billing_city"]).join(
+        user_id_map, on="user_id"
+    ).select([
+        pl.col("owner_id").alias("source"),
         (pl.col("billing_zip") + "_" + pl.col("billing_city")).alias("target")
-    ]))
-    edges_user_located_at = pl.concat(user_loc_dfs).drop_nulls().unique()
+    ])
+    
+    edges_user_located_at = pl.concat([user_loc_lister, user_loc_billing]).drop_nulls().unique()
     
     return (
         nodes_user, nodes_listing, nodes_ip, nodes_email, nodes_phone, nodes_location,

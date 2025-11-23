@@ -39,8 +39,11 @@ def feature_engineering(df):
     )
     
     # 2. Price Normalization (Simple log)
+    # XGBoost handles NaNs, so we don't need to fill_null(0) before log.
+    # However, log(NaN) is NaN, which is fine. But log(0) is -inf.
+    # If price is missing, we leave it as null.
     df = df.with_columns(
-        pl.col("price_rent_gross").fill_null(0).log1p().alias("log_price")
+        pl.col("price_rent_gross").log1p().alias("log_price")
     )
     
     # 3. Text Length
@@ -49,17 +52,12 @@ def feature_engineering(df):
     # We might need to add description_length to ETL if we want it.
     # For now, let's use what we have.
     
-    # 4. User Type Encoding
-    # user_type is categorical
-    # We can use simple label encoding or one-hot.
-    # XGBoost handles categoricals, but let's map to int for safety.
-    df = df.with_columns(
-        pl.col("user_type").cast(pl.Categorical).to_physical().alias("user_type_encoded")
-    )
+    # 4. User Type Encoding (REMOVED)
+    # user_type is calculated, so we don't use it.
     
     return df
 
-def train_sliding_window(df):
+def train_sliding_window(df, window_days=90, step_days=7):
     """
     Performs sliding window backtesting.
     """
@@ -70,9 +68,9 @@ def train_sliding_window(df):
     start_date = df["submission_at"].min()
     end_date = df["submission_at"].max()
     
-    window_size = timedelta(days=90) # Train on 3 months
-    step_size = timedelta(days=7)    # Move by 1 week
-    test_size = timedelta(days=7)    # Test on next 1 week
+    window_size = timedelta(days=window_days)
+    step_size = timedelta(days=step_days)
+    test_size = timedelta(days=7)    # Test on next 1 week (keep fixed for now)
     
     current_date = start_date + window_size
     
@@ -91,7 +89,7 @@ def train_sliding_window(df):
             continue
             
         # Features & Target
-        features = ["account_age_days", "log_price", "living_space", "rooms", "user_type_encoded"]
+        features = ["account_age_days", "log_price", "living_space", "rooms"]
         target = "is_fraud"
         
         X_train = train_data.select(features).to_numpy()
@@ -112,22 +110,35 @@ def train_sliding_window(df):
         model.fit(X_train, y_train)
         
         # Predict
-        y_pred = model.predict_proba(X_test)[:, 1]
+        proba = model.predict_proba(X_test)[:, 1]
         
         # Evaluate
         if len(np.unique(y_test)) > 1:
-            auc_pr = average_precision_score(y_test, y_pred)
-            auc_roc = roc_auc_score(y_test, y_pred)
+            auc_pr = average_precision_score(y_test, proba)
+            auc_roc = roc_auc_score(y_test, proba)
         else:
             auc_pr = 0.0
             auc_roc = 0.0
             
-        print(f"Window {train_end.date()} - {test_end.date()}: AUC-PR = {auc_pr:.4f}, Fraud Count = {sum(y_test)}")
+        # Calculate Precision@K (Lift) - operational metric
+        precisions_at_k = {}
+        for k in [50, 100, 200]:
+            if len(proba) >= k:
+                top_k_indices = np.argsort(proba)[-k:][::-1]
+                precisions_at_k[f'p@{k}'] = y_test[top_k_indices].mean()
+            else:
+                precisions_at_k[f'p@{k}'] = 0.0
+        
+        print(f"Window {train_end.date()} - {test_end.date()}: AUC-PR = {auc_pr:.4f}, "
+              f"P@100 = {precisions_at_k['p@100']:.4f}, Fraud Count = {sum(y_test)}")
         
         results.append({
             "window_start": train_end,
             "auc_pr": auc_pr,
             "auc_roc": auc_roc,
+            "p@50": precisions_at_k['p@50'],
+            "p@100": precisions_at_k['p@100'],
+            "p@200": precisions_at_k['p@200'],
             "fraud_count": sum(y_test)
         })
         
@@ -135,11 +146,24 @@ def train_sliding_window(df):
         
     return results
 
-if __name__ == "__main__":
+def main(window_days=90, step_days=7):
     # Check if artifacts exist
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
     else:
         df = load_data()
         df = feature_engineering(df)
-        results = train_sliding_window(df)
+        results = train_sliding_window(df, window_days, step_days)
+        
+        # Save results to CSV
+        os.makedirs("artifacts/results", exist_ok=True)
+        results_df = pl.DataFrame(results)
+        results_df.write_csv("artifacts/results/baseline_results.csv")
+        print(f"\nSaved results to artifacts/results/baseline_results.csv")
+        print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
+        print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
+        
+        return results
+
+if __name__ == "__main__":
+    main()

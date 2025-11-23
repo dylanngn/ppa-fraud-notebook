@@ -1,0 +1,13 @@
+artifacts
+artifacts
+.venv
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# System
+.DS_Store
