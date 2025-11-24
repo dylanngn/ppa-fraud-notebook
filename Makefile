@@ -18,14 +18,25 @@ build-graph:
 train-baseline:
 	python src/cli.py train-baseline
 
-train-gnn:
-	python src/cli.py train-gnn
+# --- Experiments ---
 
-train-gnn-rte:
-	python src/cli.py train-gnn-rte
+exp-gat:
+	python src/cli.py train-embeddings --model gat
+	python src/cli.py train-hybrid --model gat
 
-train-hybrid:
-	python src/cli.py train-hybrid
+exp-gcn:
+	python src/cli.py train-embeddings --model gcn
+	python src/cli.py train-hybrid --model gcn
+
+exp-hgt:
+	python src/cli.py train-embeddings --model hgt
+	python src/cli.py train-hybrid --model hgt
+
+exp-hgt-rte:
+	python src/cli.py train-embeddings --model hgt_rte
+	python src/cli.py train-hybrid --model hgt_rte
+
+# -------------------
 
 check-timestamps:
 	python src/cli.py check-timestamps

@@ -47,14 +47,58 @@ def feature_engineering(df):
     )
     
     # 3. Text Length
-    # We have description_embedding, but for baseline let's use length
-    # We don't have raw text in nodes_listing, only embedding. 
-    # We might need to add description_length to ETL if we want it.
-    # For now, let's use what we have.
+    # We have description_embedding, but for baseline let's use length if available, else skip.
     
-    # 4. User Type Encoding (REMOVED)
-    # user_type is calculated, so we don't use it.
+    # --- NEW FEATURES (Sync with GNN) ---
     
+    # 4. Booleans (Cast to Int)
+    bool_cols = ["is_new", "has_balcony", "has_elevator", "has_parking"]
+    for col in bool_cols:
+        if col in df.columns:
+            df = df.with_columns(pl.col(col).fill_null(False).cast(pl.Int8))
+        else:
+            df = df.with_columns(pl.lit(0).alias(col))
+            
+    # 5. Bundle Info
+    if "bundle_period" in df.columns:
+        df = df.with_columns(pl.col("bundle_period").fill_null(7))
+    else:
+        df = df.with_columns(pl.lit(7).alias("bundle_period"))
+        
+    # Bundle Tier (Ordinal)
+    if "bundle_tier" in df.columns:
+        # basic=0, premium=1, top=2
+        df = df.with_columns(
+            pl.col("bundle_tier").fill_null("basic").str.to_lowercase()
+            .replace({"basic": 0, "premium": 1, "top": 2}, default=0)
+            .cast(pl.Int64).alias("bundle_tier_score")
+        )
+    else:
+        df = df.with_columns(pl.lit(0).alias("bundle_tier_score"))
+
+    # 6. Payment Type (Binary: DIRECT vs INVOICE)
+    if "payment_type" in df.columns:
+        df = df.with_columns(
+            (pl.col("payment_type") == "DIRECT").cast(pl.Int8).alias("is_direct_payment")
+        )
+    else:
+        df = df.with_columns(pl.lit(0).alias("is_direct_payment"))
+        
+    # 7. Offer Type (Binary: BUY vs RENT)
+    if "offer_type" in df.columns:
+        df = df.with_columns(
+            (pl.col("offer_type") == "BUY").cast(pl.Int8).alias("is_buy")
+        )
+    else:
+        df = df.with_columns(pl.lit(0).alias("is_buy"))
+        
+    # 8. Location
+    for col in ["latitude", "longitude"]:
+        if col in df.columns:
+            df = df.with_columns(pl.col(col).fill_null(0.0))
+        else:
+            df = df.with_columns(pl.lit(0.0).alias(col))
+
     return df
 
 def train_sliding_window(df, window_days=90, step_days=14):
@@ -89,7 +133,13 @@ def train_sliding_window(df, window_days=90, step_days=14):
             continue
             
         # Features & Target
-        features = ["account_age_days", "log_price", "living_space", "rooms"]
+        features = [
+            "account_age_days", "log_price", "living_space", "rooms",
+            "is_new", "has_balcony", "has_elevator", "has_parking",
+            "bundle_period", "bundle_tier_score",
+            "is_direct_payment", "is_buy",
+            "latitude", "longitude"
+        ]
         target = "is_fraud"
         
         X_train = train_data.select(features).to_numpy()

@@ -42,35 +42,26 @@ def train_baseline(
     baseline_module.main(window_days=window_days, step_days=step_days)
 
 @app.command()
-def train_gnn(
-    epochs: int = typer.Option(20, help="Number of training epochs"),
-    split_percent: float = typer.Option(0.8, help="Train/Test split percentage (time-based)")
+def train_embeddings(
+    model: str = typer.Option("hgt", help="Model type: gat, gcn, hgt, hgt_rte"),
+    epochs: int = typer.Option(20, help="Number of training epochs")
 ):
     """
-    Train the GNN (HGT) model and extract node embeddings.
+    Train GNN model and generate embeddings.
     """
-    console.print(f"[bold green]Training GNN (Epochs: {epochs}, Split: {split_percent})...[/bold green]")
-    gnn_module.train(epochs=epochs, split_percent=split_percent)
+    console.print(f"[bold green]Training Embeddings ({model.upper()})...[/bold green]")
+    from src.models import train_embeddings
+    train_embeddings.train_embeddings(model_name=model, epochs=epochs)
 
 @app.command()
-def train_gnn_rte(
-    epochs: int = typer.Option(20, help="Number of training epochs"),
-    split_percent: float = typer.Option(0.8, help="Train/Test split percentage (time-based)")
+def train_hybrid(
+    model: str = typer.Option("hgt", help="Model type for embeddings: gat, gcn, hgt, hgt_rte")
 ):
-    """
-    Train the GNN (HGT) model WITH Relative Temporal Encoding (RTE).
-    """
-    console.print(f"[bold cyan]Training GNN with RTE (Epochs: {epochs})...[/bold cyan]")
-    from src.models import train_gnn_rte as rte_module
-    rte_module.train_with_rte(epochs=epochs, split_percent=split_percent)
-
-@app.command()
-def train_hybrid():
     """
     Train the Hybrid Model (XGBoost + GNN Embeddings).
     """
-    console.print("[bold green]Training Hybrid Model...[/bold green]")
-    hybrid_module.main()
+    console.print(f"[bold green]Training Hybrid Model ({model.upper()})...[/bold green]")
+    hybrid_module.main(model_name=model)
 
 @app.command()
 def check_graph_timestamps():

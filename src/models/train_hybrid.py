@@ -5,19 +5,21 @@ import numpy as np
 import os
 from src.models.train_baseline import load_data, feature_engineering, train_sliding_window
 
-def load_embeddings(df):
+def load_embeddings(df, model_name="hgt"):
     """
     Loads GNN embeddings and merges them with the DataFrame.
     """
-    print("Loading Embeddings...")
-    if not os.path.exists("artifacts/embeddings_listing.pt"):
-        raise FileNotFoundError("Embeddings not found. Run train_gnn.py first.")
+    embedding_path = f"artifacts/embeddings_{model_name}.pt"
+    print(f"Loading Embeddings from {embedding_path}...")
+    
+    if not os.path.exists(embedding_path):
+        raise FileNotFoundError(f"Embeddings not found at {embedding_path}. Run train_embeddings.py --model {model_name} first.")
         
     # Load Tensor
-    embeddings = torch.load("artifacts/embeddings_listing.pt").numpy()
+    embeddings = torch.load(embedding_path).numpy()
     
     # We need to ensure alignment.
-    # train_gnn.py loaded 'nodes_listing.parquet' and used it in that order.
+    # train_embeddings.py loaded 'nodes_listing.parquet' and used it in that order.
     # So embeddings[i] corresponds to the i-th row in nodes_listing.parquet.
     # We must load nodes_listing.parquet again and attach embeddings by index.
     
@@ -40,12 +42,12 @@ def load_embeddings(df):
     
     return df, embed_cols
 
-def main():
+def main(model_name="hgt"):
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
     else:
         # 1. Load Data & Embeddings
-        df, embed_cols = load_embeddings(None) # Argument ignored in my custom load_embeddings
+        df, embed_cols = load_embeddings(None, model_name)
         
         # 2. Feature Engineering (Tabular)
         df = feature_engineering(df)
@@ -73,7 +75,14 @@ def main():
         results = []
         
         # Define Features: Original + Embeddings
-        base_features = ["account_age_days", "log_price", "living_space", "rooms"]
+        # Define Features: Original + Embeddings
+        base_features = [
+            "account_age_days", "log_price", "living_space", "rooms",
+            "is_new", "has_balcony", "has_elevator", "has_parking",
+            "bundle_period", "bundle_tier_score",
+            "is_direct_payment", "is_buy",
+            "latitude", "longitude"
+        ]
         features = base_features + embed_cols
         target = "is_fraud"
         
@@ -130,3 +139,14 @@ def main():
             })
             
             current_date += step_size
+            
+        # Save results to CSV
+        os.makedirs("artifacts/results", exist_ok=True)
+        results_df = pl.DataFrame(results)
+        results_df.write_csv(f"artifacts/results/hybrid_{model_name}_results.csv")
+        print(f"\nSaved results to artifacts/results/hybrid_{model_name}_results.csv")
+        print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
+
+if __name__ == "__main__":
+    import typer
+    typer.run(main)
