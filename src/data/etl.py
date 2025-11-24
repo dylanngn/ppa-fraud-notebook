@@ -80,7 +80,7 @@ def fetch_raw_insertions():
         i.user_ip_address,
         i.listing::text as listing_json,
         i.fraud_flag,
-        i.auto_approval_criteria,
+        i.auto_approval_criteria::text as auto_approval_criteria_json,
         i.first_published_date,
         i.customer_segment,
         i.selected_bundle::text as selected_bundle_json,
@@ -247,10 +247,19 @@ def process_listings(df_insertions):
         "tier": pl.Utf8
     })
 
+    auto_approval_criteria_dtype = pl.Struct({
+        "criteria": pl.Struct({
+            "criteria": pl.Struct({
+                "seonApproved": pl.Boolean
+            })
+        })
+    })
+
     # Parse JSON
     df = df_insertions.lazy().with_columns([
         pl.col("listing_json").str.json_decode(listing_dtype).alias("listing_struct"),
-        pl.col("selected_bundle_json").str.json_decode(bundle_dtype).alias("bundle_struct")
+        pl.col("selected_bundle_json").str.json_decode(bundle_dtype).alias("bundle_struct"),
+        pl.col("auto_approval_criteria_json").str.json_decode(auto_approval_criteria_dtype).alias("auto_approval_criteria_struct")
     ])
     
     # Extract relevant fields
@@ -388,8 +397,12 @@ def create_nodes_and_edges(df_users, df_listings):
     
     # --- NODES ---
     
-    # Prepare mapping DataFrames
-    user_id_map = df_users.select(["user_id", "owner_id"])
+    # Prepare mapping DataFrames (include account_created_at for listings)
+    user_id_map = df_users.select([
+        "user_id", 
+        "owner_id",
+        pl.col("created_at").alias("account_created_at")
+    ])
     
     # 1. User Nodes
     nodes_user = df_users.select([
@@ -402,6 +415,8 @@ def create_nodes_and_edges(df_users, df_listings):
     nodes_listing = df_listings.join(user_id_map, on="user_id", how="left").select([
         pl.col("object_reference").alias("insertion_id"),
         pl.col("owner_id").alias("user_id"),
+        pl.col("account_created_at"),  # Join from user_id_map
+        pl.col("platform"),  # For analysis
         pl.col("offer_type"),
         pl.col("price_buy"),
         pl.col("price_rent_gross"),
@@ -430,7 +445,11 @@ def create_nodes_and_edges(df_users, df_listings):
         pl.col("language"),
         pl.col("description_embedding"),
         pl.col("fraud_flag").is_not_null().alias("is_fraud"),
-        pl.col("submission_at")
+        pl.col("submission_at"),
+        # Add Seon evaluation columns
+        pl.col("auto_approval_criteria"),
+        pl.col("fraud_flag"),
+        pl.col("first_published_date")
     ]).unique(subset=["insertion_id"])
     
     # 3. IP Address Nodes

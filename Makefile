@@ -57,3 +57,13 @@ debug:
 	python src/cli.py debug-polars
 
 all: etl build-graph train-baseline train-gnn-rte train-hybrid
+
+# --- Seon Evaluation ---
+
+seon:
+	@echo "Evaluating Seon (production baseline)..."
+	python src/cli.py evaluate-seon --window-days 90 --step-days 7
+
+compare-all:
+	@echo "Comparing all models (XGBoost vs Hybrid vs Seon)..."
+	python src/cli.py compare-all-models

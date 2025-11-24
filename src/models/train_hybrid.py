@@ -47,7 +47,7 @@ def load_embeddings(df, model_name="hgt"):
     return df, embed_cols
 
 
-def main(model_name="hgt", save_models=False):
+def main(model_name="hgt", save_models=True):
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
         return
@@ -82,10 +82,10 @@ def main(model_name="hgt", save_models=False):
     results_df = pl.DataFrame(results)
     results_df.write_csv(f"artifacts/results/hybrid_{model_name}_results.csv")
     print(f"\nSaved results to artifacts/results/hybrid_{model_name}_results.csv")
-    print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
-    print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
-    print(f"Mean P@100: {results_df['p@100'].mean():.4f}")
-    print(f"Mean Lift@100: {results_df['lift@100']:.2f}")
+    print(f"Mean AUC-PR: {float(results_df['auc_pr'].mean()):.4f}")
+    print(f"Mean AUC-ROC: {float(results_df['auc_roc'].mean()):.4f}")
+    print(f"Mean P@100: {float(results_df['p@100'].mean()):.4f}")
+    print(f"Mean Lift@100: {float(results_df['lift@100'].mean()):.2f}")
 
 
 if __name__ == "__main__":

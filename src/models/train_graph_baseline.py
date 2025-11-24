@@ -10,6 +10,8 @@ def main(window_days: int = 90, step_days: int = 14):
         step_days=step_days,
         include_graph_features=True,
         results_filename="artifacts/results/baseline_graph_results.csv",
+        save_models=True,  # Save models by default
+        models_dir="artifacts/models/baseline_graph"
     )
 
 

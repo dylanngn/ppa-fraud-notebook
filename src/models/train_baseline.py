@@ -130,7 +130,7 @@ def get_base_features():
     ]
 
 
-def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, save_models=False, models_dir="artifacts/models"):
+def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, save_models=True, models_dir="artifacts/models"):
     """
     Performs sliding window backtesting.
     
@@ -253,7 +253,7 @@ def run_baseline(
     step_days: int = 14,
     include_graph_features: bool = False,
     results_filename: str = "artifacts/results/baseline_results.csv",
-    save_models: bool = False,
+    save_models: bool = True,
     models_dir: str = "artifacts/models/baseline"
 ):
     # Check if artifacts exist
@@ -276,10 +276,10 @@ def run_baseline(
         results_df = pl.DataFrame(results)
         results_df.write_csv(results_filename)
         print(f"\nSaved results to {results_filename}")
-        print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
-        print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
-        print(f"Mean P@100: {results_df['p@100'].mean():.4f}")
-        print(f"Mean Lift@100: {results_df['lift@100'].mean():.2f}")
+        print(f"Mean AUC-PR: {float(results_df['auc_pr'].mean()):.4f}")
+        print(f"Mean AUC-ROC: {float(results_df['auc_roc'].mean()):.4f}")
+        print(f"Mean P@100: {float(results_df['p@100'].mean()):.4f}")
+        print(f"Mean Lift@100: {float(results_df['lift@100'].mean()):.2f}")
         
         return results
 

@@ -36,7 +36,7 @@ def build_graph():
 def train_baseline(
     window_days: int = typer.Option(90, help="Training window size in days"),
     step_days: int = typer.Option(7, help="Sliding window step size in days"),
-    save_models: bool = typer.Option(False, help="Save models for SHAP analysis")
+    save_models: bool = typer.Option(True, help="Save models for SHAP analysis")
 ):
     """
     Train the Baseline XGBoost model using Sliding Window Backtesting.
@@ -76,7 +76,7 @@ def train_embeddings(
 @app.command()
 def train_hybrid(
     model: str = typer.Option("hgt", help="Model type for embeddings: gat, gcn, hgt, hgt_rte"),
-    save_models: bool = typer.Option(False, help="Save models for SHAP analysis")
+    save_models: bool = typer.Option(True, help="Save models for SHAP analysis")
 ):
     """
     Train the Hybrid Model (XGBoost + GNN Embeddings).

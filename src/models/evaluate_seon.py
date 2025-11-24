@@ -408,11 +408,11 @@ def run_seon_evaluation(
     print("SEON BASELINE PERFORMANCE SUMMARY")
     print(f"{'='*80}")
     print(f"Windows evaluated: {len(results)}")
-    print(f"Mean Precision: {results_df['precision'].mean():.4f}")
-    print(f"Mean Recall: {results_df['recall'].mean():.4f}")
-    print(f"Mean F1 Score: {results_df['f1_score'].mean():.4f}")
-    print(f"Mean Catch Rate: {results_df['catch_rate'].mean():.4f}")
-    print(f"Mean False Alarm Rate: {results_df['false_alarm_rate'].mean():.4f}")
+    print(f"Mean Precision: {float(results_df['precision'].mean()):.4f}")
+    print(f"Mean Recall: {float(results_df['recall'].mean()):.4f}")
+    print(f"Mean F1 Score: {float(results_df['f1_score'].mean()):.4f}")
+    print(f"Mean Catch Rate: {float(results_df['catch_rate'].mean()):.4f}")
+    print(f"Mean False Alarm Rate: {float(results_df['false_alarm_rate'].mean()):.4f}")
     
     coverage_pct = (results_df['seon_approved_available'].sum() / 
                     results_df['total_test'].sum() * 100)
