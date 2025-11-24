@@ -8,7 +8,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.data import etl, graph_builder
 from src.models import train_baseline as baseline_module
-from src.models import train_gnn as gnn_module
 from src.models import train_hybrid as hybrid_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")

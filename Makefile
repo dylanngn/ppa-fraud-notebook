@@ -24,9 +24,9 @@ exp-gat:
 	python src/cli.py train-embeddings --model gat
 	python src/cli.py train-hybrid --model gat
 
-exp-gcn:
-	python src/cli.py train-embeddings --model gcn
-	python src/cli.py train-hybrid --model gcn
+exp-sage:
+	python src/cli.py train-embeddings --model sage
+	python src/cli.py train-hybrid --model sage
 
 exp-hgt:
 	python src/cli.py train-embeddings --model hgt

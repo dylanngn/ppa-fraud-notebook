@@ -34,9 +34,9 @@ We will test 4 different GNN architectures to find the best embedding generator:
 1.  **GAT (Graph Attention Network)**:
     *   Uses attention mechanisms to weigh neighbors.
     *   Adapted for heterogeneous graphs via `to_hetero`.
-2.  **GCN (Graph Convolutional Network)**:
-    *   Simple, efficient spectral convolution.
-    *   Adapted for heterogeneous graphs via `to_hetero`.
+2.  **GraphSAGE (Graph Sample and Aggregate)**:
+    *   Inductive learning via neighborhood sampling.
+    *   Natively supports bipartite/heterogeneous graphs.
 3.  **HGT (Heterogeneous Graph Transformer)**:
     *   Designed specifically for heterogeneous graphs.
     *   Uses type-specific attention.
@@ -49,8 +49,8 @@ We will test 4 different GNN architectures to find the best embedding generator:
 To scientifically demonstrate the value of each component, we define three specific experiments:
 
 ### Experiment A: The Necessity of Heterogeneity
-*   **Comparison**: **HGT** vs. **GAT/GCN**.
-*   **Hypothesis**: HGT should outperform because it explicitly models the schema (User vs. Listing vs. IP), whereas GAT/GCN (even with `to_hetero`) treats connections more generically.
+*   **Comparison**: **HGT** vs. **GAT/GraphSAGE**.
+*   **Hypothesis**: HGT should outperform because it explicitly models the schema (User vs. Listing vs. IP), whereas GAT/GraphSAGE (even with `to_hetero`) treats connections more generically.
 
 ### Experiment B: The Necessity of Relative Temporal Encoding (RTE)
 *   **Comparison**: **HGT** vs. **HGT + RTE**.
@@ -89,7 +89,7 @@ Use the `Makefile` to run the full pipeline for each variant:
 
 ```bash
 make exp-gat      # Run GAT experiment
-make exp-gcn      # Run GCN experiment
+make exp-sage     # Run GraphSAGE experiment
 make exp-hgt      # Run HGT experiment
 make exp-hgt-rte  # Run HGT+RTE experiment
 ```

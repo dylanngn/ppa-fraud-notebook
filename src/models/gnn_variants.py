@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_geometric.nn import GATConv, GCNConv, HGTConv, Linear, to_hetero
+from torch_geometric.nn import GATConv, SAGEConv, HGTConv, Linear, to_hetero
 from src.models.hgt_with_rte import HGTWithRTE
 
 class GAT(torch.nn.Module):
@@ -17,12 +17,12 @@ class GAT(torch.nn.Module):
             x = conv(x, edge_index).relu()
         return self.lin(x)
 
-class GCN(torch.nn.Module):
+class GraphSAGE(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels, num_layers):
         super().__init__()
         self.convs = torch.nn.ModuleList()
         for _ in range(num_layers):
-            conv = GCNConv(hidden_channels, hidden_channels)
+            conv = SAGEConv(hidden_channels, hidden_channels)
             self.convs.append(conv)
         self.lin = Linear(hidden_channels, out_channels)
 
@@ -49,9 +49,9 @@ class UnifiedGNNWrapper(nn.Module):
         if model_name == "gat":
             model = GAT(hidden_channels, hidden_channels, num_heads, num_layers)
             self.gnn = to_hetero(model, metadata, aggr='sum')
-        elif model_name == "gcn":
-            model = GCN(hidden_channels, hidden_channels, num_layers)
-            self.gnn = to_hetero(model, metadata, aggr='sum')
+        elif model_name == "sage":
+            model = GraphSAGE(hidden_channels, hidden_channels, num_layers)
+            self.gnn = to_hetero(model, metadata, aggr='mean')
         elif model_name == "hgt":
             self.gnn = HGTConv(hidden_channels, hidden_channels, metadata, num_heads)
             # HGTConv is a single layer, we need multiple
@@ -77,7 +77,7 @@ class UnifiedGNNWrapper(nn.Module):
             x_dict_proj[node_type] = self.lin_dict[node_type](x).relu()
             
         # Apply GNN
-        if self.model_name in ["gat", "gcn"]:
+        if self.model_name in ["gat", "sage"]:
             x_dict_out = self.gnn(x_dict_proj, edge_index_dict)
         elif self.model_name == "hgt":
             x_dict_out = x_dict_proj

@@ -92,23 +92,23 @@ UnifiedGNNWrapper (GAT)
 
 ---
 
-## 3. Graph Convolutional Network (GCN)
+## 3. Graph Sample and Aggregate (GraphSAGE)
 
 ### Overview
-Uses spectral graph convolutions for efficient neighborhood aggregation.
+Uses neighborhood sampling and aggregation for inductive learning on graphs.
 
 ### Input
 Same as GAT (heterogeneous node features + graph structure)
 
 ### Architecture
 ```
-UnifiedGNNWrapper (GCN)
+UnifiedGNNWrapper (GraphSAGE)
 ├── Input Projection Layer (per node type)
 │   └── Linear: [input_dim] → 64
-├── GCN Core (converted via to_hetero)
-│   ├── Layer 1: GCNConv(64, 64) → 64
-│   │   └── Normalized adjacency aggregation
-│   ├── Layer 2: GCNConv(64, 64) → 64
+├── GraphSAGE Core (converted via to_hetero)
+│   ├── Layer 1: SAGEConv(64, 64) → 64
+│   │   └── Mean aggregation of neighbor features
+│   ├── Layer 2: SAGEConv(64, 64) → 64
 │   └── ReLU activations
 ├── Output Projection
 │   └── Linear: 64 → 64 (embeddings)
@@ -123,10 +123,10 @@ UnifiedGNNWrapper (GCN)
 ### Training Details
 Same as GAT
 
-### Key Differences from GAT
-- No attention mechanism (simpler, faster)
-- Uses normalized adjacency matrix for aggregation
-- Better for homophilic graphs (similar nodes connect)
+### Key Advantages
+- **Inductive**: Can generalize to unseen nodes (crucial for new users/listings)
+- **Scalable**: Uses mini-batch sampling instead of full-graph operations
+- **Bipartite-friendly**: Natively supports different source/target node types
 
 ---
 
@@ -252,7 +252,7 @@ Hybrid Model
 
 ### Variants
 - `hybrid_gat_results.csv`
-- `hybrid_gcn_results.csv`
+- `hybrid_sage_results.csv`
 - `hybrid_hgt_results.csv`
 - `hybrid_hgt_rte_results.csv`
 
@@ -264,7 +264,7 @@ Hybrid Model
 |-------|-----------|---------------|----------|
 | **Baseline XGBoost** | ~10K | Fast (~1 min) | Tabular-only baseline |
 | **GAT** | ~50K | Medium (~10 min) | Attention-based learning |
-| **GCN** | ~40K | Fast (~5 min) | Simple spectral aggregation |
+| **GraphSAGE** | ~45K | Fast (~8 min) | Inductive, scalable learning |
 | **HGT** | ~60K | Medium (~12 min) | Heterogeneous graphs |
 | **HGT+RTE** | ~70K | Slow (~15 min) | Temporal fraud patterns |
 | **Hybrid (Any)** | GNN + 10K | GNN + Fast | Best overall performance |
