@@ -26,19 +26,19 @@ train-graph-baseline:
 
 # --- Experiments ---
 
-exp-gat:
+train-gat:
 	python src/cli.py train-embeddings --model gat
 	python src/cli.py train-hybrid --model gat
 
-exp-sage:
+train-sage:
 	python src/cli.py train-embeddings --model sage
 	python src/cli.py train-hybrid --model sage
 
-exp-hgt:
+train-hgt:
 	python src/cli.py train-embeddings --model hgt
 	python src/cli.py train-hybrid --model hgt
 
-exp-hgt-rte:
+train-hgt-rte:
 	python src/cli.py train-embeddings --model hgt_rte
 	python src/cli.py train-hybrid --model hgt_rte
 

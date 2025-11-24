@@ -11,6 +11,7 @@ from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
 from src.models import train_graph_baseline as graph_baseline_module
 from src.models import train_hybrid as hybrid_module
+from src.models import evaluate_seon as seon_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -349,6 +350,50 @@ def compare_baseline_hybrid(
     try:
         generate_comparison_report(baseline, hybrid, output_dir)
         console.print(f"\n[bold green]✓ Comparison report complete![/bold green]")
+        console.print(f"[bold green]Results saved to: {output_dir}[/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+
+@app.command()
+def evaluate_seon(
+    window_days: int = typer.Option(90, help="Training window size in days"),
+    step_days: int = typer.Option(7, help="Sliding window step size in days"),
+    include_fallback: bool = typer.Option(True, help="Include fallback predictions")
+):
+    """
+    Evaluate Seon (production baseline) performance using sliding window.
+    
+    Seon is the current production fraud detection system that we want to beat.
+    This command calculates its performance metrics for comparison with our models.
+    """
+    console.print(f"[bold green]Evaluating Seon Baseline (Window: {window_days} days)...[/bold green]")
+    seon_module.main(window_days=window_days, step_days=step_days, include_fallback=include_fallback)
+
+@app.command()
+def compare_all_models(
+    window_days: int = typer.Option(90, help="Window size for comparison"),
+    step_days: int = typer.Option(7, help="Step size for windows"),
+    output_dir: str = typer.Option("artifacts/results/comparison", help="Output directory")
+):
+    """
+    Compare ALL models: Baseline XGBoost, Hybrid (GNN+XGBoost), and Seon.
+    
+    This generates a comprehensive comparison showing:
+    - Performance metrics across all models
+    - Which model performs best
+    - Whether research models beat production Seon baseline
+    """
+    console.print("[bold cyan]Comparing All Models: XGBoost vs Hybrid vs Seon...[/bold cyan]")
+    
+    from src.utils.compare_all_models import generate_comprehensive_comparison
+    
+    try:
+        generate_comprehensive_comparison(
+            window_days=window_days,
+            step_days=step_days,
+            output_dir=output_dir
+        )
+        console.print(f"\n[bold green]✓ Comprehensive comparison complete![/bold green]")
         console.print(f"[bold green]Results saved to: {output_dir}[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

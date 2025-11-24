@@ -138,5 +138,5 @@ flowchart LR
 *   **Hybrid (HGT example)**:
     *   `python src/cli.py train-embeddings --model hgt`
     *   `python src/cli.py train-hybrid --model hgt`
-*   **Legacy experiments**: `make exp-gat`, `make exp-sage`, `make exp-hgt`, `make exp-hgt-rte`
+*   **Legacy experiments**: `make train-gat`, `make train-sage`, `make train-hgt`, `make train-hgt-rte`
 *   **Notebooks**: `notebooks/03_model_comparison.ipynb`
