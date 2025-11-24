@@ -129,8 +129,12 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
     # Load Best Model
     model.load_state_dict(torch.load(f"artifacts/model_{model_name}_best.pt", weights_only=False))
     
-    # Generate Embeddings for ALL nodes (Full Graph)
-    print("Generating Full Graph Embeddings...")
+    # ===== OPTION C: Pure GNN Evaluation (Sliding Window) =====
+    print(f"\n{'='*60}")
+    print(f"Evaluating Pure GNN ({model_name.upper()}) on Sliding Windows")
+    print(f"{'='*60}\n")
+    
+    # Move full data to device for evaluation
     full_data = data.to(device)
     
     # Edge times for full data (needed for RTE)
@@ -141,6 +145,80 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
                 full_edge_times_device[edge_type] = data[edge_type].timestamp.to(device)
             else:
                 full_edge_times_device[edge_type] = None
+    
+    window_size_ns = window_days * 24 * 60 * 60 * 1e9
+    step_size_ns = step_days * 24 * 60 * 60 * 1e9
+    
+    current_time = max(min_time + window_size_ns, start_threshold)
+    
+    results = []
+    model.eval()
+    
+    with torch.no_grad():
+        while current_time + step_size_ns <= max_time:
+            test_start_time = current_time
+            test_end_time = current_time + step_size_ns
+            
+            test_mask = (
+                (full_data['listing'].timestamp >= test_start_time) & 
+                (full_data['listing'].timestamp < test_end_time)
+            ).to(device)
+            
+            if test_mask.sum() == 0:
+                current_time += step_size_ns
+                continue
+            
+            # Predict
+            if model_name == "hgt_rte":
+                out = model.predict(full_data.x_dict, full_data.edge_index_dict, full_edge_times_device)
+            else:
+                out = model.predict(full_data.x_dict, full_data.edge_index_dict)
+                
+            pred = out[test_mask].sigmoid().cpu().numpy()
+            y_true = full_data['listing'].y[test_mask].cpu().numpy()
+            
+            # Evaluate
+            if len(np.unique(y_true)) > 1:
+                auc_pr = average_precision_score(y_true, pred)
+                auc_roc = roc_auc_score(y_true, pred)
+                
+                precisions_at_k = {}
+                for k in [50, 100, 200]:
+                    if len(pred) >= k:
+                        top_k_indices = np.argsort(pred.flatten())[-k:][::-1]
+                        precisions_at_k[f'p@{k}'] = y_true[top_k_indices].mean()
+                    else:
+                        precisions_at_k[f'p@{k}'] = 0.0
+            else:
+                auc_pr = 0.0
+                auc_roc = 0.0
+                precisions_at_k = {'p@50': 0.0, 'p@100': 0.0, 'p@200': 0.0}
+            
+            window_start_date = datetime.fromtimestamp(test_start_time / 1e9)
+            window_end_date = datetime.fromtimestamp(test_end_time / 1e9)
+            
+            print(f"Window {window_start_date.date()} - {window_end_date.date()}: "
+                  f"AUC-PR = {auc_pr:.4f}, P@100 = {precisions_at_k['p@100']:.4f}, "
+                  f"Fraud Count = {y_true.sum()}")
+            
+            results.append({
+                "window_start": window_start_date,
+                "auc_pr": auc_pr,
+                "auc_roc": auc_roc,
+                "p@100": precisions_at_k['p@100'],
+                "fraud_count": int(y_true.sum())
+            })
+            
+            current_time += step_size_ns
+
+    # Save Pure GNN Results
+    os.makedirs("artifacts/results", exist_ok=True)
+    results_df = pl.DataFrame(results)
+    results_df.write_csv(f"artifacts/results/gnn_{model_name}_results.csv")
+    print(f"\nSaved Pure GNN results to artifacts/results/gnn_{model_name}_results.csv")
+
+    # Generate Embeddings for ALL nodes (Full Graph)
+    print("Generating Full Graph Embeddings...")
     
     model.eval()
     with torch.no_grad():

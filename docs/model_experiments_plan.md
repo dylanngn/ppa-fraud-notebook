@@ -1,4 +1,4 @@
-# Model Experiments Plan
+# Model Experiments Plan (Updated)
 
 This document details the specific experiments to run to validate the hybrid fraud detection architecture.
 
@@ -7,61 +7,91 @@ This document details the specific experiments to run to validate the hybrid fra
 
 *   **Model**: XGBoost (Gradient Boosted Decision Trees).
 *   **Input Data**: `nodes_listing.parquet` joined with `nodes_user.parquet`.
-*   **Feature Engineering**:
-    *   **Raw Features**: Price, Living Space, Rooms, Zip Code, Submission Hour, Time from Creation to Submission.
-    *   **Text**: Use the *raw* text length, or simple TF-IDF (optional, but maybe keep simple for baseline).
-    *   **Manual Aggregates (Crucial)**:
-        *   Since this model doesn't see the graph, we *must* manually engineer "graph-like" features.
-        *   `user_listing_count`: How many listings has this user posted?
-        *   `ip_listing_count`: How many listings from this IP?
-        *   `user_fraud_history`: Has this user posted fraud before? (Be careful of data leakage!).
+*   **Features**:
+    *   **Tabular**: Price, Living Space, Rooms, Zip Code.
+    *   **Booleans**: New, Balcony, Elevator, Parking.
+    *   **Categorical**: Bundle Tier, Payment Type, Offer Type.
+    *   **Location**: Latitude, Longitude.
+    *   **Engineered**: `account_age_days`.
 *   **Pros**: Fast, interpretable, industry standard.
-*   **Cons**: Cannot easily capture complex "guilt-by-association" (e.g., User A shares IP with User B who is fraud).
+*   **Cons**: Cannot easily capture complex "guilt-by-association".
 
-## 2. Experiment B: The Hybrid Architecture (HGT + XGBoost)
-**Goal**: Combine the best of both worlds. Use HGT for representation learning and XGBoost for tabular classification.
+## 2. Experiment B: The Hybrid Architecture (GNN + XGBoost)
+**Goal**: Combine the best of both worlds. Use a GNN for representation learning and XGBoost for tabular classification.
 
-*   **Stage 1: Representation Learning (HGT)**
-    *   **Model**: Heterogeneous Graph Transformer (HGT).
-    *   **Input**: The full HeteroData graph (`User`, `Listing`, `IP` nodes + edges).
-    *   **Training Objective**: Supervised Node Classification on `Listing` nodes (`fraud_flag`).
-    *   **Action**: Train the model, then **discard the classification head** and extract the node embeddings from the final hidden layer.
-    *   **Output**: A dense vector embedding (e.g., 64-dim) for each listing.
-
-*   **Stage 2: Classification (XGBoost)**
-    *   **Input**: [Original Tabular Features] + [HGT Embeddings].
+### Workflow
+1.  **Stage 1: Representation Learning (GNN)**
+    *   Train a GNN on the heterogeneous graph to classify fraud.
+    *   **Output**: Extract dense vector embeddings (64-dim) for each listing.
+2.  **Stage 2: Classification (XGBoost)**
+    *   **Input**: [Original Tabular Features] + [GNN Embeddings].
     *   **Model**: XGBoost.
-    *   **Hypothesis**: The HGT embeddings will act as powerful "relational features" that summarize the graph neighborhood (e.g., "connected to a known fraudster"), allowing XGBoost to make better decisions than with tabular data alone.
+    *   **Hypothesis**: The embeddings summarize the graph neighborhood (e.g., "connected to a known fraudster"), acting as powerful new features.
+
+### Variants (Ablation Study)
+We will test 4 different GNN architectures to find the best embedding generator:
+
+1.  **GAT (Graph Attention Network)**:
+    *   Uses attention mechanisms to weigh neighbors.
+    *   Adapted for heterogeneous graphs via `to_hetero`.
+2.  **GCN (Graph Convolutional Network)**:
+    *   Simple, efficient spectral convolution.
+    *   Adapted for heterogeneous graphs via `to_hetero`.
+3.  **HGT (Heterogeneous Graph Transformer)**:
+    *   Designed specifically for heterogeneous graphs.
+    *   Uses type-specific attention.
+4.  **HGT + RTE (Relative Temporal Encoding)**:
+    *   Adds time-awareness to HGT.
+    *   Encodes the time difference between nodes and edges.
+
+## 3. Thesis Experiments (The "Why")
+
+To scientifically demonstrate the value of each component, we define three specific experiments:
+
+### Experiment A: The Necessity of Heterogeneity
+*   **Comparison**: **HGT** vs. **GAT/GCN**.
+*   **Hypothesis**: HGT should outperform because it explicitly models the schema (User vs. Listing vs. IP), whereas GAT/GCN (even with `to_hetero`) treats connections more generically.
+
+### Experiment B: The Necessity of Relative Temporal Encoding (RTE)
+*   **Comparison**: **HGT** vs. **HGT + RTE**.
+*   **Hypothesis**: RTE should detect "high-velocity" attacks (rapid posting) better than standard HGT, as it captures the *time difference* between edges.
+
+### Experiment C: The Necessity of the Hybrid Architecture (Cold Start)
+*   **Comparison**: **Pure GNN** vs. **Hybrid (GNN + XGBoost)**.
+*   **Setup**: Evaluate the GNN's direct predictions against the Hybrid model's predictions.
+*   **Hypothesis**:
+    *   **Pure GNN**: Will fail on new listings (Degree 0) because they have no graph connections yet.
+    *   **Hybrid**: Will remain robust on new listings by falling back on tabular features (Price, Location, etc.).
+*   **Visualization**: Plot **Performance (AUC) vs. Node Degree**. We expect the Hybrid line to stay high at Degree 0, while the GNN line drops.
 
 ## 4. Evaluation Strategy
 
-*   **Split**: Time-based split (Train on past, Test on future) to simulate production.
-    *   *Train*: Listings created before Date X.
-    *   *Test*: Listings created after Date X.
+*   **Method**: Sliding Window Backtesting.
+*   **Configuration**:
+    *   **Training Window**: 90 Days (Ensures sufficient data density).
+    *   **Test Window**: 14 Days (Simulates bi-weekly model updates).
+    *   **Step Size**: 14 Days.
 *   **Metrics**:
-    *   **AUC-PR (Average Precision)**: Primary metric. Focuses on the minority class (Fraud).
-    *   **Recall @ Precision k**: "What % of fraud do we catch if we want 95% precision?" (Important for reducing false positives).
+    *   **AUC-PR (Average Precision)**: Primary metric (focus on minority class).
+    *   **Precision@100**: Operational metric (how many of the top 100 flagged are actually fraud?).
     *   **AUC-ROC**: Secondary metric.
 
-## 5. Handling Concept Drift (Monthly Split & Inductive Learning)
+## 4. Implementation Roadmap (Completed)
 
-To avoid "Time Travel" and simulate real-world drift, we will split the dataset by **Month**:
+1.  **`src/models/gnn_variants.py`**: Implemented GAT, GCN, HGT, HGT-RTE.
+2.  **`src/models/train_embeddings.py`**: Unified script to train any GNN and save embeddings.
+3.  **`src/models/train_hybrid.py`**: Unified script to train XGBoost on embeddings + tabular features.
+4.  **`notebooks/03_model_comparison.ipynb`**: Notebook to visualize and compare results.
 
-1.  **Temporal Split**:
-    *   Data is partitioned into $M_1, M_2, ..., M_N$ (e.g., Nov '23, Dec '23...).
-    *   **Training**: Train on $M_1...M_k$.
-    *   **Testing**: Test on $M_{k+1}$.
-    *   **Retrain**: Slide window forward.
+## 5. Running Experiments
 
-2.  **Handling New Users (Inductive GNN)**:
-    *   **Challenge**: Users are created at the time of their first listing. A user in $M_{k+1}$ might be completely new (unseen in training).
-    *   **Solution**: We must use an **Inductive GNN** (HGT).
-        *   **No ID Embeddings**: We cannot use `torch.nn.Embedding(num_users)` because the vocab size changes.
-        *   **Feature-Based Initialization**: We initialize User nodes using a linear projection of their *features* (`email_domain`, `account_age`).
-        *   This allows the model to generate embeddings for *any* user, new or old, based on their attributes and graph connections.
+Use the `Makefile` to run the full pipeline for each variant:
 
-## 6. Implementation Roadmap
+```bash
+make exp-gat      # Run GAT experiment
+make exp-gcn      # Run GCN experiment
+make exp-hgt      # Run HGT experiment
+make exp-hgt-rte  # Run HGT+RTE experiment
+```
 
-1.  **`train_baseline.py`**: Implement Experiment A.
-2.  **`train_gnn.py`**: Implement Experiment B using PyTorch Geometric.
-3.  **`train_hybrid.py`**: Implement Experiment C (Load GNN, extract embeddings, train XGB).
+Then open `notebooks/03_model_comparison.ipynb` to see the results.
