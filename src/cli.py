@@ -72,5 +72,41 @@ def train_hybrid():
     console.print("[bold green]Training Hybrid Model...[/bold green]")
     hybrid_module.main()
 
+@app.command()
+def check_graph_timestamps():
+    """
+    Check timestamps in the built graph artifact.
+    """
+    console.print("[bold yellow]Checking Graph Timestamps...[/bold yellow]")
+    from src.utils import check_graph_timestamps
+    check_graph_timestamps.check_graph_timestamps()
+
+@app.command()
+def check_timestamps():
+    """
+    Check timestamps in the raw parquet files.
+    """
+    console.print("[bold yellow]Checking Parquet Timestamps...[/bold yellow]")
+    from src.utils import check_timestamps
+    check_timestamps.check_timestamps()
+
+@app.command()
+def check_density():
+    """
+    Check fraud density in different time windows.
+    """
+    console.print("[bold yellow]Checking Window Density...[/bold yellow]")
+    from src.utils import check_window_density
+    check_window_density.check_density()
+
+@app.command()
+def debug_polars():
+    """
+    Run Polars casting debug script.
+    """
+    console.print("[bold yellow]Debugging Polars Casting...[/bold yellow]")
+    from src.utils import debug_polars_cast
+    debug_polars_cast.debug_polars_cast()
+
 if __name__ == "__main__":
     app()
