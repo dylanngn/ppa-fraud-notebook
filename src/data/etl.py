@@ -446,8 +446,7 @@ def create_nodes_and_edges(df_users, df_listings):
         pl.col("description_embedding"),
         pl.col("fraud_flag").is_not_null().alias("is_fraud"),
         pl.col("submission_at"),
-        # Add Seon evaluation columns
-        pl.col("auto_approval_criteria"),
+        pl.col("auto_approval_criteria_struct").struct.field("criteria").struct.field("seonApproved").alias("seon_approved"),
         pl.col("fraud_flag"),
         pl.col("first_published_date")
     ]).unique(subset=["insertion_id"])

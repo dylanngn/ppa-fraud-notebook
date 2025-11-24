@@ -56,7 +56,8 @@ check-density:
 debug:
 	python src/cli.py debug-polars
 
-all: etl build-graph train-baseline train-gnn-rte train-hybrid
+# Run complete pipeline: ETL → Build Graph → Graph Features → All Training Scripts
+all: etl build-graph graph-features train-baseline train-graph-baseline train-gat train-sage train-hgt train-hgt-rte
 
 # --- Seon Evaluation ---
 
