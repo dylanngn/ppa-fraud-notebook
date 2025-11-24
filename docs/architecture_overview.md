@@ -43,11 +43,16 @@ graph TD
 **Goal**: Convert tabular Parquet files into a PyTorch Geometric `HeteroData` object.
 
 *   **Schema**:
-    *   **Nodes**: `User`, `Listing`, `IP`, `Email`, `Phone`, `Location`.
+    *   **Nodes**: `User`, `Listing`, `IP`, `Account_Email`, `Contact_Email`, `Billing_Email`, `Contact_Phone`, `Billing_Phone`, `Address`, `Person`.
     *   **Edges**:
         *   `User` -> `posts` -> `Listing`
-        *   `User` -> `uses` -> `IP` / `Email` / `Phone`
-        *   `Listing` -> `located_at` -> `Location`
+        *   `User` -> `uses` -> `IP`
+        *   `User` -> `has_email` -> `Account_Email`
+        *   `Listing` -> `has_contact_email` -> `Contact_Email`
+        *   `Listing` -> `has_billing_email` -> `Billing_Email`
+        *   `Listing` -> `has_contact_phone` -> `Contact_Phone`
+        *   `Listing` -> `has_billing_phone` -> `Billing_Phone`
+        *   `Listing` -> `located_at` -> `Address`
 *   **Temporal Handling**: All edges have timestamps to prevent data leakage (Time Travel).
 
 ## 4. Model Architecture
@@ -94,7 +99,7 @@ We use a **Hybrid Architecture** that combines the structural learning of GNNs w
 *   **Train Baseline**: `make train-baseline`
 *   **Run Experiments**:
     *   `make exp-gat`
-    *   `make exp-gcn`
+    *   `make exp-sage`
     *   `make exp-hgt`
     *   `make exp-hgt-rte`
 *   **Compare**: Open `notebooks/03_model_comparison.ipynb`.
