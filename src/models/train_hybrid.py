@@ -1,9 +1,14 @@
-import polars as pl
-import xgboost as xgb
-import torch
-import numpy as np
 import os
-from src.models.train_baseline import load_data, feature_engineering, train_sliding_window
+
+import numpy as np
+import polars as pl
+import torch
+import xgboost as xgb
+
+from src.models.train_baseline import (
+    GRAPH_FEATURE_COLUMNS,
+    feature_engineering,
+)
 
 def load_embeddings(df, model_name="hgt"):
     """
@@ -76,17 +81,23 @@ def main(model_name="hgt"):
         
         # Define Features: Original + Embeddings
         # Define Features: Original + Embeddings
+        graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
+
         base_features = [
             "account_age_days", "log_price", "living_space", "rooms",
             "is_new", "has_balcony", "has_elevator", "has_parking",
             "bundle_period", "bundle_tier_score",
             "is_direct_payment", "is_buy",
             "latitude", "longitude"
-        ]
+        ] + graph_columns
         features = base_features + embed_cols
         target = "is_fraud"
         
-        print(f"Training with {len(features)} features ({len(base_features)} tabular + {len(embed_cols)} embedding)...")
+        print(
+            f"Training with {len(features)} features "
+            f"({len(base_features) - len(graph_columns)} tabular + "
+            f"{len(graph_columns)} graph + {len(embed_cols)} embedding)..."
+        )
         
         while current_date + test_size <= end_date:
             train_end = current_date

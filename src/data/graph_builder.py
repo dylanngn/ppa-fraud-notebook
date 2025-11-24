@@ -31,17 +31,10 @@ def build_graph():
     df_user = pl.read_parquet("artifacts/nodes_user.parquet")
     df_listing = pl.read_parquet("artifacts/nodes_listing.parquet")
     df_ip = pl.read_parquet("artifacts/nodes_ip.parquet")
+    df_email = pl.read_parquet("artifacts/nodes_email.parquet")
+    df_phone = pl.read_parquet("artifacts/nodes_phone.parquet")
     df_address = pl.read_parquet("artifacts/nodes_address.parquet")
     df_person = pl.read_parquet("artifacts/nodes_person.parquet")
-    
-    # Load typed email/phone nodes from edge files
-    df_account_email = pl.read_parquet("artifacts/edges_user_email.parquet") if os.path.exists("artifacts/edges_user_email.parquet") else None
-    df_contact_email = pl.read_parquet("artifacts/edges_listing_contact_email.parquet") if os.path.exists("artifacts/edges_listing_contact_email.parquet") else None
-    df_billing_email = pl.read_parquet("artifacts/edges_listing_billing_email.parquet") if os.path.exists("artifacts/edges_listing_billing_email.parquet") else None
-    df_inquiry_email = pl.read_parquet("artifacts/edges_listing_inquiry_email.parquet") if os.path.exists("artifacts/edges_listing_inquiry_email.parquet") else None
-    
-    df_contact_phone = pl.read_parquet("artifacts/edges_listing_contact_phone.parquet") if os.path.exists("artifacts/edges_listing_contact_phone.parquet") else None
-    df_billing_phone = pl.read_parquet("artifacts/edges_listing_billing_phone.parquet") if os.path.exists("artifacts/edges_listing_billing_phone.parquet") else None
     
     data = HeteroData()
     
@@ -154,61 +147,15 @@ def build_graph():
     data['ip'].num_nodes = len(ip_map)
     data['ip'].x = torch.ones(len(ip_map), 1)
 
-    # 4. Account Email (from user -> email)
-    if df_account_email is not None:
-        df_acct_emails = df_account_email.select(pl.col("target").alias("email")).unique().drop_nulls()
-        account_email_map, _ = load_node_mapping(df_acct_emails, "email", "account_email")
-        data['account_email'].num_nodes = len(account_email_map)
-        data['account_email'].x = torch.ones(len(account_email_map), 1)
-    else:
-        account_email_map = {}
+    # 4. Email (Unified)
+    email_map, _ = load_node_mapping(df_email, "email", "email")
+    data['email'].num_nodes = len(email_map)
+    data['email'].x = torch.ones(len(email_map), 1)
 
-    # 5. Contact Email (from listing -> contact email)
-    if df_contact_email is not None:
-        df_cont_emails = df_contact_email.select(pl.col("target").alias("email")).unique().drop_nulls()
-        contact_email_map, _ = load_node_mapping(df_cont_emails, "email", "contact_email")
-        data['contact_email'].num_nodes = len(contact_email_map)
-        data['contact_email'].x = torch.ones(len(contact_email_map), 1)
-    else:
-        contact_email_map = {}
-
-    # 6. Billing Email (from listing -> billing email)
-    if df_billing_email is not None:
-        df_bill_emails = df_billing_email.select(pl.col("target").alias("email")).unique().drop_nulls()
-        billing_email_map, _ = load_node_mapping(df_bill_emails, "email", "billing_email")
-        data['billing_email'].num_nodes = len(billing_email_map)
-        data['billing_email'].x = torch.ones(len(billing_email_map), 1)
-    else:
-        billing_email_map = {}
-
-    # 7. Inquiry Email (from listing -> inquiry email - merge with contact for now)
-    if df_inquiry_email is not None:
-        df_inq_emails = df_inquiry_email.select(pl.col("target").alias("email")).unique().drop_nulls()
-        # Merge inquiry emails into contact_email map
-        for email in df_inq_emails["email"].to_list():
-            if email not in contact_email_map:
-                idx = len(contact_email_map)
-                contact_email_map[email] = idx
-        data['contact_email'].num_nodes = len(contact_email_map)
-        data['contact_email'].x = torch.ones(len(contact_email_map), 1)
-
-    # 8. Contact Phone (from listing -> contact phone)
-    if df_contact_phone is not None:
-        df_cont_phones = df_contact_phone.select(pl.col("target").alias("phone")).unique().drop_nulls()
-        contact_phone_map, _ = load_node_mapping(df_cont_phones, "phone", "contact_phone")
-        data['contact_phone'].num_nodes = len(contact_phone_map)
-        data['contact_phone'].x = torch.ones(len(contact_phone_map), 1)
-    else:
-        contact_phone_map = {}
-
-    # 9. Billing Phone (from listing -> billing phone)
-    if df_billing_phone is not None:
-        df_bill_phones = df_billing_phone.select(pl.col("target").alias("phone")).unique().drop_nulls()
-        billing_phone_map, _ = load_node_mapping(df_bill_phones, "phone", "billing_phone")
-        data['billing_phone'].num_nodes = len(billing_phone_map)
-        data['billing_phone'].x = torch.ones(len(billing_phone_map), 1)
-    else:
-        billing_phone_map = {}
+    # 5. Phone (Unified)
+    phone_map, _ = load_node_mapping(df_phone, "phone", "phone")
+    data['phone'].num_nodes = len(phone_map)
+    data['phone'].x = torch.ones(len(phone_map), 1)
 
     # 6. Address (Granular)
     addr_map, df_address = load_node_mapping(df_address, "address_id", "address")
@@ -274,11 +221,8 @@ def build_graph():
         "user": user_map,
         "listing": listing_map,
         "ip": ip_map,
-        "account_email": account_email_map,
-        "contact_email": contact_email_map,
-        "billing_email": billing_email_map,
-        "contact_phone": contact_phone_map,
-        "billing_phone": billing_phone_map,
+        "email": email_map,
+        "phone": phone_map,
         "address": addr_map,
         "person": person_map
     }
@@ -291,26 +235,20 @@ def build_graph():
     src_map, dst_map = maps["user"], maps["ip"]
     add_edge("edges_user_uses_ip.parquet", "source", "target", "user", "ip", "uses")
     
-    # 3. User -> Has -> Account Email
-    src_map, dst_map = maps["user"], maps["account_email"]
-    add_edge("edges_user_email.parquet", "source", "target", "user", "account_email", "has_email")
+    # 3. User -> Has -> Email
+    src_map, dst_map = maps["user"], maps["email"]
+    add_edge("edges_user_email.parquet", "source", "target", "user", "email", "has_email")
     
-    # 4. Listing -> Has -> Contact Email
-    src_map, dst_map = maps["listing"], maps["contact_email"]
-    add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "contact_email", "has_contact_email", time_source_col="source")
-    add_edge("edges_listing_inquiry_email.parquet", "source", "target", "listing", "contact_email", "has_inquiry_email", time_source_col="source")
+    # 4. Listing -> Has -> Email (All types)
+    src_map, dst_map = maps["listing"], maps["email"]
+    add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "email", "has_contact_email", time_source_col="source")
+    add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "email", "has_billing_email", time_source_col="source")
+    add_edge("edges_listing_inquiry_email.parquet", "source", "target", "listing", "email", "has_inquiry_email", time_source_col="source")
     
-    # 5. Listing -> Has -> Billing Email
-    src_map, dst_map = maps["listing"], maps["billing_email"]
-    add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "billing_email", "has_billing_email", time_source_col="source")
-    
-    # 6. Listing -> Has -> Contact Phone
-    src_map, dst_map = maps["listing"], maps["contact_phone"]
-    add_edge("edges_listing_contact_phone.parquet", "source", "target", "listing", "contact_phone", "has_contact_phone", time_source_col="source")
-    
-    # 7. Listing -> Has -> Billing Phone
-    src_map, dst_map = maps["listing"], maps["billing_phone"]
-    add_edge("edges_listing_billing_phone.parquet", "source", "target", "listing", "billing_phone", "has_billing_phone", time_source_col="source")
+    # 5. Listing -> Has -> Phone (All types)
+    src_map, dst_map = maps["listing"], maps["phone"]
+    add_edge("edges_listing_contact_phone.parquet", "source", "target", "listing", "phone", "has_contact_phone", time_source_col="source")
+    add_edge("edges_listing_billing_phone.parquet", "source", "target", "listing", "phone", "has_billing_phone", time_source_col="source")
     
     # 8. Listing -> Located_At -> Address
     src_map, dst_map = maps["listing"], maps["address"]

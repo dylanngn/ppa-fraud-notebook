@@ -6,7 +6,6 @@ import numpy as np
 import polars as pl
 from datetime import datetime
 from src.models.gnn_variants import UnifiedGNNWrapper
-from src.models.hgt_with_rte import HGTWrapperWithRTE
 
 def filter_graph_by_time(data, max_time_ns):
     """
@@ -81,19 +80,20 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
     train_data = train_data.to(device)
     
     # Initialize Model
+    train_edge_times_device = None
     if model_name == "hgt_rte":
-        # RTE requires edge times
-        train_edge_times_device = {k: v.to(device) if v is not None else None for k, v in train_edge_times.items()}
-        model = HGTWrapperWithRTE(
-            hidden_channels=64, out_channels=64, num_heads=4, num_layers=2, data=train_data
-        ).to(device)
-    else:
-        # Standard Models (GAT, GCN, HGT)
-        model = UnifiedGNNWrapper(
-            model_name=model_name, metadata=train_data.metadata(), 
-            hidden_channels=64, out_channels=64, num_heads=4, num_layers=2
-        ).to(device)
-        train_edge_times_device = None # Not used for non-RTE
+        train_edge_times_device = {
+            k: v.to(device) if v is not None else None for k, v in train_edge_times.items()
+        }
+
+    model = UnifiedGNNWrapper(
+        model_name=model_name,
+        metadata=train_data.metadata(),
+        hidden_channels=64,
+        out_channels=64,
+        num_heads=4,
+        num_layers=2,
+    ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
@@ -138,8 +138,9 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
     full_data = data.to(device)
     
     # Edge times for full data (needed for RTE)
-    full_edge_times_device = {}
+    full_edge_times_device = None
     if model_name == "hgt_rte":
+        full_edge_times_device = {}
         for edge_type in data.edge_index_dict.keys():
             if 'timestamp' in data[edge_type]:
                 full_edge_times_device[edge_type] = data[edge_type].timestamp.to(device)
@@ -222,22 +223,12 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
     
     model.eval()
     with torch.no_grad():
-        if model_name == "hgt_rte":
-            z_dict = model(full_data.x_dict, full_data.edge_index_dict, full_edge_times_device)
-        else:
-            z_dict = model(full_data.x_dict, full_data.edge_index_dict) # UnifiedWrapper returns z_listing directly? 
-            # Wait, UnifiedWrapper.forward returns z_listing directly.
-            # But HGTWrapperWithRTE.forward returns z_dict.
-            # Let's check UnifiedWrapper.forward again.
-            # It returns z_listing.
-            # So for non-RTE, z_dict is actually z_listing tensor.
-            pass
+        z_listing = model(full_data.x_dict, full_data.edge_index_dict, full_edge_times_device)
 
-    # Handle return type difference
-    if isinstance(z_dict, dict):
-        z_listing = z_dict['listing'].cpu()
-    else:
-        z_listing = z_dict.cpu() # It's already the tensor
+    if isinstance(z_listing, dict):
+        # Should not happen, but keep backward compatibility
+        z_listing = z_listing['listing']
+    z_listing = z_listing.cpu()
         
     # Save
     save_path = f"artifacts/embeddings_{model_name}.pt"

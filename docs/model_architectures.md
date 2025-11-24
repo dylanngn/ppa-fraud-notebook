@@ -173,37 +173,25 @@ Same as GAT
 ## 5. HGT with Relative Temporal Encoding (HGT+RTE)
 
 ### Overview
-Extends HGT with time-awareness to capture temporal patterns in fraud behavior.
+`UnifiedGNNWrapper(model_name="hgt_rte")` augments the standard HGT stack with a sinusoidal + MLP temporal encoder so attention weights can react to edge-age.
 
 ### Input
-Same as HGT, **plus**:
-- **Edge Timestamps**: Int64 (nanoseconds since epoch)
+Same as HGT, **plus** per-edge timestamps (Int64 nanoseconds).
 
-### Architecture
+### Architecture (conceptual)
 ```
-HGTWrapperWithRTE
-├── Input Projection Layer (per node type)
-│   └── Linear: [input_dim] → 64
-├── Time Encoding Layer
-│   └── Sinusoidal Encoding: Δt → 64-dim
-│       ├── period = 24h, 7d, 30d, 365d
-│       └── Captures multi-scale time patterns
-├── HGT Core with RTE
-│   ├── Layer 1: HGTConv(64, 64, heads=4)
-│   │   ├── Attention = f(node_i, node_j, edge_type, Δt_encoding)
-│   │   └── Time-modulated attention weights
-│   ├── Layer 2: HGTConv(64, 64, heads=4)
-│   └── Temporal message passing
-├── Output Projection
-│   └── Linear: 64 → 64
-└── Classification Head
-    └── Linear: 64 → 1
+UnifiedGNNWrapper(hgt_rte)
+├── Input Projection (per node type) → 64 dims
+├── TemporalEncoding(Δt) → 64 dims
+├── HGTConv layers (heads=4) + temporal bias injection
+├── Residual skip: concat(self, aggregated)
+└── Linear → 64 + classifier head
 ```
 
-### Time Encoding Formula
+### Temporal Encoding
 ```
-Δt = timestamp_target - timestamp_edge
-RTE(Δt) = [sin(Δt / period_1), cos(Δt / period_1), ..., sin(Δt / period_k), cos(Δt / period_k)]
+Δt = timestamp_edge - min(timestamp_edge_type)
+encoding = MLP([sin(Δt / 10^k), cos(Δt / 10^k)] for k ∈ scales)
 ```
 
 ### Output
@@ -211,9 +199,9 @@ RTE(Δt) = [sin(Δt / period_1), cos(Δt / period_1), ..., sin(Δt / period_k), 
 - **Predictions**: Float [0, 1]
 
 ### Key Advantages
-- **Velocity Detection**: Can identify "rapid-fire" fraud attacks
-- **Time-decay**: Recent connections weighted differently than old ones
-- **Multi-scale**: Captures hourly, daily, weekly, and monthly patterns
+- Detects "rapid-fire" fraud bursts
+- Simple time-decay bias (recent edges get higher weight)
+- Integrated into the same wrapper as other GNN variants
 
 ---
 
@@ -263,11 +251,11 @@ Hybrid Model
 | Model | Parameters | Training Time | Best For |
 |-------|-----------|---------------|----------|
 | **Baseline XGBoost** | ~10K | Fast (~1 min) | Tabular-only baseline |
+| **Graph-Feature XGBoost** | ~10K | Fast (~1 min + feature prep) | Structural counts without GNN |
 | **GAT** | ~50K | Medium (~10 min) | Attention-based learning |
 | **GraphSAGE** | ~45K | Fast (~8 min) | Inductive, scalable learning |
-| **HGT** | ~60K | Medium (~12 min) | Heterogeneous graphs |
-| **HGT+RTE** | ~70K | Slow (~15 min) | Temporal fraud patterns |
-| **Hybrid (Any)** | GNN + 10K | GNN + Fast | Best overall performance |
+| **HGT / HGT+RTE** | ~60K / ~70K | Medium–Slow (~12–15 min) | Heterogeneous graphs (+ temporal patterns) |
+| **Hybrid (Any)** | GNN + 10K | GNN + Fast | Research-only ensemble |
 
 ## Hyperparameter Tuning Suggestions
 

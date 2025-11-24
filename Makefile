@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-gnn train-gnn-rte train-hybrid check-timestamps check-graph check-density debug all
+.PHONY: install etl build-graph train-baseline train-gnn train-gnn-rte train-hybrid graph-features check-timestamps check-graph check-density debug all
 
 install:
 	pip install -r requirements.txt
@@ -15,8 +15,14 @@ etl:
 build-graph:
 	python src/cli.py build-graph
 
+graph-features:
+	python src/cli.py graph-features
+
 train-baseline:
 	python src/cli.py train-baseline
+
+train-graph-baseline:
+	python src/cli.py train-graph-baseline
 
 # --- Experiments ---
 

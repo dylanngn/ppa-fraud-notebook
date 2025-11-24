@@ -1,9 +1,39 @@
-import polars as pl
-import xgboost as xgb
-from sklearn.metrics import average_precision_score, roc_auc_score, precision_recall_curve
-import numpy as np
 import os
 from datetime import timedelta
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import polars as pl
+import xgboost as xgb
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
+
+GRAPH_FEATURES_PATH = Path("artifacts/listing_graph_features.parquet")
+GRAPH_FEATURE_COLUMNS = [
+    "contact_email_count",
+    "shared_contact_email_count",
+    "max_shared_contact_email",
+    "contact_phone_count",
+    "shared_contact_phone_count",
+    "max_shared_contact_phone",
+    "user_listing_count",
+    "user_unique_ip_count",
+    "shared_ip_user_count",
+    "max_shared_ip_users",
+    "listing_component_size",
+    "listing_pagerank",
+]
+
+
+def load_graph_features() -> pl.DataFrame:
+    if GRAPH_FEATURES_PATH.exists():
+        print("Loading graph-derived features...")
+        return pl.read_parquet(GRAPH_FEATURES_PATH)
+    raise FileNotFoundError(
+        f"Graph features not found at {GRAPH_FEATURES_PATH}. "
+        "Run `make graph-features` to generate them."
+    )
+
 
 def load_data():
     """
@@ -26,12 +56,19 @@ def load_data():
     
     return df
 
-def feature_engineering(df):
+def feature_engineering(df, include_graph_features: bool = False):
     """
     Creates tabular features for XGBoost.
     """
     print("Engineering features...")
     
+    if include_graph_features:
+        graph_features = load_graph_features()
+        df = df.join(graph_features, on="insertion_id", how="left")
+        df = df.with_columns([
+            pl.col(col).fill_null(0) for col in GRAPH_FEATURE_COLUMNS if col in df.columns
+        ])
+
     # 1. Account Age (The critical feature)
     # submission_at - account_created_at
     df = df.with_columns(
@@ -133,13 +170,15 @@ def train_sliding_window(df, window_days=90, step_days=14):
             continue
             
         # Features & Target
+        graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
+
         features = [
             "account_age_days", "log_price", "living_space", "rooms",
             "is_new", "has_balcony", "has_elevator", "has_parking",
             "bundle_period", "bundle_tier_score",
             "is_direct_payment", "is_buy",
             "latitude", "longitude"
-        ]
+        ] + graph_columns
         target = "is_fraud"
         
         X_train = train_data.select(features).to_numpy()
@@ -196,24 +235,33 @@ def train_sliding_window(df, window_days=90, step_days=14):
         
     return results
 
-def main(window_days=90, step_days=14):
+def run_baseline(
+    window_days: int = 90,
+    step_days: int = 14,
+    include_graph_features: bool = False,
+    results_filename: str = "artifacts/results/baseline_results.csv",
+):
     # Check if artifacts exist
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
     else:
         df = load_data()
-        df = feature_engineering(df)
+        df = feature_engineering(df, include_graph_features=include_graph_features)
         results = train_sliding_window(df, window_days, step_days)
         
         # Save results to CSV
         os.makedirs("artifacts/results", exist_ok=True)
         results_df = pl.DataFrame(results)
-        results_df.write_csv("artifacts/results/baseline_results.csv")
-        print(f"\nSaved results to artifacts/results/baseline_results.csv")
+        results_df.write_csv(results_filename)
+        print(f"\nSaved results to {results_filename}")
         print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
         print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
         
         return results
+
+
+def main(window_days: int = 90, step_days: int = 14):
+    run_baseline(window_days=window_days, step_days=step_days, include_graph_features=False)
 
 if __name__ == "__main__":
     main()

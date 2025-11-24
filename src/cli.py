@@ -7,7 +7,9 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.data import etl, graph_builder
+from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
+from src.models import train_graph_baseline as graph_baseline_module
 from src.models import train_hybrid as hybrid_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
@@ -40,6 +42,18 @@ def train_baseline(
     console.print(f"[bold green]Training Baseline XGBoost (Window: {window_days} days)...[/bold green]")
     baseline_module.main(window_days=window_days, step_days=step_days)
 
+
+@app.command()
+def train_graph_baseline(
+    window_days: int = typer.Option(90, help="Training window size in days"),
+    step_days: int = typer.Option(7, help="Sliding window step size in days")
+):
+    """
+    Train the Graph-Feature XGBoost baseline.
+    """
+    console.print(f"[bold green]Training Graph-Feature Baseline (Window: {window_days} days)...[/bold green]")
+    graph_baseline_module.main(window_days=window_days, step_days=step_days)
+
 @app.command()
 def train_embeddings(
     model: str = typer.Option("hgt", help="Model type: gat, gcn, hgt, hgt_rte"),
@@ -61,6 +75,15 @@ def train_hybrid(
     """
     console.print(f"[bold green]Training Hybrid Model ({model.upper()})...[/bold green]")
     hybrid_module.main(model_name=model)
+
+
+@app.command()
+def graph_features():
+    """
+    Generate manual graph statistics for listings.
+    """
+    console.print("[bold green]Generating Graph Features...[/bold green]")
+    graph_features_module.generate_graph_features()
 
 @app.command()
 def check_graph_timestamps():
