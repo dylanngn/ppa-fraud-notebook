@@ -1,14 +1,13 @@
 import os
 
-import numpy as np
 import polars as pl
 import torch
-import xgboost as xgb
 
 from src.models.train_baseline import (
-    GRAPH_FEATURE_COLUMNS,
     feature_engineering,
+    train_sliding_window,
 )
+
 
 def load_embeddings(df, model_name="hgt"):
     """
@@ -47,116 +46,47 @@ def load_embeddings(df, model_name="hgt"):
     
     return df, embed_cols
 
-def main(model_name="hgt"):
+
+def main(model_name="hgt", save_models=False):
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
+        return
+    
+    # 1. Load Data & Embeddings
+    df, embed_cols = load_embeddings(None, model_name)
+    
+    # 2. Feature Engineering (Tabular)
+    df = feature_engineering(df)
+    
+    # 3. Train (Sliding Window) with embeddings as extra features
+    print(f"Training hybrid model with {len(embed_cols)} embedding features...")
+    models_dir = f"artifacts/models/hybrid_{model_name}"
+    
+    result = train_sliding_window(
+        df, 
+        window_days=90, 
+        step_days=14, 
+        extra_features=embed_cols,
+        save_models=save_models,
+        models_dir=models_dir
+    )
+    
+    if save_models:
+        results, saved_model_paths = result
+        print(f"\nSaved {len(saved_model_paths)} models to {models_dir}")
     else:
-        # 1. Load Data & Embeddings
-        df, embed_cols = load_embeddings(None, model_name)
-        
-        # 2. Feature Engineering (Tabular)
-        df = feature_engineering(df)
-        
-        # 3. Train (Sliding Window)
-        # We need to modify train_sliding_window to include embed_cols in 'features'
-        # Since train_sliding_window hardcodes features, we might need to override it
-        # or just copy the function here to add the new features.
-        # Let's copy-paste for safety and flexibility.
-        
-        from datetime import timedelta
-        from sklearn.metrics import average_precision_score, roc_auc_score
-        
-        # --- Modified Sliding Window ---
-        df = df.sort("submission_at")
-        start_date = df["submission_at"].min()
-        end_date = df["submission_at"].max()
-        
-        window_size = timedelta(days=90)
-        step_size = timedelta(days=14)
-        test_size = timedelta(days=14)
-        
-        current_date = start_date + window_size
-        
-        results = []
-        
-        # Define Features: Original + Embeddings
-        # Define Features: Original + Embeddings
-        graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
+        results = result
+    
+    # Save results
+    os.makedirs("artifacts/results", exist_ok=True)
+    results_df = pl.DataFrame(results)
+    results_df.write_csv(f"artifacts/results/hybrid_{model_name}_results.csv")
+    print(f"\nSaved results to artifacts/results/hybrid_{model_name}_results.csv")
+    print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
+    print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
+    print(f"Mean P@100: {results_df['p@100'].mean():.4f}")
+    print(f"Mean Lift@100: {results_df['lift@100']:.2f}")
 
-        base_features = [
-            "account_age_days", "log_price", "living_space", "rooms",
-            "is_new", "has_balcony", "has_elevator", "has_parking",
-            "bundle_period", "bundle_tier_score",
-            "is_direct_payment", "is_buy",
-            "latitude", "longitude"
-        ] + graph_columns
-        features = base_features + embed_cols
-        target = "is_fraud"
-        
-        print(
-            f"Training with {len(features)} features "
-            f"({len(base_features) - len(graph_columns)} tabular + "
-            f"{len(graph_columns)} graph + {len(embed_cols)} embedding)..."
-        )
-        
-        while current_date + test_size <= end_date:
-            train_end = current_date
-            test_end = current_date + test_size
-            
-            # Split
-            train_data = df.filter((pl.col("submission_at") < train_end) & (pl.col("submission_at") >= train_end - window_size))
-            test_data = df.filter((pl.col("submission_at") >= train_end) & (pl.col("submission_at") < test_end))
-            
-            if len(test_data) == 0 or len(train_data) == 0:
-                current_date += step_size
-                continue
-                
-            X_train = train_data.select(features).to_numpy()
-            y_train = train_data.select(target).to_numpy().flatten()
-            X_test = test_data.select(features).to_numpy()
-            y_test = test_data.select(target).to_numpy().flatten()
-            
-            # Train XGBoost
-            model = xgb.XGBClassifier(
-                objective="binary:logistic",
-                eval_metric="aucpr",
-                scale_pos_weight=len(y_train[y_train==0]) / len(y_train[y_train==1]) if len(y_train[y_train==1]) > 0 else 1,
-                n_estimators=100,
-                max_depth=6,
-                learning_rate=0.1,
-                n_jobs=-1
-            )
-            
-            model.fit(X_train, y_train)
-            
-            # Predict
-            y_pred = model.predict_proba(X_test)[:, 1]
-            
-            # Evaluate
-            if len(np.unique(y_test)) > 1:
-                auc_pr = average_precision_score(y_test, y_pred)
-                auc_roc = roc_auc_score(y_test, y_pred)
-            else:
-                auc_pr = 0.0
-                auc_roc = 0.0
-                
-            print(f"Window {train_end.date()} - {test_end.date()}: AUC-PR = {auc_pr:.4f}, Fraud Count = {sum(y_test)}")
-            
-            results.append({
-                "window_start": train_end,
-                "auc_pr": auc_pr,
-                "auc_roc": auc_roc,
-                "fraud_count": sum(y_test)
-            })
-            
-            current_date += step_size
-            
-        # Save results to CSV
-        os.makedirs("artifacts/results", exist_ok=True)
-        results_df = pl.DataFrame(results)
-        results_df.write_csv(f"artifacts/results/hybrid_{model_name}_results.csv")
-        print(f"\nSaved results to artifacts/results/hybrid_{model_name}_results.csv")
-        print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
 
 if __name__ == "__main__":
     import typer

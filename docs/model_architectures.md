@@ -8,7 +8,7 @@ This document provides detailed specifications for all models in the fraud detec
 A gradient boosting decision tree model that serves as the baseline for comparison.
 
 ### Input
-**Features** (13 dimensions):
+**Features** (14 dimensions):
 - `account_age_days`: Float (Days since account creation)
 - `log_price`: Float (Log-transformed price)
 - `living_space`: Float (Square meters)
@@ -21,7 +21,8 @@ A gradient boosting decision tree model that serves as the baseline for comparis
 - `bundle_tier_score`: Ordinal (0=basic, 1=premium, 2=top)
 - `is_direct_payment`: Binary
 - `is_buy`: Binary (vs. rent)
-- `latitude`, `longitude`: Float (Location)
+- `latitude`: Float (Location)
+- `longitude`: Float (Location)
 
 ### Architecture
 ```
@@ -211,10 +212,11 @@ encoding = MLP([sin(Δt / 10^k), cos(Δt / 10^k)] for k ∈ scales)
 Combines GNN embeddings with tabular features for final classification.
 
 ### Input
-**Tabular Features** (13-dim): Same as Baseline XGBoost  
+**Tabular Features** (14-dim): Same as Baseline XGBoost  
+**Graph Statistics** (12-dim): Engineered graph features (degrees, shared contacts, PageRank, etc.)  
 **GNN Embeddings** (64-dim): From any GNN variant (GAT/GCN/HGT/HGT+RTE)
 
-**Total**: 77-dim feature vector
+**Total**: 90-dim feature vector (14 + 12 + 64)
 
 ### Architecture
 ```
@@ -222,12 +224,12 @@ Hybrid Model
 ├── Stage 1: GNN (GAT/GCN/HGT/HGT+RTE)
 │   └── Output: 64-dim embeddings per listing
 ├── Stage 2: Feature Concatenation
-│   └── [Tabular (13) + Embeddings (64)] → 77-dim
+│   └── [Tabular (14) + Graph Stats (12) + Embeddings (64)] → 90-dim
 └── Stage 3: XGBoost Classifier
     ├── n_estimators: 100
     ├── max_depth: 6
     ├── learning_rate: 0.1
-    └── Input: 77-dim features
+    └── Input: 90-dim features
 ```
 
 ### Output

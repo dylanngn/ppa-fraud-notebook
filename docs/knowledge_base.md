@@ -50,10 +50,10 @@ We need to extract the following deep features from the `listing` JSONB:
 ## 4. Temporal Filtering
 
 *   **Submission Date**: The timestamp when status changed from `DRAFT` to `PENDING_APPROVAL`.
-*   **Scope**: Listings submitted between **2023-11-01** and **2025-11-01**.
+*   **Scope**: Listings submitted between **2023-01-01** and **2025-11-02**.
 *   **Evaluation Strategy** (Sliding Window):
-    *   **Training Window** (`window_days`): **14 days**. The model learns from this historical period.
-    *   **Step Size** (`step_days`): **14 days**. How far the window moves forward for the next iteration.
+    *   **Training Window** (`window_days`): **90 days** (default). The model learns from this historical period.
+    *   **Step Size** (`step_days`): **14 days** (default). How far the window moves forward for the next iteration.
     *   **Test Window** (`test_size`): **14 days**. The future period evaluated after training.
     *   **Why Step Size?**: It determines the *frequency* of retraining. Setting `Step Size = Test Window` ensures contiguous, non-overlapping evaluation (we predict every day exactly once).
 

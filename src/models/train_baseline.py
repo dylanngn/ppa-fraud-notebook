@@ -1,12 +1,13 @@
 import os
+import pickle
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import polars as pl
 import xgboost as xgb
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
+
+from src.utils.metrics import calculate_metrics
 
 GRAPH_FEATURES_PATH = Path("artifacts/listing_graph_features.parquet")
 GRAPH_FEATURE_COLUMNS = [
@@ -43,15 +44,6 @@ def load_data():
     df_listings = pl.read_parquet("artifacts/nodes_listing.parquet")
     df_users = pl.read_parquet("artifacts/nodes_user.parquet")
     
-    # Join Listings with Users
-    # Note: nodes_listing has 'user_id' implicitly? 
-    # Wait, nodes_listing in ETL.py didn't explicitly select user_id, let's check.
-    # It selected: insertion_id, object_reference, platform, is_fraud, ... lister_username, ...
-    # It MIGHT have missed user_id. I need to verify ETL.py first.
-    # Assuming it has it or we can join on lister_username (less reliable).
-    # Let's assume we need to fix ETL if it's missing.
-    
-    # For now, let's assume user_id is there.
     df = df_listings.join(df_users, on="user_id", how="left")
     
     return df
@@ -88,60 +80,71 @@ def feature_engineering(df, include_graph_features: bool = False):
     
     # --- NEW FEATURES (Sync with GNN) ---
     
-    # 4. Booleans (Cast to Int)
+    # 4. Boolean features (Cast to Int)
     bool_cols = ["is_new", "has_balcony", "has_elevator", "has_parking"]
-    for col in bool_cols:
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).fill_null(False).cast(pl.Int8))
-        else:
-            df = df.with_columns(pl.lit(0).alias(col))
+    bool_exprs = [
+        pl.col(col).fill_null(False).cast(pl.Int8) if col in df.columns else pl.lit(0).alias(col)
+        for col in bool_cols
+    ]
+    df = df.with_columns(bool_exprs)
             
     # 5. Bundle Info
-    if "bundle_period" in df.columns:
-        df = df.with_columns(pl.col("bundle_period").fill_null(7))
-    else:
-        df = df.with_columns(pl.lit(7).alias("bundle_period"))
-        
-    # Bundle Tier (Ordinal)
-    if "bundle_tier" in df.columns:
-        # basic=0, premium=1, top=2
-        df = df.with_columns(
+    df = df.with_columns([
+        pl.col("bundle_period").fill_null(7) if "bundle_period" in df.columns else pl.lit(7).alias("bundle_period"),
+        (
             pl.col("bundle_tier").fill_null("basic").str.to_lowercase()
             .replace({"basic": 0, "premium": 1, "top": 2}, default=0)
             .cast(pl.Int64).alias("bundle_tier_score")
-        )
-    else:
-        df = df.with_columns(pl.lit(0).alias("bundle_tier_score"))
+        ) if "bundle_tier" in df.columns else pl.lit(0).alias("bundle_tier_score")
+    ])
 
     # 6. Payment Type (Binary: DIRECT vs INVOICE)
-    if "payment_type" in df.columns:
-        df = df.with_columns(
-            (pl.col("payment_type") == "DIRECT").cast(pl.Int8).alias("is_direct_payment")
-        )
-    else:
-        df = df.with_columns(pl.lit(0).alias("is_direct_payment"))
+    df = df.with_columns(
+        (pl.col("payment_type") == "DIRECT").cast(pl.Int8).alias("is_direct_payment")
+        if "payment_type" in df.columns else pl.lit(0).alias("is_direct_payment")
+    )
         
     # 7. Offer Type (Binary: BUY vs RENT)
-    if "offer_type" in df.columns:
-        df = df.with_columns(
-            (pl.col("offer_type") == "BUY").cast(pl.Int8).alias("is_buy")
-        )
-    else:
-        df = df.with_columns(pl.lit(0).alias("is_buy"))
+    df = df.with_columns(
+        (pl.col("offer_type") == "BUY").cast(pl.Int8).alias("is_buy")
+        if "offer_type" in df.columns else pl.lit(0).alias("is_buy")
+    )
         
-    # 8. Location
-    for col in ["latitude", "longitude"]:
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).fill_null(0.0))
-        else:
-            df = df.with_columns(pl.lit(0.0).alias(col))
+    # 8. Location features
+    location_exprs = [
+        pl.col(col).fill_null(0.0) if col in df.columns else pl.lit(0.0).alias(col)
+        for col in ["latitude", "longitude"]
+    ]
+    df = df.with_columns(location_exprs)
 
     return df
 
-def train_sliding_window(df, window_days=90, step_days=14):
+def get_base_features():
+    """Returns the list of base tabular features."""
+    return [
+        "account_age_days", "log_price", "living_space", "rooms",
+        "is_new", "has_balcony", "has_elevator", "has_parking",
+        "bundle_period", "bundle_tier_score",
+        "is_direct_payment", "is_buy",
+        "latitude", "longitude"
+    ]
+
+
+def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, save_models=False, models_dir="artifacts/models"):
     """
     Performs sliding window backtesting.
+    
+    Args:
+        df: DataFrame with features and target
+        window_days: Size of training window in days
+        step_days: Step size for sliding window in days
+        extra_features: Additional feature column names to include (e.g., embeddings, graph features)
+        save_models: Whether to save trained models for SHAP analysis
+        models_dir: Directory to save models
     """
+    if extra_features is None:
+        extra_features = []
+    
     # Sort by time
     df = df.sort("submission_at")
     
@@ -151,12 +154,22 @@ def train_sliding_window(df, window_days=90, step_days=14):
     
     window_size = timedelta(days=window_days)
     step_size = timedelta(days=step_days)
-    test_size = timedelta(days=14)    # Test on next 2 weeks
+    test_size = timedelta(days=14)
     
     current_date = start_date + window_size
     
     results = []
+    saved_models = []
     
+    # Build feature list
+    graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
+    features = get_base_features() + graph_columns + extra_features
+    target = "is_fraud"
+    
+    if save_models:
+        os.makedirs(models_dir, exist_ok=True)
+    
+    window_idx = 0
     while current_date + test_size <= end_date:
         train_end = current_date
         test_end = current_date + test_size
@@ -169,18 +182,6 @@ def train_sliding_window(df, window_days=90, step_days=14):
             current_date += step_size
             continue
             
-        # Features & Target
-        graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
-
-        features = [
-            "account_age_days", "log_price", "living_space", "rooms",
-            "is_new", "has_balcony", "has_elevator", "has_parking",
-            "bundle_period", "bundle_tier_score",
-            "is_direct_payment", "is_buy",
-            "latitude", "longitude"
-        ] + graph_columns
-        target = "is_fraud"
-        
         X_train = train_data.select(features).to_numpy()
         y_train = train_data.select(target).to_numpy().flatten()
         X_test = test_data.select(features).to_numpy()
@@ -193,7 +194,8 @@ def train_sliding_window(df, window_days=90, step_days=14):
             scale_pos_weight=len(y_train[y_train==0]) / len(y_train[y_train==1]) if len(y_train[y_train==1]) > 0 else 1,
             n_estimators=100,
             max_depth=6,
-            learning_rate=0.1
+            learning_rate=0.1,
+            n_jobs=-1
         )
         
         model.fit(X_train, y_train)
@@ -201,38 +203,49 @@ def train_sliding_window(df, window_days=90, step_days=14):
         # Predict
         proba = model.predict_proba(X_test)[:, 1]
         
-        # Evaluate
-        if len(np.unique(y_test)) > 1:
-            auc_pr = average_precision_score(y_test, proba)
-            auc_roc = roc_auc_score(y_test, proba)
-        else:
-            auc_pr = 0.0
-            auc_roc = 0.0
-            
-        # Calculate Precision@K (Lift) - operational metric
-        precisions_at_k = {}
-        for k in [50, 100, 200]:
-            if len(proba) >= k:
-                top_k_indices = np.argsort(proba)[-k:][::-1]
-                precisions_at_k[f'p@{k}'] = y_test[top_k_indices].mean()
-            else:
-                precisions_at_k[f'p@{k}'] = 0.0
+        # Evaluate using unified metrics
+        metrics = calculate_metrics(y_test, proba)
         
-        print(f"Window {train_end.date()} - {test_end.date()}: AUC-PR = {auc_pr:.4f}, "
-              f"P@100 = {precisions_at_k['p@100']:.4f}, Fraud Count = {sum(y_test)}")
+        print(f"Window {train_end.date()} - {test_end.date()}: "
+              f"AUC-PR = {metrics['auc_pr']:.4f}, "
+              f"P@100 = {metrics['p@100']:.4f}, "
+              f"Lift@100 = {metrics['lift@100']:.2f}, "
+              f"Fraud Count = {metrics['fraud_count']}")
         
         results.append({
             "window_start": train_end,
-            "auc_pr": auc_pr,
-            "auc_roc": auc_roc,
-            "p@50": precisions_at_k['p@50'],
-            "p@100": precisions_at_k['p@100'],
-            "p@200": precisions_at_k['p@200'],
-            "fraud_count": sum(y_test)
+            **metrics
         })
         
-        current_date += step_size
+        # Save model if requested
+        if save_models:
+            model_bundle = {
+                'model': model,
+                'features': features,
+                'X_test': X_test,
+                'y_test': y_test,
+                'y_pred': proba,
+                'window_info': {
+                    'window_idx': window_idx,
+                    'window_start': train_end,
+                    'window_end': test_end,
+                    'train_size': len(train_data),
+                    'test_size': len(test_data)
+                },
+                'metrics': metrics
+            }
+            
+            model_path = os.path.join(models_dir, f"model_window_{window_idx}.pkl")
+            with open(model_path, 'wb') as f:
+                pickle.dump(model_bundle, f)
+            
+            saved_models.append(model_path)
         
+        window_idx += 1
+        current_date += step_size
+    
+    if save_models:
+        return results, saved_models
     return results
 
 def run_baseline(
@@ -240,6 +253,8 @@ def run_baseline(
     step_days: int = 14,
     include_graph_features: bool = False,
     results_filename: str = "artifacts/results/baseline_results.csv",
+    save_models: bool = False,
+    models_dir: str = "artifacts/models/baseline"
 ):
     # Check if artifacts exist
     if not os.path.exists("artifacts/nodes_listing.parquet"):
@@ -247,7 +262,14 @@ def run_baseline(
     else:
         df = load_data()
         df = feature_engineering(df, include_graph_features=include_graph_features)
-        results = train_sliding_window(df, window_days, step_days)
+        
+        result = train_sliding_window(df, window_days, step_days, save_models=save_models, models_dir=models_dir)
+        
+        if save_models:
+            results, saved_model_paths = result
+            print(f"\nSaved {len(saved_model_paths)} models to {models_dir}")
+        else:
+            results = result
         
         # Save results to CSV
         os.makedirs("artifacts/results", exist_ok=True)
@@ -256,6 +278,8 @@ def run_baseline(
         print(f"\nSaved results to {results_filename}")
         print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
         print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
+        print(f"Mean P@100: {results_df['p@100'].mean():.4f}")
+        print(f"Mean Lift@100: {results_df['lift@100'].mean():.2f}")
         
         return results
 

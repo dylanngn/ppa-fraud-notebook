@@ -1,11 +1,13 @@
-import torch
-import torch.nn.functional as F
-from sklearn.metrics import average_precision_score, roc_auc_score
 import os
+from datetime import datetime
+
 import numpy as np
 import polars as pl
-from datetime import datetime
+import torch
+import torch.nn.functional as F
+
 from src.models.gnn_variants import UnifiedGNNWrapper
+from src.utils.metrics import calculate_metrics
 
 def filter_graph_by_time(data, max_time_ns):
     """
@@ -175,39 +177,24 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
             else:
                 out = model.predict(full_data.x_dict, full_data.edge_index_dict)
                 
-            pred = out[test_mask].sigmoid().cpu().numpy()
+            pred = out[test_mask].sigmoid().cpu().numpy().flatten()
             y_true = full_data['listing'].y[test_mask].cpu().numpy()
             
-            # Evaluate
-            if len(np.unique(y_true)) > 1:
-                auc_pr = average_precision_score(y_true, pred)
-                auc_roc = roc_auc_score(y_true, pred)
-                
-                precisions_at_k = {}
-                for k in [50, 100, 200]:
-                    if len(pred) >= k:
-                        top_k_indices = np.argsort(pred.flatten())[-k:][::-1]
-                        precisions_at_k[f'p@{k}'] = y_true[top_k_indices].mean()
-                    else:
-                        precisions_at_k[f'p@{k}'] = 0.0
-            else:
-                auc_pr = 0.0
-                auc_roc = 0.0
-                precisions_at_k = {'p@50': 0.0, 'p@100': 0.0, 'p@200': 0.0}
+            # Evaluate using unified metrics
+            metrics = calculate_metrics(y_true, pred)
             
             window_start_date = datetime.fromtimestamp(test_start_time / 1e9)
             window_end_date = datetime.fromtimestamp(test_end_time / 1e9)
             
             print(f"Window {window_start_date.date()} - {window_end_date.date()}: "
-                  f"AUC-PR = {auc_pr:.4f}, P@100 = {precisions_at_k['p@100']:.4f}, "
-                  f"Fraud Count = {y_true.sum()}")
+                  f"AUC-PR = {metrics['auc_pr']:.4f}, "
+                  f"P@100 = {metrics['p@100']:.4f}, "
+                  f"Lift@100 = {metrics['lift@100']:.2f}, "
+                  f"Fraud Count = {metrics['fraud_count']}")
             
             results.append({
                 "window_start": window_start_date,
-                "auc_pr": auc_pr,
-                "auc_roc": auc_roc,
-                "p@100": precisions_at_k['p@100'],
-                "fraud_count": int(y_true.sum())
+                **metrics
             })
             
             current_time += step_size_ns
@@ -217,6 +204,10 @@ def train_embeddings(model_name="hgt", epochs=20, split_percent=0.8, window_days
     results_df = pl.DataFrame(results)
     results_df.write_csv(f"artifacts/results/gnn_{model_name}_results.csv")
     print(f"\nSaved Pure GNN results to artifacts/results/gnn_{model_name}_results.csv")
+    print(f"Mean AUC-PR: {results_df['auc_pr'].mean():.4f}")
+    print(f"Mean AUC-ROC: {results_df['auc_roc'].mean():.4f}")
+    print(f"Mean P@100: {results_df['p@100'].mean():.4f}")
+    print(f"Mean Lift@100: {results_df['lift@100'].mean():.2f}")
 
     # Generate Embeddings for ALL nodes (Full Graph)
     print("Generating Full Graph Embeddings...")

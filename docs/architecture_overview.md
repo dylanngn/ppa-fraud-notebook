@@ -26,8 +26,8 @@ flowchart LR
 
 **Goal**: Efficiently transform raw data from the Aurora PostgreSQL database into structured Parquet files.
 
-*   **Tunneling**: Automatically manages AWS SSM tunnels to securely access the production DB.
-*   **Batching**: Fetches data in chunks (e.g., 5000 rows) to handle large datasets (millions of insertions) without OOM errors.
+*   **Database Access**: Connects to Aurora via `DB_URI` environment variable. SSM tunneling (if required) should be established externally before running ETL.
+*   **Batching**: Fetches data in chunks (10,000 rows) to handle large datasets (millions of insertions) without OOM errors.
 *   **Checkpointing**: Saves raw data to `artifacts/raw_*.parquet` to avoid re-fetching.
 
 ```mermaid
@@ -91,7 +91,7 @@ flowchart LR
 
 *   **Features**: Tabular columns (account age, price, rooms, bundle info, etc.) + engineered graph stats.
 *   **Model**: Sliding-window XGBoost (90-day train / 14-day test).
-*   **Performance**: Mean AUC-PR 0.6655, Mean AUC-ROC 0.9392.
+*   **Performance**: See `evaluation_report.md` for latest results.
 
 ### 5.2 Residual Hybrid HGT (Research Track)
 
@@ -105,8 +105,8 @@ flowchart LR
 ```
 
 *   **Representation learning**: `UnifiedGNNWrapper` concatenates the listing self projection with the aggregated neighbor message before projection, mitigating over-smoothing.
-*   **Classifier input**: [Tabular + graph stats] + [Embeddings] (currently 14 + 12 + 64 = 90 features).
-*   **Performance**: Mean AUC-PR 0.6484 (better than the old hybrid 0.5909, but still below the graph-feature baseline).
+*   **Classifier input**: [Tabular + graph stats] + [Embeddings] (14 + 12 + 64 = 90 features total).
+*   **Performance**: See `evaluation_report.md` for latest results.
 
 ## 6. Research Cheat Sheet (The "Why" & "How")
 

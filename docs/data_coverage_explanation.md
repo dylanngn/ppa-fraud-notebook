@@ -4,7 +4,7 @@
 
 ### Current Status ✅
 Your data **DOES** include the full Jan 2023 - Nov 2025 range:
-- **Actual Range**: Jan 1, 2023 - Nov 1, 2025 (34 months)
+- **Actual Range**: Jan 1, 2023 - Nov 2, 2025 (35 months)
 - **Total Listings**: 237,695
 - **Used in Models**: 237,695 (all data is being used)
 

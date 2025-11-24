@@ -18,7 +18,7 @@ if not DB_SCHEMA:
 def fetch_raw_users():
     """
     Fetches users from DB and saves to artifacts/raw_users.parquet.
-    Skipps if file exists.
+    Skips if file exists.
     """
     if os.path.exists("artifacts/raw_users.parquet"):
         print("raw_users.parquet exists. Skipping fetch.")
@@ -130,10 +130,7 @@ def fetch_raw_insertions():
     # Save raw artifacts
     os.makedirs("artifacts", exist_ok=True)
     print(f"Saving {len(df_insertions)} insertions to artifacts/raw_insertions.parquet...")
-    df_insertions.write_parquet("artifacts/raw_insertions.parquet")
-    
-    # Cleanup temp chunks (optional, keeping for safety for now)
-    # shutil.rmtree(temp_dir) 
+    df_insertions.write_parquet("artifacts/raw_insertions.parquet") 
 
 def extract_data():
     """

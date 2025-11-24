@@ -253,8 +253,8 @@ def build_graph():
     # 8. Listing -> Located_At -> Address
     src_map, dst_map = maps["listing"], maps["address"]
     add_edge("edges_listing_located_at.parquet", "source", "target", "listing", "address", "located_at", time_source_col="source")
-    add_edge("edges_listing_lister_address.parquet", "source", "target", "listing", "address", "lister_address", time_source_col="source")
-    add_edge("edges_listing_billing_address.parquet", "source", "target", "listing", "address", "billing_address", time_source_col="source")
+    add_edge("edges_listing_lister_addr.parquet", "source", "target", "listing", "address", "lister_address", time_source_col="source")
+    add_edge("edges_listing_billing_addr.parquet", "source", "target", "listing", "address", "billing_address", time_source_col="source")
     
     # 9. Listing -> Has_Contact_Person -> Person
     src_map, dst_map = maps["listing"], maps["person"]
