@@ -51,7 +51,7 @@ def build_graph():
     # 2. Listing
     listing_map, df_listing = load_node_mapping(df_listing, "insertion_id", "listing")
     
-    # Features: Price, Size, Rooms, OfferType, Characteristics
+    # Features: Price, Size, Rooms, OfferType, Characteristics, Bundle, Payment, Location
     # Handle Nulls
     df_listing = df_listing.with_columns([
         pl.col("price_rent_gross").fill_null(0),
@@ -62,25 +62,64 @@ def build_graph():
         pl.col("is_new").fill_null(False).cast(pl.Int8),
         pl.col("has_balcony").fill_null(False).cast(pl.Int8),
         pl.col("has_elevator").fill_null(False).cast(pl.Int8),
-        pl.col("has_parking").fill_null(False).cast(pl.Int8)
+        pl.col("has_parking").fill_null(False).cast(pl.Int8),
+        pl.col("bundle_period").fill_null(7),
+        pl.col("bundle_tier").fill_null("basic").str.to_lowercase(),
+        pl.col("payment_type").fill_null("INVOICE"),
+        pl.col("latitude").fill_null(0.0),
+        pl.col("longitude").fill_null(0.0),
+        pl.col("customer_segment").fill_null("unknown").str.to_lowercase(),
+        pl.col("language").fill_null("de").str.to_lowercase()
     ])
     
     # One-hot encode offer_type (RENT=0, BUY=1)
     offer_type_feat = (df_listing["offer_type"] == "BUY").cast(pl.Int8).to_numpy().reshape(-1, 1)
     
+    # Encode Payment Type (INVOICE=0, DIRECT=1)
+    payment_feat = (df_listing["payment_type"] == "DIRECT").cast(pl.Int8).to_numpy().reshape(-1, 1)
+    
+    # Encode Bundle Tier (Ordinal: basic=0, premium=1, top=2)
+    tier_map = {"basic": 0, "premium": 1, "top": 2}
+    tier_series = df_listing["bundle_tier"].replace(tier_map, default=0).cast(pl.Int64).to_numpy().reshape(-1, 1)
+
+    # Encode Customer Segment (One-Hot)
+    # Segments: tenant, owner, business, unknown
+    segments = ["tenant", "owner", "business"]
+    segment_feats = []
+    for seg in segments:
+        feat = (df_listing["customer_segment"] == seg).cast(pl.Int8).to_numpy().reshape(-1, 1)
+        segment_feats.append(feat)
+    segment_matrix = np.concatenate(segment_feats, axis=1)
+
+    # Encode Language (One-Hot)
+    # Languages: de, en, fr, it
+    langs = ["de", "en", "fr", "it"]
+    lang_feats = []
+    for lang in langs:
+        feat = (df_listing["language"] == lang).cast(pl.Int8).to_numpy().reshape(-1, 1)
+        lang_feats.append(feat)
+    lang_matrix = np.concatenate(lang_feats, axis=1)
+
     # Numerical Features
-    # Combine rent and buy price into one 'price' column? Or keep separate?
-    # Let's keep separate to allow model to learn distinction.
     num_feats = df_listing.select([
         "price_rent_gross", "price_buy", "living_space", "rooms",
-        "is_new", "has_balcony", "has_elevator", "has_parking"
+        "is_new", "has_balcony", "has_elevator", "has_parking",
+        "bundle_period", "latitude", "longitude"
     ]).to_numpy()
     
     # Embeddings
     embeddings = np.stack(df_listing["description_embedding"].to_numpy())
     
     # Concatenate
-    x_listing = np.concatenate([num_feats, offer_type_feat, embeddings], axis=1)
+    x_listing = np.concatenate([
+        num_feats, 
+        offer_type_feat, 
+        payment_feat, 
+        tier_series, 
+        segment_matrix, 
+        lang_matrix, 
+        embeddings
+    ], axis=1)
     data['listing'].x = torch.from_numpy(x_listing).float()
     
     # Labels (Target)
@@ -88,7 +127,18 @@ def build_graph():
     data['listing'].y = torch.from_numpy(y).long()
     
     # Timestamps
-    timestamps = df_listing["submission_at"].cast(pl.Int64).to_numpy() # ns
+    # Fix 1970 issue: Ensure nanoseconds (Polars defaults to us for some sources)
+    timestamps = df_listing["submission_at"].cast(pl.Datetime("ns")).cast(pl.Int64).fill_null(0).to_numpy() # ns
+    
+    # Filter out invalid timestamps (e.g. 0 or very old)
+    # We only want listings with valid submission_at
+    # But we can't easily drop nodes here without re-indexing everything.
+    # Instead, we'll set a mask or just ensure ETL provides valid data.
+    # For now, let's just warn or use a default recent date if 0?
+    # No, 0 means 1970. 
+    # Better: In the future, ETL should filter these.
+    # Here, let's just ensure we don't crash, but train_gnn should filter them.
+    
     data['listing'].timestamp = torch.from_numpy(timestamps)
     data['listing'].num_nodes = len(df_listing)
 
@@ -108,9 +158,16 @@ def build_graph():
     data['phone'].x = torch.ones(len(phone_map), 1)
 
     # 6. Address (Granular)
-    addr_map, _ = load_node_mapping(df_address, "address_id", "address")
+    addr_map, df_address = load_node_mapping(df_address, "address_id", "address")
+    
+    # Address Features: Lat, Lon
+    df_address = df_address.with_columns([
+        pl.col("latitude").fill_null(0.0),
+        pl.col("longitude").fill_null(0.0)
+    ])
+    addr_feats = df_address.select(["latitude", "longitude"]).to_numpy()
+    data['address'].x = torch.from_numpy(addr_feats).float()
     data['address'].num_nodes = len(addr_map)
-    data['address'].x = torch.ones(len(addr_map), 1)
 
     # 7. Person
     person_map, _ = load_node_mapping(df_person, "person_name", "person")
@@ -120,7 +177,8 @@ def build_graph():
     # --- Process Edges ---
     
     # Mapping for edge timestamps (Listing Time)
-    listing_time_map = dict(zip(df_listing["insertion_id"], df_listing["submission_at"].cast(pl.Int64)))
+    # Fix 1970 issue: Ensure nanoseconds
+    listing_time_map = dict(zip(df_listing["insertion_id"], df_listing["submission_at"].cast(pl.Datetime("ns")).cast(pl.Int64)))
     
     def add_edge(filename, src_col, dst_col, src_type, dst_type, rel_name, time_source_col=None):
         print(f"Processing edge: {src_type} - {rel_name} - {dst_type}")

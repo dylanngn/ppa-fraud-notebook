@@ -57,7 +57,7 @@ def feature_engineering(df):
     
     return df
 
-def train_sliding_window(df, window_days=90, step_days=7):
+def train_sliding_window(df, window_days=90, step_days=14):
     """
     Performs sliding window backtesting.
     """
@@ -70,7 +70,7 @@ def train_sliding_window(df, window_days=90, step_days=7):
     
     window_size = timedelta(days=window_days)
     step_size = timedelta(days=step_days)
-    test_size = timedelta(days=7)    # Test on next 1 week (keep fixed for now)
+    test_size = timedelta(days=14)    # Test on next 2 weeks
     
     current_date = start_date + window_size
     
@@ -146,7 +146,7 @@ def train_sliding_window(df, window_days=90, step_days=7):
         
     return results
 
-def main(window_days=90, step_days=7):
+def main(window_days=90, step_days=14):
     # Check if artifacts exist
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")

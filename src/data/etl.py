@@ -15,22 +15,16 @@ DB_SCHEMA = os.getenv("DB_SCHEMA")
 if not DB_SCHEMA:
     raise ValueError("DB_SCHEMA environment variable not set")
 
-def extract_data():
+def fetch_raw_users():
     """
-    Extracts data from the Aurora Postgres database using ConnectorX for speed.
-    Saves raw data to artifacts/raw_*.parquet for inspection and checkpointing.
+    Fetches users from DB and saves to artifacts/raw_users.parquet.
+    Skipps if file exists.
     """
-    
-    # Check if raw data already exists to avoid re-running heavy SQL
-    if os.path.exists("artifacts/raw_users.parquet") and os.path.exists("artifacts/raw_insertions.parquet"):
-        print("Loading raw data from Parquet artifacts...")
-        df_users = pl.read_parquet("artifacts/raw_users.parquet")
-        df_insertions = pl.read_parquet("artifacts/raw_insertions.parquet")
-        return df_users, df_insertions
+    if os.path.exists("artifacts/raw_users.parquet"):
+        print("raw_users.parquet exists. Skipping fetch.")
+        return
 
-    print("Extracting data from Database...")
-    
-    # 1. Users
+    print("Extracting Users from Database...")
     query_users = f"""
     SELECT 
         id as user_id, 
@@ -44,7 +38,22 @@ def extract_data():
     """
     df_users = pl.read_database_uri(query_users, DB_URI, engine="connectorx")
     
-    # 2. Insertions (Listings) - Chunked Extraction
+    os.makedirs("artifacts", exist_ok=True)
+    print(f"Saving {len(df_users)} users to artifacts/raw_users.parquet...")
+    df_users.write_parquet("artifacts/raw_users.parquet")
+    
+    # Free memory
+    del df_users
+
+def fetch_raw_insertions():
+    """
+    Fetches insertions from DB in chunks and saves to artifacts/raw_insertions.parquet.
+    Skips if file exists. Resumes from last chunk if interrupted.
+    """
+    if os.path.exists("artifacts/raw_insertions.parquet"):
+        print("raw_insertions.parquet exists. Skipping fetch.")
+        return
+
     print("Extracting Insertions (Chunked)...")
     
     chunk_size = 10000
@@ -73,7 +82,8 @@ def extract_data():
         i.fraud_flag,
         i.auto_approval_criteria,
         i.first_published_date,
-        i.selected_bundle,
+        i.customer_segment,
+        i.selected_bundle::text as selected_bundle_json,
         i.created_at as listing_created_at,
         sh.transition_timestamp as submission_at
     FROM {DB_SCHEMA}.insertions i
@@ -119,10 +129,24 @@ def extract_data():
     
     # Save raw artifacts
     os.makedirs("artifacts", exist_ok=True)
-    print(f"Saving {len(df_users)} users to artifacts/raw_users.parquet...")
-    df_users.write_parquet("artifacts/raw_users.parquet")
     print(f"Saving {len(df_insertions)} insertions to artifacts/raw_insertions.parquet...")
     df_insertions.write_parquet("artifacts/raw_insertions.parquet")
+    
+    # Cleanup temp chunks (optional, keeping for safety for now)
+    # shutil.rmtree(temp_dir) 
+
+def extract_data():
+    """
+    Orchestrates the ETL process.
+    """
+    # 1. Fetch Raw Data (Checkpointing)
+    fetch_raw_users()
+    fetch_raw_insertions()
+    
+    # 2. Load Raw Data
+    print("Loading raw data from Parquet artifacts...")
+    df_users = pl.read_parquet("artifacts/raw_users.parquet")
+    df_insertions = pl.read_parquet("artifacts/raw_insertions.parquet")
     
     return df_users, df_insertions
 
@@ -141,7 +165,13 @@ def process_listings(df_insertions):
             "address": pl.Struct({
                 "street": pl.Utf8,
                 "postalCode": pl.Utf8,
-                "locality": pl.Utf8
+                "locality": pl.Utf8,
+                "country": pl.Utf8,
+                "region": pl.Utf8,
+                "geoCoordinates": pl.Struct({
+                    "latitude": pl.Float64,
+                    "longitude": pl.Float64
+                })
             }),
             "billing": pl.Struct({
                 "email": pl.Utf8,
@@ -150,7 +180,11 @@ def process_listings(df_insertions):
                 "address": pl.Struct({
                     "street": pl.Utf8,
                     "postalCode": pl.Utf8,
-                    "locality": pl.Utf8
+                    "locality": pl.Utf8,
+                    "country": pl.Utf8
+                }),
+                "payment": pl.Struct({
+                    "paymentType": pl.Utf8
                 })
             }),
             "contacts": pl.Struct({
@@ -188,18 +222,39 @@ def process_listings(df_insertions):
             "isOldBuilding": pl.Boolean
         }),
         "address": pl.Struct({
+            "street": pl.Utf8,
             "postalCode": pl.Utf8,
-            "locality": pl.Utf8
+            "locality": pl.Utf8,
+            "country": pl.Utf8,
+            "region": pl.Utf8,
+            "geoCoordinates": pl.Struct({
+                "latitude": pl.Float64,
+                "longitude": pl.Float64
+            })
         }),
         "descriptions": pl.Struct({
             "description": pl.Utf8
+        }),
+        "localization": pl.Struct({
+            "primary": pl.Utf8,
+            "de": pl.Struct({"text": pl.Struct({"title": pl.Utf8, "description": pl.Utf8})}),
+            "en": pl.Struct({"text": pl.Struct({"title": pl.Utf8, "description": pl.Utf8})}),
+            "fr": pl.Struct({"text": pl.Struct({"title": pl.Utf8, "description": pl.Utf8})}),
+            "it": pl.Struct({"text": pl.Struct({"title": pl.Utf8, "description": pl.Utf8})})
         })
     })
 
+    # Schema for Bundle JSON
+    bundle_dtype = pl.Struct({
+        "period": pl.Int64,
+        "tier": pl.Utf8
+    })
+
     # Parse JSON
-    df = df_insertions.lazy().with_columns(
-        pl.col("listing_json").str.json_decode(listing_dtype).alias("listing_struct")
-    )
+    df = df_insertions.lazy().with_columns([
+        pl.col("listing_json").str.json_decode(listing_dtype).alias("listing_struct"),
+        pl.col("selected_bundle_json").str.json_decode(bundle_dtype).alias("bundle_struct")
+    ])
     
     # Extract relevant fields
     df_processed = df.select([
@@ -220,6 +275,13 @@ def process_listings(df_insertions):
             (pl.col("fraud_flag") > pl.col("first_published_date"))
         ).alias("is_slip_through_fraud"),
         
+        # Customer Segment
+        pl.col("customer_segment"),
+
+        # Bundle Info
+        pl.col("bundle_struct").struct.field("period").alias("bundle_period"),
+        pl.col("bundle_struct").struct.field("tier").alias("bundle_tier"),
+
         # Offer Type
         pl.col("listing_struct").struct.field("offerType").alias("offer_type"),
 
@@ -231,6 +293,7 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("street").alias("lister_street"),
         pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("postalCode").alias("lister_zip"),
         pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("locality").alias("lister_city"),
+        pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("country").alias("lister_country"),
 
         # Billing Info
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("email").alias("billing_email"),
@@ -239,6 +302,8 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("address").struct.field("street").alias("billing_street"),
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("address").struct.field("postalCode").alias("billing_zip"),
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("address").struct.field("locality").alias("billing_city"),
+        pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("address").struct.field("country").alias("billing_country"),
+        pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("payment").struct.field("paymentType").alias("payment_type"),
 
         # Contact Info
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("inquiry").struct.field("givenName").alias("inquiry_given_name"),
@@ -268,11 +333,23 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("characteristics").struct.field("isOldBuilding").alias("is_old"),
 
         # Location
+        pl.col("listing_struct").struct.field("address").struct.field("street").alias("street"),
         pl.col("listing_struct").struct.field("address").struct.field("postalCode").alias("zip_code"),
         pl.col("listing_struct").struct.field("address").struct.field("locality").alias("city"),
+        pl.col("listing_struct").struct.field("address").struct.field("country").alias("country"),
+        pl.col("listing_struct").struct.field("address").struct.field("region").alias("region"),
+        pl.col("listing_struct").struct.field("address").struct.field("geoCoordinates").struct.field("latitude").alias("latitude"),
+        pl.col("listing_struct").struct.field("address").struct.field("geoCoordinates").struct.field("longitude").alias("longitude"),
         
-        # Text for Embedding
-        pl.col("listing_struct").struct.field("descriptions").struct.field("description").alias("description_text")
+        # Localization & Text
+        pl.col("listing_struct").struct.field("localization").struct.field("primary").alias("language"),
+        pl.coalesce([
+            pl.col("listing_struct").struct.field("localization").struct.field("de").struct.field("text").struct.field("description"),
+            pl.col("listing_struct").struct.field("localization").struct.field("en").struct.field("text").struct.field("description"),
+            pl.col("listing_struct").struct.field("localization").struct.field("fr").struct.field("text").struct.field("description"),
+            pl.col("listing_struct").struct.field("localization").struct.field("it").struct.field("text").struct.field("description"),
+            pl.col("listing_struct").struct.field("descriptions").struct.field("description") # Fallback to legacy
+        ]).alias("description_text")
     ]).collect()
     
     return df_processed
@@ -344,6 +421,16 @@ def create_nodes_and_edges(df_users, df_listings):
         pl.col("is_old"),
         pl.col("zip_code"),
         pl.col("city"),
+        pl.col("street"),
+        pl.col("country"),
+        pl.col("region"),
+        pl.col("latitude"),
+        pl.col("longitude"),
+        pl.col("bundle_period"),
+        pl.col("bundle_tier"),
+        pl.col("payment_type"),
+        pl.col("customer_segment"),
+        pl.col("language"),
         pl.col("description_embedding"),
         pl.col("fraud_flag").is_not_null().alias("is_fraud"),
         pl.col("submission_at")
@@ -371,28 +458,29 @@ def create_nodes_and_edges(df_users, df_listings):
     phones_from_listings = [df_listings.select(pl.col(c).alias("phone")) for c in phone_cols]
     nodes_phone = pl.concat(phones_from_listings).unique().drop_nulls()
 
-    # 6. Address Nodes (Granular: Street + Zip + City)
-    # ID: Zip_City_Street (or Zip_City if street missing)
-    def create_address_df(df, street_col, zip_col, city_col):
-        return df.select([
+    # 6. Address Nodes (Granular: Country + Zip + City + Street)
+    # ID: Country_Zip_City_Street
+    def create_address_df(df, street_col, zip_col, city_col, country_col, lat_col=None, lon_col=None):
+        cols = [
             pl.col(street_col).fill_null("").alias("street"),
             pl.col(zip_col).fill_null("").alias("zip"),
-            pl.col(city_col).fill_null("").alias("city")
-        ]).with_columns(
-            (pl.col("zip") + "_" + pl.col("city") + "_" + pl.col("street")).alias("address_id")
-        ).drop_nulls().unique(subset=["address_id"])
+            pl.col(city_col).fill_null("").alias("city"),
+            pl.col(country_col).fill_null("").alias("country")
+        ]
+        if lat_col and lon_col:
+            cols.append(pl.col(lat_col).alias("latitude"))
+            cols.append(pl.col(lon_col).alias("longitude"))
+        else:
+            cols.append(pl.lit(None).cast(pl.Float64).alias("latitude"))
+            cols.append(pl.lit(None).cast(pl.Float64).alias("longitude"))
+            
+        return df.select(cols).with_columns(
+            (pl.col("country") + "_" + pl.col("zip") + "_" + pl.col("city") + "_" + pl.col("street")).alias("address_id")
+        ).drop_nulls(subset=["address_id"]).unique(subset=["address_id"])
 
-    # We don't have property street in extraction yet (it was just zip/city), 
-    # but for lister/billing we extracted street.
-    # For property, we use Zip_City_ (empty street)
-    addr_property = df_listings.select([
-        pl.lit("").alias("street"),
-        pl.col("zip_code").fill_null("").alias("zip"),
-        pl.col("city").fill_null("").alias("city")
-    ]).with_columns((pl.col("zip") + "_" + pl.col("city") + "_").alias("address_id"))
-    
-    addr_lister = create_address_df(df_listings, "lister_street", "lister_zip", "lister_city")
-    addr_billing = create_address_df(df_listings, "billing_street", "billing_zip", "billing_city")
+    addr_property = create_address_df(df_listings, "street", "zip_code", "city", "country", "latitude", "longitude")
+    addr_lister = create_address_df(df_listings, "lister_street", "lister_zip", "lister_city", "lister_country")
+    addr_billing = create_address_df(df_listings, "billing_street", "billing_zip", "billing_city", "billing_country")
     
     nodes_address = pl.concat([addr_property, addr_lister, addr_billing]).unique(subset=["address_id"])
 
@@ -440,19 +528,19 @@ def create_nodes_and_edges(df_users, df_listings):
     # 6. Listing -> Located_At -> Address
     edges_listing_located_at = df_listings.select([
         pl.col("object_reference").alias("source"),
-        (pl.col("zip_code").fill_null("") + "_" + pl.col("city").fill_null("") + "_").alias("target")
+        (pl.col("country").fill_null("") + "_" + pl.col("zip_code").fill_null("") + "_" + pl.col("city").fill_null("") + "_" + pl.col("street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
     # 7. Listing -> Lister_Address -> Address
     edges_listing_lister_addr = df_listings.select([
         pl.col("object_reference").alias("source"),
-        (pl.col("lister_zip").fill_null("") + "_" + pl.col("lister_city").fill_null("") + "_" + pl.col("lister_street").fill_null("")).alias("target")
+        (pl.col("lister_country").fill_null("") + "_" + pl.col("lister_zip").fill_null("") + "_" + pl.col("lister_city").fill_null("") + "_" + pl.col("lister_street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
     # 8. Listing -> Billing_Address -> Address
     edges_listing_billing_addr = df_listings.select([
         pl.col("object_reference").alias("source"),
-        (pl.col("billing_zip").fill_null("") + "_" + pl.col("billing_city").fill_null("") + "_" + pl.col("billing_street").fill_null("")).alias("target")
+        (pl.col("billing_country").fill_null("") + "_" + pl.col("billing_zip").fill_null("") + "_" + pl.col("billing_city").fill_null("") + "_" + pl.col("billing_street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
     # 9. Listing -> Has_Contact_Person -> Person
@@ -517,30 +605,8 @@ def main():
     # df_listings_processed = df_listings_processed.head(1000) 
     df_listings_with_embeddings = generate_embeddings(df_listings_processed)
     
-    # 4. Create Graph Elements
-    (
-        nodes_user, nodes_listing, nodes_ip, nodes_email, nodes_phone, nodes_location,
-        edges_user_posts, edges_user_uses_ip,
-        edges_user_has_email, edges_listing_has_email, edges_listing_has_phone,
-        edges_listing_located_at, edges_user_located_at
-    ) = create_nodes_and_edges(df_users, df_listings_with_embeddings)
-    
-    # 5. Save to Parquet
-    print("Saving to Parquet...")
-    nodes_user.write_parquet("artifacts/nodes_user.parquet")
-    nodes_listing.write_parquet("artifacts/nodes_listing.parquet")
-    nodes_ip.write_parquet("artifacts/nodes_ip.parquet")
-    nodes_email.write_parquet("artifacts/nodes_email.parquet")
-    nodes_phone.write_parquet("artifacts/nodes_phone.parquet")
-    nodes_location.write_parquet("artifacts/nodes_location.parquet")
-    
-    edges_user_posts.write_parquet("artifacts/edges_user_posts_listing.parquet")
-    edges_user_uses_ip.write_parquet("artifacts/edges_user_uses_ip.parquet")
-    edges_user_has_email.write_parquet("artifacts/edges_user_has_email.parquet")
-    edges_listing_has_email.write_parquet("artifacts/edges_listing_has_email.parquet")
-    edges_listing_has_phone.write_parquet("artifacts/edges_listing_has_phone.parquet")
-    edges_listing_located_at.write_parquet("artifacts/edges_listing_located_at.parquet")
-    edges_user_located_at.write_parquet("artifacts/edges_user_located_at.parquet")
+    # 4. Create Graph Elements and Save
+    create_nodes_and_edges(df_users, df_listings_with_embeddings)
     
     print("ETL Complete. Data saved to 'artifacts/' directory.")
 

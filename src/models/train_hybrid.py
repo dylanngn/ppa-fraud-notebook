@@ -65,8 +65,8 @@ def main():
         end_date = df["submission_at"].max()
         
         window_size = timedelta(days=90)
-        step_size = timedelta(days=7)
-        test_size = timedelta(days=7)
+        step_size = timedelta(days=14)
+        test_size = timedelta(days=14)
         
         current_date = start_date + window_size
         

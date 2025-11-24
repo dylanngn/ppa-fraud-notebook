@@ -99,7 +99,7 @@ def filter_graph_by_time(data, max_time_ns):
             
     return new_data
 
-def train(epochs=20, split_percent=0.8, window_days=90, step_days=7):
+def train(epochs=20, split_percent=0.8, window_days=90, step_days=14):
     """
     Train HGT model and evaluate on sliding windows.
     
@@ -216,7 +216,9 @@ def train(epochs=20, split_percent=0.8, window_days=90, step_days=7):
     step_size_ns = step_days * 24 * 60 * 60 * 1e9
     
     # Start from min_time + window_size
-    current_time = min_time + window_size_ns
+    # Ensure we don't start before 2023 (fix 1970 issue)
+    start_threshold = datetime(2023, 1, 1).timestamp() * 1e9
+    current_time = max(min_time + window_size_ns, start_threshold)
     
     results = []
     window_idx = 0

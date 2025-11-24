@@ -36,11 +36,26 @@ We need to extract the following deep features from the `listing` JSONB:
 *   **Contact Persons**:
     *   `lister.contacts.inquiry`: The person handling inquiries.
         *   `givenName`, `familyName`, `email`, `phone`, `mobile`.
+*   **Localization**:
+    *   `localization`: Contains localized text (title, description) for `de`, `en`, `fr`, `it`.
+    *   `primary`: The declared primary language of the listing.
+    *   **Logic**: We extract the `primary` language code and coalesce the description text (prioritizing primary, then falling back to others) for embedding.
+*   **Customer Segment**:
+    *   `customer_segment`: Self-identified role (Tenant, Owner, Business).
+*   **Bundle Info**:
+    *   `selected_bundle`: Extracted `period` (duration) and `tier` (Basic, Premium, Top).
+*   **Payment Info**:
+    *   `lister.billing.payment.paymentType`: Method of payment (DIRECT vs INVOICE).
 
 ## 4. Temporal Filtering
 
 *   **Submission Date**: The timestamp when status changed from `DRAFT` to `PENDING_APPROVAL`.
 *   **Scope**: Listings submitted between **2023-11-01** and **2025-11-01**.
+*   **Evaluation Strategy** (Sliding Window):
+    *   **Training Window** (`window_days`): **14 days**. The model learns from this historical period.
+    *   **Step Size** (`step_days`): **14 days**. How far the window moves forward for the next iteration.
+    *   **Test Window** (`test_size`): **14 days**. The future period evaluated after training.
+    *   **Why Step Size?**: It determines the *frequency* of retraining. Setting `Step Size = Test Window` ensures contiguous, non-overlapping evaluation (we predict every day exactly once).
 
 ## 5. Graph Nodes & Edges
 
@@ -49,7 +64,10 @@ We need to extract the following deep features from the `listing` JSONB:
     *   Features: `account_age`, `email_domain`.
 *   **Listing Node**:
     *   ID: `object_reference`
-    *   Features: `offer_type`, `price`, `living_space`, `rooms`, `zip`, `city`, `platform`, `characteristics_vector`.
+    *   Features: 
+        *   Core: `offer_type`, `price`, `living_space`, `rooms`, `zip`, `city`, `platform`.
+        *   Enhanced: `bundle_tier` (Ordinal), `payment_type` (Binary), `customer_segment` (One-Hot), `language` (One-Hot).
+        *   Embeddings: Description text embedding (multilingual).
 *   **IP Node**:
     *   ID: `user_ip_address`
 *   **Email Node**:
@@ -64,7 +82,8 @@ We need to extract the following deep features from the `listing` JSONB:
         *   `HAS_CONTACT_PHONE` (from `lister.phone`, `contacts.inquiry.phone`)
         *   `HAS_BILLING_PHONE` (from `lister.billing.phone*`)
 *   **Address Node** (New Granularity):
-    *   ID: `Street_Zip_City` (Composite Key).
+    *   ID: `Country_Zip_City_Street` (Composite Key).
+    *   Features: `latitude`, `longitude`.
     *   **Types/Edges**:
         *   `LOCATED_AT` (Property Address: `listing.address`) - The bait.
         *   `LISTER_ADDRESS` (Lister Address: `lister.address`) - The declared entity.

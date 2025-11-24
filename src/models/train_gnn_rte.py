@@ -43,7 +43,7 @@ def filter_graph_by_time(data, max_time_ns):
     return new_data, edge_time_dict
 
 
-def train_with_rte(epochs=20, split_percent=0.8):
+def train_with_rte(epochs=20, split_percent=0.8, window_days=90, step_days=14):
     """
     Train HGT with Relative Temporal Encoding.
     """
@@ -67,13 +67,26 @@ def train_with_rte(epochs=20, split_percent=0.8):
     min_time = timestamps.min()
     max_time = timestamps.max()
     
-    from datetime import datetime
+    from datetime import datetime, timedelta
+    
+    # Filter valid timestamps for range calculation (fix 1970 issue)
+    start_threshold = datetime(2023, 1, 1).timestamp() * 1e9
+    valid_mask = timestamps >= start_threshold
+    valid_timestamps = timestamps[valid_mask]
+    
+    if len(valid_timestamps) == 0:
+        print("Warning: No valid timestamps found >= 2023. Using all data.")
+        valid_timestamps = timestamps
+        
+    min_time = valid_timestamps.min()
+    max_time = valid_timestamps.max()
+    
     # Convert nanoseconds to seconds for datetime
     min_date = datetime.fromtimestamp(min_time / 1e9)
     max_date = datetime.fromtimestamp(max_time / 1e9)
-    print(f"Data Range: {min_date} to {max_date}")
+    print(f"Data Range (Valid): {min_date} to {max_date}")
     
-    split_time = np.percentile(timestamps, split_percent * 100)
+    split_time = np.percentile(valid_timestamps, split_percent * 100)
     split_date = datetime.fromtimestamp(split_time / 1e9)
     print(f"Splitting at: {split_date} ({split_percent*100}%)")
     
@@ -111,7 +124,8 @@ def train_with_rte(epochs=20, split_percent=0.8):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
     # Masks
-    train_mask = (train_data['listing'].timestamp <= split_time).to(device)
+    # Masks (Exclude < 2023 from training)
+    train_mask = ((train_data['listing'].timestamp <= split_time) & (train_data['listing'].timestamp >= start_threshold)).to(device)
     test_mask = (test_data['listing'].timestamp > split_time).to(device)
     
     print(f"Train Nodes: {train_mask.sum().item()}, Test Nodes: {test_mask.sum().item()}")
@@ -177,6 +191,81 @@ def train_with_rte(epochs=20, split_percent=0.8):
             if auc_pr > best_auc:
                 best_auc = auc_pr
                 torch.save(model.state_dict(), "artifacts/model_hgt_rte_best.pt")
+                
+    # Load best model
+    model.load_state_dict(torch.load("artifacts/model_hgt_rte_best.pt", weights_only=False))
+    
+    # ===== PHASE 2: Sliding Window Evaluation =====
+    print(f"\n{'='*60}")
+    print(f"PHASE 2: Sliding Window Evaluation ({window_days} days train, {step_days} days test)")
+    print(f"{'='*60}\n")
+    
+    # Move full data to device
+    full_data = data.to(device)
+    
+    # Edge times for full data
+    full_edge_times_device = {}
+    for edge_type in data.edge_index_dict.keys():
+        if 'timestamp' in data[edge_type]:
+            full_edge_times_device[edge_type] = data[edge_type].timestamp.to(device)
+        else:
+            full_edge_times_device[edge_type] = None
+
+    window_size_ns = window_days * 24 * 60 * 60 * 1e9
+    step_size_ns = step_days * 24 * 60 * 60 * 1e9
+    
+    current_time = max(min_time + window_size_ns, start_threshold)
+    
+    results = []
+    
+    model.eval()
+    with torch.no_grad():
+        while current_time + step_size_ns <= max_time:
+            test_start_time = current_time
+            test_end_time = current_time + step_size_ns
+            
+            test_mask = (
+                (full_data['listing'].timestamp >= test_start_time) & 
+                (full_data['listing'].timestamp < test_end_time)
+            ).to(device)
+            
+            if test_mask.sum() == 0:
+                current_time += step_size_ns
+                continue
+                
+            out = model.predict(full_data.x_dict, full_data.edge_index_dict, full_edge_times_device)
+            pred = out[test_mask].sigmoid().cpu().numpy()
+            y_true = full_data['listing'].y[test_mask].cpu().numpy()
+            
+            if len(np.unique(y_true)) > 1:
+                auc_pr = average_precision_score(y_true, pred)
+                precisions_at_k = {}
+                for k in [50, 100, 200]:
+                    if len(pred) >= k:
+                        top_k_indices = np.argsort(pred.flatten())[-k:][::-1]
+                        precisions_at_k[f'p@{k}'] = y_true[top_k_indices].mean()
+                    else:
+                        precisions_at_k[f'p@{k}'] = 0.0
+            else:
+                auc_pr = 0.0
+                precisions_at_k = {'p@50': 0.0, 'p@100': 0.0, 'p@200': 0.0}
+            
+            window_start_date = datetime.fromtimestamp(test_start_time / 1e9)
+            window_end_date = datetime.fromtimestamp(test_end_time / 1e9)
+            
+            print(f"Window {window_start_date.date()} - {window_end_date.date()}: "
+                  f"AUC-PR = {auc_pr:.4f}, P@100 = {precisions_at_k['p@100']:.4f}, "
+                  f"Fraud Count = {y_true.sum()}")
+            
+            results.append({
+                "window_start": window_start_date,
+                "window_end": window_end_date,
+                "auc_pr": auc_pr,
+                "p@100": precisions_at_k['p@100'],
+                "fraud_count": int(y_true.sum())
+            })
+            
+            current_time += step_size_ns
     
     # Save final embeddings
     print("Saving Embeddings with RTE...")
