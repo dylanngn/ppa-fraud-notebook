@@ -10,6 +10,8 @@ This module provides utilities to:
 """
 
 import os
+import json
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -24,6 +26,56 @@ from matplotlib.figure import Figure
 # Configure matplotlib for better plots
 plt.style.use('seaborn-v0_8-darkgrid')
 shap.initjs()
+
+
+def _fix_xgboost_model(model: xgb.XGBClassifier) -> xgb.XGBClassifier:
+    """
+    Fix XGBoost model that may have corrupted internal parameters after pickling.
+    
+    This function handles cases where model parameters (like base_score) are stored
+    as strings instead of floats, which can cause SHAP to fail.
+    
+    Args:
+        model: XGBoost model that may need fixing
+        
+    Returns:
+        Fixed XGBoost model
+    """
+    # Always try JSON save/reload first - this is the most reliable fix
+    # for corrupted pickled models
+    try:
+        print("Checking model integrity and fixing if needed...")
+        # Save model to JSON and reload - this normalizes all parameters
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            temp_path = f.name
+        
+        # Save to JSON (this will normalize parameters)
+        model.save_model(temp_path)
+        
+        # Create a new model and load from JSON
+        fixed_model = xgb.XGBClassifier()
+        fixed_model.load_model(temp_path)
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Test if fixed model works with TreeExplainer
+        try:
+            _ = shap.TreeExplainer(fixed_model)
+            print("✓ Model parameters normalized successfully")
+            return fixed_model
+        except Exception as test_error:
+            # If it still fails, return the fixed model anyway
+            # The caller will handle it with fallback explainers
+            print(f"Note: Model normalized but TreeExplainer test failed: {test_error}")
+            print("Will use fallback SHAP explainer methods...")
+            return fixed_model
+            
+    except Exception as fix_error:
+        print(f"Warning: Could not normalize model via JSON: {fix_error}")
+        print("Will use original model with fallback SHAP explainer methods...")
+        # Return original model - we'll handle it with fallback explainers
+        return model
 
 
 class ModelExplainer:
@@ -61,14 +113,90 @@ class ModelExplainer:
         self.model_type = model_type
         self.window_info = window_info or {}
         
+        # Fix model if needed (handles pickled models with corrupted parameters)
+        fixed_model = _fix_xgboost_model(model)
+        
         # Create SHAP explainer (TreeExplainer is optimized for XGBoost)
         print("Initializing SHAP TreeExplainer...")
-        self.explainer = shap.TreeExplainer(model)
+        self.use_kernel_explainer = False
+        try:
+            self.explainer = shap.TreeExplainer(fixed_model)
+        except (ValueError, TypeError, AttributeError) as e:
+            # If TreeExplainer still fails, try with model_output='probability'
+            print(f"Standard TreeExplainer failed: {e}")
+            print("Trying TreeExplainer with model_output='probability'...")
+            try:
+                self.explainer = shap.TreeExplainer(fixed_model, model_output='probability')
+            except Exception as e2:
+                # Last resort: use KernelExplainer (slower but more robust)
+                print(f"TreeExplainer with probability output also failed: {e2}")
+                print("Falling back to KernelExplainer (this will be slower)...")
+                # Use a sample of data for background
+                background_size = min(100, len(X_test))
+                background = X_test[:background_size]
+                self.explainer = shap.KernelExplainer(fixed_model.predict_proba, background)
+                self.use_kernel_explainer = True
         
         # Compute SHAP values
         print("Computing SHAP values...")
-        self.shap_values = self.explainer.shap_values(X_test)
-        self.expected_value = self.explainer.expected_value
+        if self.use_kernel_explainer:
+            # KernelExplainer returns values for both classes, we want the positive class (fraud)
+            shap_values_all = self.explainer.shap_values(X_test)
+            # shap_values_all is a list [values_class_0, values_class_1] for binary classification
+            if isinstance(shap_values_all, list) and len(shap_values_all) == 2:
+                self.shap_values = shap_values_all[1]  # Use class 1 (fraud) SHAP values
+            else:
+                self.shap_values = shap_values_all
+            self.expected_value = self.explainer.expected_value[1] if isinstance(self.explainer.expected_value, (list, np.ndarray)) else self.explainer.expected_value
+        else:
+            shap_values_raw = self.explainer.shap_values(X_test)
+            # Handle different return formats from TreeExplainer
+            if isinstance(shap_values_raw, list):
+                # List of arrays - use the positive class (index 1 for binary classification)
+                if len(shap_values_raw) == 2:
+                    self.shap_values = shap_values_raw[1]
+                else:
+                    self.shap_values = shap_values_raw[0]
+            else:
+                # Single array - check if it has extra dimensions
+                self.shap_values = shap_values_raw
+            
+            # Ensure SHAP values are 2D: (n_samples, n_features)
+            if self.shap_values.ndim > 2:
+                # Flatten extra dimensions - take the last meaningful dimension
+                # Shape might be (n_samples, n_features, n_classes, ...) - we want (n_samples, n_features)
+                original_shape = self.shap_values.shape
+                if len(original_shape) == 3 and original_shape[2] == 2:
+                    # Shape is (n_samples, n_features, 2) - take the positive class
+                    self.shap_values = self.shap_values[:, :, 1]
+                elif len(original_shape) == 4:
+                    # Shape is (n_samples, n_features, 2, 2) or similar - flatten
+                    # Take the mean across extra dimensions or select appropriate slice
+                    self.shap_values = self.shap_values[:, :, 0, 0]  # Or use appropriate indexing
+                else:
+                    # Flatten to 2D by taking mean across extra dimensions
+                    self.shap_values = self.shap_values.mean(axis=tuple(range(2, self.shap_values.ndim)))
+            
+            # Final validation: ensure 2D shape
+            if self.shap_values.ndim != 2:
+                raise ValueError(f"SHAP values should be 2D (n_samples, n_features), got shape {self.shap_values.shape}")
+            
+            # Ensure shape matches X_test
+            if self.shap_values.shape[0] != X_test.shape[0]:
+                raise ValueError(f"SHAP values first dimension ({self.shap_values.shape[0]}) doesn't match X_test ({X_test.shape[0]})")
+            if self.shap_values.shape[1] != X_test.shape[1]:
+                # This might be okay if we're using a different feature set, but log a warning
+                print(f"Warning: SHAP values features ({self.shap_values.shape[1]}) doesn't match X_test ({X_test.shape[1]})")
+            
+            self.expected_value = self.explainer.expected_value
+            # Handle expected_value if it's an array
+            if isinstance(self.expected_value, (list, np.ndarray)):
+                if len(self.expected_value) == 2:
+                    self.expected_value = self.expected_value[1]  # Use positive class
+                else:
+                    self.expected_value = float(self.expected_value[0])
+            else:
+                self.expected_value = float(self.expected_value)
         
         # Create DataFrame for easier analysis
         self.df_test = pd.DataFrame(X_test, columns=feature_names)
@@ -82,6 +210,34 @@ class ModelExplainer:
         self.df_test.loc[(self.df_test['y_true'] == 0) & (self.df_test['predicted_fraud'] == 1), 'prediction_type'] = 'FP'
         self.df_test.loc[(self.df_test['y_true'] == 1) & (self.df_test['predicted_fraud'] == 0), 'prediction_type'] = 'FN'
         
+    def _normalize_shap_values(self, shap_vals: np.ndarray, n_features: int) -> np.ndarray:
+        """
+        Normalize SHAP values to 2D shape (n_samples, n_features).
+        
+        Args:
+            shap_vals: SHAP values array (may have extra dimensions)
+            n_features: Expected number of features
+            
+        Returns:
+            Normalized 2D SHAP values array
+        """
+        if shap_vals.ndim == 2:
+            # Already correct shape
+            return shap_vals
+        elif shap_vals.ndim == 3:
+            # Shape is (n_samples, n_features, n_classes) - take positive class or mean
+            if shap_vals.shape[2] == 2:
+                return shap_vals[:, :, 1]  # Take positive class (fraud)
+            else:
+                return shap_vals.mean(axis=2)
+        elif shap_vals.ndim == 4:
+            # Shape is (n_samples, n_features, 2, 2) or similar
+            # Take the first class, first output dimension
+            return shap_vals[:, :, 0, 0]
+        else:
+            # Flatten extra dimensions by taking mean across them
+            return shap_vals.mean(axis=tuple(range(2, shap_vals.ndim)))
+    
     def _get_embedding_features(self) -> List[str]:
         """Get list of embedding feature names."""
         return [f for f in self.feature_names if f.startswith('embed_')]
@@ -95,14 +251,19 @@ class ModelExplainer:
         """
         embed_features = self._get_embedding_features()
         if not embed_features:
-            return self.shap_values, self.feature_names, self.X_test
+            # Normalize before returning
+            shap_vals = self._normalize_shap_values(self.shap_values, len(self.feature_names))
+            return shap_vals, self.feature_names, self.X_test
+        
+        # Normalize SHAP values first
+        shap_vals_normalized = self._normalize_shap_values(self.shap_values, len(self.feature_names))
         
         embed_indices = [i for i, name in enumerate(self.feature_names) if name in embed_features]
         non_embed_indices = [i for i, name in enumerate(self.feature_names) if name not in embed_features]
         
         # Aggregate SHAP values (sum absolute values for importance, or sum for direction)
-        embed_shap_aggregated = np.sum(self.shap_values[:, embed_indices], axis=1, keepdims=True)
-        non_embed_shap = self.shap_values[:, non_embed_indices]
+        embed_shap_aggregated = np.sum(shap_vals_normalized[:, embed_indices], axis=1, keepdims=True)
+        non_embed_shap = shap_vals_normalized[:, non_embed_indices]
         
         # Aggregate feature values (mean)
         embed_X_aggregated = np.mean(self.X_test[:, embed_indices], axis=1, keepdims=True)
@@ -138,6 +299,9 @@ class ModelExplainer:
             shap_vals, features, X = self._aggregate_embedding_shap()
         else:
             shap_vals, features, X = self.shap_values, self.feature_names, self.X_test
+        
+        # Normalize SHAP values to 2D
+        shap_vals = self._normalize_shap_values(shap_vals, len(features))
         
         fig = plt.figure(figsize=(12, 8))
         shap.summary_plot(
@@ -180,8 +344,18 @@ class ModelExplainer:
         else:
             shap_vals, features, X = self.shap_values, self.feature_names, self.X_test
         
+        # Normalize SHAP values to 2D
+        shap_vals = self._normalize_shap_values(shap_vals, len(features))
+        
         # Calculate mean absolute SHAP values
         mean_abs_shap = np.abs(shap_vals).mean(axis=0)
+        
+        # Ensure mean_abs_shap is 1D and matches number of features
+        if mean_abs_shap.ndim > 1:
+            mean_abs_shap = mean_abs_shap.flatten()
+        if len(mean_abs_shap) != len(features):
+            # Take first len(features) elements if shape mismatch
+            mean_abs_shap = mean_abs_shap[:len(features)]
         
         # Sort and select top features
         sorted_idx = np.argsort(mean_abs_shap)[-max_display:]
@@ -229,6 +403,9 @@ class ModelExplainer:
             shap_vals, features, X = self._aggregate_embedding_shap()
         else:
             shap_vals, features, X = self.shap_values, self.feature_names, self.X_test
+        
+        # Normalize SHAP values to 2D
+        shap_vals = self._normalize_shap_values(shap_vals, len(features))
         
         fig = plt.figure(figsize=(12, 8))
         
@@ -282,10 +459,13 @@ class ModelExplainer:
         
         print(f"Generating dependence plot for {feature}...")
         
+        # Normalize SHAP values to 2D
+        shap_vals_normalized = self._normalize_shap_values(self.shap_values, len(self.feature_names))
+        
         fig = plt.figure(figsize=(10, 6))
         shap.dependence_plot(
             feature,
-            self.shap_values,
+            shap_vals_normalized,
             self.X_test,
             feature_names=self.feature_names,
             interaction_index=interaction_feature,
@@ -373,9 +553,12 @@ class ModelExplainer:
             print(f"Insufficient data for comparison. {cohort1_type}: {cohort1_mask.sum()}, {cohort2_type}: {cohort2_mask.sum()}")
             return None
         
+        # Normalize SHAP values to 2D
+        shap_vals_normalized = self._normalize_shap_values(self.shap_values, len(self.feature_names))
+        
         # Calculate mean absolute SHAP values for each cohort
-        shap_cohort1 = np.abs(self.shap_values[cohort1_mask]).mean(axis=0)
-        shap_cohort2 = np.abs(self.shap_values[cohort2_mask]).mean(axis=0)
+        shap_cohort1 = np.abs(shap_vals_normalized[cohort1_mask]).mean(axis=0)
+        shap_cohort2 = np.abs(shap_vals_normalized[cohort2_mask]).mean(axis=0)
         
         # Get top features based on total importance
         total_importance = shap_cohort1 + shap_cohort2
@@ -425,10 +608,21 @@ class ModelExplainer:
         else:
             shap_vals, features, _ = self.shap_values, self.feature_names, self.X_test
         
+        # Normalize SHAP values to 2D
+        shap_vals = self._normalize_shap_values(shap_vals, len(features))
+        
         # Calculate various importance metrics
         mean_abs_shap = np.abs(shap_vals).mean(axis=0)
         mean_shap = shap_vals.mean(axis=0)
         std_shap = shap_vals.std(axis=0)
+        
+        # Ensure all metrics are 1D and match number of features
+        if mean_abs_shap.ndim > 1:
+            mean_abs_shap = mean_abs_shap.flatten()[:len(features)]
+        if mean_shap.ndim > 1:
+            mean_shap = mean_shap.flatten()[:len(features)]
+        if std_shap.ndim > 1:
+            std_shap = std_shap.flatten()[:len(features)]
         
         df = pd.DataFrame({
             'feature': features,

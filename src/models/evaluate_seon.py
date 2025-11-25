@@ -6,7 +6,7 @@ that is currently in production. Seon operates BEFORE listing publication,
 making binary approve/reject decisions.
 
 Performance metrics are calculated based on:
-1. Primary: seonApproved boolean from auto_approval_criteria
+1. Primary: seon_approved boolean (extracted from auto_approval_criteria_json in ETL)
 2. Fallback: first_published_date comparison (when Seon data unavailable)
 
 This represents the TRUE BASELINE we want to beat with our research.
@@ -92,10 +92,8 @@ def calculate_seon_labels(df: pl.DataFrame) -> pl.DataFrame:
             - seon_prediction: 1 (reject) or 0 (approve)
             - seon_prediction_source: "seon_approved" or "published_date_fallback"
     """
-    df = df.with_columns([
-        # Parse Seon approval
-        parse_seon_approval(pl.col("auto_approval_criteria")).alias("seon_approved")
-    ])
+    # seon_approved is already extracted from auto_approval_criteria_json in ETL process
+    # No need to parse - just use the existing column
     
     # Primary logic: Use seon_approved when available
     df = df.with_columns([
@@ -154,7 +152,7 @@ def evaluate_seon_performance(
     Evaluate Seon's performance on the dataset.
     
     Args:
-        df: DataFrame with fraud_flag, auto_approval_criteria, first_published_date
+        df: DataFrame with fraud_flag, seon_approved, first_published_date
         include_fallback: Whether to include fallback predictions in metrics
         
     Returns:
@@ -236,7 +234,7 @@ def evaluate_seon_sliding_window(
     Evaluate Seon performance using sliding window to match our model evaluation.
     
     Args:
-        df: DataFrame with fraud_flag, auto_approval_criteria, first_published_date, submission_at
+        df: DataFrame with fraud_flag, seon_approved, first_published_date, submission_at
         window_days: Size of training window (for consistency, not used by Seon)
         step_days: Step size for sliding window
         include_fallback: Whether to include fallback predictions
@@ -376,8 +374,8 @@ def run_seon_evaluation(
     print("Loading listing data...")
     df = pl.read_parquet("artifacts/nodes_listing.parquet")
     
-    # Check for required columns
-    required_cols = ["auto_approval_criteria", "fraud_flag", "first_published_date", "submission_at", "is_fraud"]
+    # Check for required columns (seon_approved is already extracted in ETL)
+    required_cols = ["seon_approved", "fraud_flag", "first_published_date", "submission_at", "is_fraud"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:

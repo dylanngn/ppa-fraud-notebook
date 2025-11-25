@@ -249,9 +249,7 @@ def process_listings(df_insertions):
 
     auto_approval_criteria_dtype = pl.Struct({
         "criteria": pl.Struct({
-            "criteria": pl.Struct({
-                "seonApproved": pl.Boolean
-            })
+            "seonApproved": pl.Boolean
         })
     })
 
@@ -268,7 +266,6 @@ def process_listings(df_insertions):
         pl.col("platform"),
         pl.col("user_id"),
         pl.col("user_ip_address"),
-        pl.col("auto_approval_criteria"),
         pl.col("first_published_date"),
         pl.col("listing_created_at"),
         pl.col("submission_at"),
@@ -355,7 +352,9 @@ def process_listings(df_insertions):
             pl.col("listing_struct").struct.field("localization").struct.field("fr").struct.field("text").struct.field("description"),
             pl.col("listing_struct").struct.field("localization").struct.field("it").struct.field("text").struct.field("description"),
             pl.col("listing_struct").struct.field("descriptions").struct.field("description") # Fallback to legacy
-        ]).alias("description_text")
+        ]).alias("description_text"),
+
+        pl.col("auto_approval_criteria_struct").struct.field("criteria").struct.field("seonApproved").alias("seon_approved"),
     ]).collect()
     
     return df_processed
@@ -446,7 +445,7 @@ def create_nodes_and_edges(df_users, df_listings):
         pl.col("description_embedding"),
         pl.col("fraud_flag").is_not_null().alias("is_fraud"),
         pl.col("submission_at"),
-        pl.col("auto_approval_criteria_struct").struct.field("criteria").struct.field("seonApproved").alias("seon_approved"),
+        pl.col("seon_approved"),  # Already extracted from auto_approval_criteria_json in process_insertions()
         pl.col("fraud_flag"),
         pl.col("first_published_date")
     ]).unique(subset=["insertion_id"])
