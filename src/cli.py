@@ -16,6 +16,9 @@ from src.models import evaluate_seon as seon_module
 from src.features import advanced_graph_features as advanced_features_module
 from src.features import time_weighted_features as time_weighted_module
 from src.features import interaction_features as interaction_module
+# Lazy imports for optional dependencies (optuna)
+# from src.experiments import optimize_hyperparams as hyperopt_module
+# from src.experiments import staged_hyperopt as staged_hyperopt_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -188,6 +191,72 @@ def optimize_graph_window():
     console.print("[bold green]Optimizing Graph Feature Window Size...[/bold green]")
     from src.experiments import optimize_graph_window as opt
     opt.run_window_optimization()
+
+
+@app.command()
+def optimize_hyperparams(
+    n_trials: int = typer.Option(100, help="Number of Optuna trials"),
+    n_windows: int = typer.Option(5, help="CV windows per trial for faster optimization"),
+    timeout_minutes: int = typer.Option(None, help="Optional timeout in minutes"),
+    skip_validation: bool = typer.Option(False, help="Skip full validation after optimization"),
+):
+    """
+    Experiment 11: Hyperparameter optimization using Optuna.
+    
+    Tunes XGBoost hyperparameters to maximize:
+        0.7 * AUC-PR + 0.3 * P@100
+    
+    Search space includes:
+    - n_estimators: [100, 500]
+    - max_depth: [4, 10]
+    - learning_rate: [0.01, 0.2]
+    - min_child_weight: [1, 20]
+    - subsample: [0.6, 1.0]
+    - colsample_bytree: [0.6, 1.0]
+    - gamma: [0, 1]
+    - reg_alpha: [0, 10]
+    - reg_lambda: [1, 10]
+    
+    Target: Push AUC-PR from 0.6713 to 0.70+
+    """
+    console.print("[bold green]Experiment 11: Hyperparameter Optimization...[/bold green]")
+    from src.experiments import optimize_hyperparams as hyperopt_module
+    hyperopt_module.main(
+        n_trials=n_trials,
+        n_windows=n_windows,
+        timeout_minutes=timeout_minutes,
+        validate=not skip_validation,
+    )
+
+
+@app.command()
+def staged_hyperopt(
+    n_windows: int = typer.Option(5, help="CV windows per configuration"),
+):
+    """
+    Experiment 11b: Staged hyperparameter optimization.
+    
+    A structured 3-stage approach:
+    
+    Stage 1: Parameter sensitivity analysis
+        - Tests individual parameter variations
+        - Identifies which hyperparameters matter most
+    
+    Stage 2: Promising combinations
+        - Tests 6 pre-defined configurations based on:
+          * XGBoost best practices
+          * Fraud detection literature
+          * Imbalanced learning principles
+    
+    Stage 3: Compose final combination
+        - Combines winning elements from Stage 1 & 2
+        - Tests hybrid configurations
+    
+    More interpretable than blind Optuna search!
+    """
+    console.print("[bold green]Experiment 11b: Staged Hyperparameter Optimization...[/bold green]")
+    from src.experiments import staged_hyperopt as staged_hyperopt_module
+    staged_hyperopt_module.main(n_windows=n_windows)
 
 @app.command()
 def check_graph_timestamps():

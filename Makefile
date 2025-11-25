@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window optimize-hyperparams staged-hyperopt
 
 install:
 	pip install -r requirements.txt
@@ -108,6 +108,14 @@ retrain-production:
 optimize-window:
 	@echo "Testing graph feature window sizes (Experiment 8)..."
 	python src/cli.py optimize-graph-window
+
+optimize-hyperparams:
+	@echo "Running hyperparameter optimization (Experiment 11)..."
+	python src/cli.py optimize-hyperparams --n-trials 100 --n-windows 5
+
+staged-hyperopt:
+	@echo "Running staged hyperparameter optimization (Experiment 11b)..."
+	python src/cli.py staged-hyperopt --n-windows 5
 
 # --- Seon Evaluation ---
 

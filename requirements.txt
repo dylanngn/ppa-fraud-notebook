@@ -20,3 +20,4 @@ jupyter>=1.0.0
 shap>=0.44.0
 pandas>=2.0.0
 networkx>=3.0.0
+optuna>=3.5.0
