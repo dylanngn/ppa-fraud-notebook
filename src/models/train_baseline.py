@@ -25,15 +25,36 @@ GRAPH_FEATURE_COLUMNS = [
     "listing_pagerank",
 ]
 
+ADVANCED_GRAPH_FEATURES_PATH = Path("artifacts/listing_advanced_features.parquet")
+ADVANCED_GRAPH_FEATURE_COLUMNS = [
+    "degree_total",
+    "is_isolated",
+    "unique_identifier_count",
+    "neighbor_overlap_score",
+    "avg_neighbor_degree",
+]
+
 
 def load_graph_features() -> pl.DataFrame:
+    df = None
     if GRAPH_FEATURES_PATH.exists():
         print("Loading graph-derived features...")
-        return pl.read_parquet(GRAPH_FEATURES_PATH)
-    raise FileNotFoundError(
-        f"Graph features not found at {GRAPH_FEATURES_PATH}. "
-        "Run `make graph-features` to generate them."
-    )
+        df = pl.read_parquet(GRAPH_FEATURES_PATH)
+    
+    if ADVANCED_GRAPH_FEATURES_PATH.exists():
+        print("Loading advanced graph features...")
+        advanced = pl.read_parquet(ADVANCED_GRAPH_FEATURES_PATH)
+        if df is not None:
+            df = df.join(advanced, on="insertion_id", how="left")
+        else:
+            df = advanced
+            
+    if df is None:
+        raise FileNotFoundError(
+            f"Graph features not found. "
+            "Run `make graph-features` and `python src/cli.py advanced-graph-features` to generate them."
+        )
+    return df
 
 
 def load_data():
@@ -57,8 +78,9 @@ def feature_engineering(df, include_graph_features: bool = False):
     if include_graph_features:
         graph_features = load_graph_features()
         df = df.join(graph_features, on="insertion_id", how="left")
+        all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS
         df = df.with_columns([
-            pl.col(col).fill_null(0) for col in GRAPH_FEATURE_COLUMNS if col in df.columns
+            pl.col(col).fill_null(0) for col in all_graph_cols if col in df.columns
         ])
 
     # 1. Account Age (The critical feature)
@@ -162,7 +184,8 @@ def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, 
     saved_models = []
     
     # Build feature list
-    graph_columns = [col for col in GRAPH_FEATURE_COLUMNS if col in df.columns]
+    all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS
+    graph_columns = [col for col in all_graph_cols if col in df.columns]
     features = get_base_features() + graph_columns + extra_features
     target = "is_fraud"
     

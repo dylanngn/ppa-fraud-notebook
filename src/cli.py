@@ -11,7 +11,9 @@ from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
 from src.models import train_graph_baseline as graph_baseline_module
 from src.models import train_hybrid as hybrid_module
+from src.models import train_hybrid as hybrid_module
 from src.models import evaluate_seon as seon_module
+from src.features import advanced_graph_features as advanced_features_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -92,6 +94,14 @@ def graph_features():
     """
     console.print("[bold green]Generating Graph Features...[/bold green]")
     graph_features_module.generate_graph_features()
+
+@app.command()
+def advanced_graph_features():
+    """
+    Generate advanced graph statistics (isolation, clustering, etc.).
+    """
+    console.print("[bold green]Generating Advanced Graph Features...[/bold green]")
+    advanced_features_module.generate_advanced_features()
 
 @app.command()
 def check_graph_timestamps():
