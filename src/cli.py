@@ -103,6 +103,59 @@ def advanced_graph_features():
     console.print("[bold green]Generating Advanced Graph Features...[/bold green]")
     advanced_features_module.generate_advanced_features()
 
+
+@app.command()
+def train_baseline_expanding(
+    window_days: int = typer.Option(180, help="Initial training window size in days"),
+    step_days: int = typer.Option(7, help="Sliding window step size in days")
+):
+    """
+    Train baseline XGBoost with expanding window (accumulating data).
+    Simulates production continuous learning.
+    """
+    console.print("[bold green]Training Baseline (Expanding Window)...[/bold green]")
+    from src.models import train_baseline_expanding
+    train_baseline_expanding.main(window_days=window_days, step_days=step_days)
+
+
+@app.command()
+def train_hybrid_expanding(
+    model: str = typer.Option("hgt", help="Model type: hgt, gat, sage"),
+    window_days: int = typer.Option(180, help="Initial training window size in days"),
+    step_days: int = typer.Option(7, help="Sliding window step size in days")
+):
+    """
+    Train hybrid model with expanding window (accumulating data).
+    Gives HGT/GNN access to complete graph structure.
+    """
+    console.print(f"[bold green]Training Hybrid {model.upper()} (Expanding Window)...[/bold green]")
+    from src.models import train_hybrid_expanding
+    train_hybrid_expanding.main(model_name=model, window_days=window_days, step_days=step_days)
+
+
+@app.command()
+def retrain_production(
+    include_production: bool = typer.Option(True, help="Include production data")
+):
+    """
+    Retrain production model with all historical + production data.
+    Used for weekly continuous learning.
+    """
+    console.print("[bold green]Retraining Production Model...[/bold green]")
+    from src.training import continuous_learner
+    continuous_learner.train_production_model(include_production_data=include_production)
+
+
+@app.command()
+def optimize_graph_window():
+    """
+    Test different time windows for graph feature computation.
+    Experiment 8: Find optimal window size (30, 60, 90, 120, 180, 365 days).
+    """
+    console.print("[bold green]Optimizing Graph Feature Window Size...[/bold green]")
+    from src.experiments import optimize_graph_window as opt
+    opt.run_window_optimization()
+
 @app.command()
 def check_graph_timestamps():
     """
