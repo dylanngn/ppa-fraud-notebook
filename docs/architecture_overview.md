@@ -87,28 +87,96 @@ flowchart LR
 
 ## 5. Model Architectures
 
-### 5.1 Graph-Feature Baseline (Production Default)
+### 5.1 Production: Graph-Feature Baseline
+**Status**: ✅ **Production Default**
 
-*   **Features**: Tabular columns (account age, price, rooms, bundle info, etc.) + engineered graph stats.
-*   **Model**: Sliding-window XGBoost (90-day train / 14-day test).
-*   **Performance**: See `evaluation_report.md` for latest results.
+This model combines powerful tabular features with manually engineered graph statistics. It outperforms end-to-end GNNs because explicit counts (e.g., "shared emails = 5") are easier for tree-based models to exploit than over-smoothed embeddings.
 
-### 5.2 Residual Hybrid HGT (Research Track)
+**Input Features**:
+- **Tabular** (14-dim): `account_age_days`, `log_price`, `living_space`, `rooms`, `is_new`, `bundle_period`, etc.
+- **Graph Stats** (12-dim): Recency-weighted degrees, shared contacts count, component sizes, PageRank.
 
-```mermaid
-flowchart LR
-    HeteroData --> HGT[HGT + residual skip]
-    HGT --> Emb[64-d embeddings]
-    TabGraph[Tabular + graph stats] --> Combine
-    Emb --> Combine
-    Combine --> XGB_Hybrid[XGBoost]
+**Architecture**:
+```
+XGBoost Classifier
+├── n_estimators: 100
+├── max_depth: 6
+├── learning_rate: 0.1
+├── objective: binary:logistic
+└── eval_metric: aucpr
 ```
 
-*   **Representation learning**: `UnifiedGNNWrapper` concatenates the listing self projection with the aggregated neighbor message before projection, mitigating over-smoothing.
-*   **Classifier input**: [Tabular + graph stats] + [Embeddings] (14 + 12 + 64 = 90 features total).
-*   **Performance**: See `evaluation_report.md` for latest results.
+**Training Strategy**:
+- **Method**: Sliding Window (90-day train, 14-day test) or Expanding Window.
+- **Feature Engineering**: See Section 4.
 
-## 6. Research Cheat Sheet (The "Why" & "How")
+---
+
+### 5.2 Research: GNN Encoders
+End-to-end graph neural networks used for generating embeddings. While currently outperformed by the baseline, they capture latent structure.
+
+#### 5.2.1 Graph Attention Network (GAT)
+Uses attention mechanisms to learn importance weights for neighbors.
+- **Architecture**: 2-layer GATConv (64 hidden dims, 4 heads).
+- **Input**: Heterogeneous node features + edge types.
+- **Best for**: Learning which specific neighbors matter most.
+
+#### 5.2.2 GraphSAGE
+Inductive learning using neighborhood sampling and aggregation.
+- **Architecture**: 2-layer SAGEConv (Mean aggregation).
+- **Pros**: Scalable, inductive (handles new nodes gracefully).
+
+#### 5.2.3 Heterogeneous Graph Transformer (HGT)
+Designed for heterogeneity with type-specific attention.
+- **Architecture**: 2-layer HGTConv (64 hidden dims, 4 heads).
+- **Pros**: Automatically handles different node/edge types without manual metapath definition.
+
+#### 5.2.4 HGT + RTE (Relative Temporal Encoding)
+Augments HGT with time-gap embeddings.
+- **Mechanism**: $\Delta t$ injected into attention scoring.
+- **Pros**: Distinguishes between ancient history and recent "bursts".
+
+---
+
+### 5.3 Research: Hybrid Models
+Combines GNN embeddings with the production baseline.
+
+**Architecture**:
+```mermaid
+flowchart LR
+    HeteroData --> GNN[GNN Encoder]
+    GNN --> Emb[64-d Embeddings]
+    Tabular[Tabular Features] --> Concat
+    GraphStats[Graph Stats] --> Concat
+    Emb --> Concat
+    Concat --> XGB[XGBoost Classifier]
+```
+
+**Feature Vector**: 90 dimensions (14 Tabular + 12 Graph Stats + 64 Embeddings).
+
+## 6. Model Comparison Matrix
+
+| Model | Parameters | Training Time | Best For |
+|-------|-----------|---------------|----------|
+| **Baseline XGBoost** | ~10K | Fast (~1 min) | Tabular-only baseline |
+| **Graph-Feature XGBoost** | ~10K | Fast (~1 min + prep) | **Production** (High Precision) |
+| **GAT / SAGE** | ~50K | Medium (~10 min) | Homogeneous/Bipartite graphs |
+| **HGT / HGT+RTE** | ~60K+ | Slow (~15 min) | Complex heterogeneous graphs |
+| **Hybrid** | GNN + 10K | GNN time + Fast | Research / Ensembling |
+
+## 7. Hyperparameter Tuning
+
+### XGBoost (Baseline & Hybrid)
+- **max_depth**: {4, 6, 8} - Deeper = complex rules (risk of overfitting).
+- **learning_rate**: {0.05, 0.1, 0.2} - Lower is more stable.
+- **scale_pos_weight**: Critical for fraud (class imbalance).
+
+### GNNs
+- **hidden_channels**: {32, 64} - 64 is standard.
+- **num_heads**: {2, 4} - 4 helps stabilize attention.
+- **num_layers**: {1, 2} - 2 layers is usually sufficient (2-hop neighborhood).
+
+## 8. Research Cheat Sheet (The "Why" & "How")
 
 ### The Graph Structure
 *   **Heterogeneity**: Modeling different entities (`User` vs `IP`) captures semantics that homogeneous graphs miss.
@@ -128,7 +196,7 @@ flowchart LR
     *   **AUC-PR**: Primary metric (focus on minority class).
     *   **Precision@100**: Operational efficiency (how many real frauds in the top 100?).
 
-## 7. Commands
+## 9. Commands
 
 *   **ETL**: `make etl`
 *   **Build Graph**: `make build-graph`

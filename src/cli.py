@@ -14,6 +14,8 @@ from src.models import train_hybrid as hybrid_module
 from src.models import train_hybrid as hybrid_module
 from src.models import evaluate_seon as seon_module
 from src.features import advanced_graph_features as advanced_features_module
+from src.features import time_weighted_features as time_weighted_module
+from src.features import interaction_features as interaction_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -102,6 +104,37 @@ def advanced_graph_features():
     """
     console.print("[bold green]Generating Advanced Graph Features...[/bold green]")
     advanced_features_module.generate_advanced_features()
+
+
+@app.command()
+def time_weighted_features():
+    """
+    Generate time-weighted graph features (Experiment 9).
+    
+    Features include:
+    - Recency-weighted connection counts (recent connections weighted higher)
+    - Velocity metrics (connections per day)
+    - Acceleration (velocity change)
+    - Burst detection (sudden activity spikes)
+    - Dormant reactivation patterns
+    """
+    console.print("[bold green]Generating Time-Weighted Graph Features...[/bold green]")
+    time_weighted_module.generate_time_weighted_features()
+
+
+@app.command()
+def interaction_features():
+    """
+    Generate interaction features (Experiment 10).
+    
+    Features include:
+    - new_account_high_reuse: New account + high email/phone reuse (13.4x lift)
+    - new_account_invoice_payment: New account without direct payment (28% FR)
+    - new_account_small_listing: New account with small property
+    - suspicious_combo_score: Weighted combination of risk indicators
+    """
+    console.print("[bold green]Generating Interaction Features...[/bold green]")
+    interaction_module.generate_interaction_features()
 
 
 @app.command()

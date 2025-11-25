@@ -34,6 +34,58 @@ ADVANCED_GRAPH_FEATURE_COLUMNS = [
     "avg_neighbor_degree",
 ]
 
+TIME_WEIGHTED_FEATURES_PATH = Path("artifacts/listing_time_weighted_features.parquet")
+TIME_WEIGHTED_FEATURE_COLUMNS = [
+    # Email time-weighted features
+    "email_total_historical",
+    "email_count_7d",
+    "email_count_30d",
+    "email_recent_weighted",
+    "email_velocity_7d",
+    "email_acceleration",
+    "email_is_burst",
+    "email_is_dormant_reactivation",
+    "email_recency_weighted",
+    "email_time_spread",
+    # Phone time-weighted features
+    "phone_total_historical",
+    "phone_count_7d",
+    "phone_count_30d",
+    "phone_recent_weighted",
+    "phone_velocity_7d",
+    "phone_acceleration",
+    "phone_is_burst",
+    "phone_is_dormant_reactivation",
+    "phone_recency_weighted",
+    "phone_time_spread",
+    # Combined features
+    "combined_velocity_7d",
+    "combined_acceleration",
+    "any_burst",
+    "any_dormant_reactivation",
+    "combined_recency_weighted",
+]
+
+INTERACTION_FEATURES_PATH = Path("artifacts/listing_interaction_features.parquet")
+INTERACTION_FEATURE_COLUMNS = [
+    # Binary interactions
+    "new_account_high_email_reuse",
+    "new_account_high_phone_reuse",
+    "new_account_high_reuse_any",
+    "new_account_invoice_payment",
+    "very_new_account_invoice",
+    "is_small_listing",
+    "new_account_small_listing",
+    "in_large_component",
+    "new_account_large_component",
+    "new_account_isolated",
+    # Continuous scores
+    "account_age_risk_score",
+    "email_reuse_intensity",
+    "component_risk_score",
+    "suspicious_combo_score",
+]
+
 
 def load_graph_features() -> pl.DataFrame:
     df = None
@@ -48,6 +100,22 @@ def load_graph_features() -> pl.DataFrame:
             df = df.join(advanced, on="insertion_id", how="left")
         else:
             df = advanced
+    
+    if TIME_WEIGHTED_FEATURES_PATH.exists():
+        print("Loading time-weighted graph features...")
+        time_weighted = pl.read_parquet(TIME_WEIGHTED_FEATURES_PATH)
+        if df is not None:
+            df = df.join(time_weighted, on="insertion_id", how="left")
+        else:
+            df = time_weighted
+    
+    if INTERACTION_FEATURES_PATH.exists():
+        print("Loading interaction features...")
+        interactions = pl.read_parquet(INTERACTION_FEATURES_PATH)
+        if df is not None:
+            df = df.join(interactions, on="insertion_id", how="left")
+        else:
+            df = interactions
             
     if df is None:
         raise FileNotFoundError(
@@ -78,7 +146,7 @@ def feature_engineering(df, include_graph_features: bool = False):
     if include_graph_features:
         graph_features = load_graph_features()
         df = df.join(graph_features, on="insertion_id", how="left")
-        all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS
+        all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS + TIME_WEIGHTED_FEATURE_COLUMNS + INTERACTION_FEATURE_COLUMNS
         df = df.with_columns([
             pl.col(col).fill_null(0) for col in all_graph_cols if col in df.columns
         ])
@@ -184,7 +252,7 @@ def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, 
     saved_models = []
     
     # Build feature list
-    all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS
+    all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS + TIME_WEIGHTED_FEATURE_COLUMNS + INTERACTION_FEATURE_COLUMNS
     graph_columns = [col for col in all_graph_cols if col in df.columns]
     features = get_base_features() + graph_columns + extra_features
     target = "is_fraud"

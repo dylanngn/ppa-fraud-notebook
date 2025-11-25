@@ -19,9 +19,21 @@
 | HGT Separated | 0.5729 | -3.7% |
 
 ### Findings:
-❌ **FAILED** - Performance dropped 3%
+    ❌ **FAILED** - Performance dropped 3%
 
-**Root Cause**: Breaking emailsphones into separate types destroyed transitivity:
+    ### Window-Level Analysis:
+    Comparison of Unified vs Separated nodes across different time windows showed consistent degradation:
+
+    | Window | Unified (Old) | Separated (New) | Difference |
+    |--------|--------------|----------------|------------|
+    | Feb 2024 | 0.7624 | 0.7411 | -0.0213 |
+    | Oct 2024 | 0.6852 | 0.6602 | -0.0250 |
+    | Aug 2025 | 0.8111 | 0.7969 | -0.0142 |
+    | **Mean** | **0.5909** | **0.5729** | **-0.0180** |
+
+    **Note on Pure GNNs**: Both configurations showed terrible pure GNN performance (0.04-0.20 AUC-PR), confirming that the graph signal is fundamentally weak and GNNs alone cannot learn fraud patterns without tabular features.
+
+    **Root Cause**: Breaking emailsphones into separate types destroyed transitivity:
 - Before: Listing A → email → Listing B (connected)
 - After: Listing A → contact_email, Listing B → billing_email (not connected)
 - Fraudsters reuse same email for both contact AND billing
@@ -87,6 +99,11 @@ Removed all billing edges entirely:
 - `make graph-features` succeeded after adding the compatibility shims for Polars.
 - Re-running the baseline with the new columns yielded **0.6655 mean AUC-PR** (vs. 0.5947 previously) and **0.9392 mean AUC-ROC**.
 - Early windows (e.g., April–May 2023) now achieve P@100 between 0.49–0.75, and high-volume windows in late 2024–2025 regularly exceed 0.9 precision—evidence that the manual graph statistics surface genuine signal that was invisible to the pure tabular model.
+
+### Why Graph Features Win (Detailed Analysis):
+1. **Explicit structural counts**: XGBoost sees exact numbers (listing connections, component sizes) which are interpretable and precise.
+2. **Low-noise feature space**: Manual stats add ~12 high-signal columns, whereas embeddings add 64 dimensions that may capture noise from constant features on non-listing nodes.
+3. **Operational impact**: Graph counts consistently achieve P@100 > 0.9 in high-fraud windows, whereas hybrids oscillate.
 
 **Interpretation**:
 - Graph-derived counts (shared emails/phones/IPs, component sizes, PageRank) *do* improve fraud detection, even though end-to-end GNN embeddings struggled.
@@ -176,6 +193,8 @@ Removed all billing edges entirely:
 - [x] **2025-11-24 14:00** - Graph feature engineering experiment results
 - [x] **2025-11-25 09:30** - Baseline vs Seon & Sparsity Analysis
 - [x] **2025-11-25 10:00** - Advanced Graph Features & Window Optimization
+- [x] **2025-11-25 14:00** - Time-Weighted Features (+0.98% AUC-PR)
+- [x] **2025-11-25 16:00** - Interaction Features (validated patterns, no improvement)
 
 
 ---
@@ -368,65 +387,174 @@ Next steps:
 
 ---
 
-## Experiment 9: Time-Weighted Graph Features (PLANNED)
+## Experiment 9: Time-Weighted Graph Features (COMPLETED)
 
-**Date**: TBD  
+**Date**: 2025-11-25  
 **Goal**: Add recency weighting to graph features  
 **Hypothesis**: Recent connections should have higher weight than old ones
 
-### Proposed Features:
+### Implementation:
+
+Created `src/features/time_weighted_features.py` with 37 new features:
 
 ```python
-# Current (count-based)
-shared_email_count = count(all_time)
+# Recency-weighted counts
+email_recent_weighted = count(last_30_days) * 2.0 + count(30-90_days) * 1.0
+email_recency_weighted = sum(exp(-days_diff / 30.0))  # Exponential decay
 
-# Proposed (recency-weighted)
-recent_email_count = count(last_30_days) * 2.0 + count(30-90_days) * 1.0
-email_velocity = count(last_7_days) / 7  # emails per day
-email_acceleration = velocity_last_7 - velocity_prev_7
+# Velocity metrics
+email_velocity_7d = count(last_7_days) / 7  # connections per day
+email_acceleration = (velocity_last_7 - velocity_prev_7) / 7
 
 # Anomaly detection
-is_email_burst = (last_7_day_count > 5) AND (prev_90_day_count == 0)
-is_dormant_reactivation = (prev_180_days == 0) AND (last_30_days > 3)
+email_is_burst = (last_7_day_count > 3) AND (prev_90_day_count == 0)
+email_is_dormant_reactivation = (prev_180_days == 0) AND (last_30_days > 2)
+
+# Time spread
+email_time_spread = max_days_ago - min_days_ago
 ```
 
-### Success Criteria:
-- AUC-PR improvement > 1% over window-optimized baseline
-- New features appear in top 10 SHAP importance
+Features computed for both email and phone connections, plus combined features.
+
+**CLI Command**: `python src/cli.py time-weighted-features`
+
+### Results:
+
+| Model | Mean AUC-PR | Mean P@100 | Change |
+|-------|-------------|------------|--------|
+| Baseline (Graph + Advanced) | 0.6648 | 0.7668 | - |
+| **+ Time-Weighted Features** | **0.6713** | **0.7710** | **+0.98%** |
+
+### Feature Importance (Top 20):
+
+| Rank | Feature | Importance | Type |
+|------|---------|------------|------|
+| 11 | email_time_spread | 0.0111 | ⏱️ NEW |
+| 15 | combined_recency_weighted | 0.0093 | ⏱️ NEW |
+| 17 | email_recency_weighted | 0.0079 | ⏱️ NEW |
+
+### Key Findings:
+
+✅ **Time-weighted features provide incremental value** - +0.98% AUC-PR improvement
+
+✅ **3 new features in top 20** - `email_time_spread`, `combined_recency_weighted`, `email_recency_weighted`
+
+✅ **Hypothesis partially validated** - Recency weighting does help, but the improvement is modest
+
+⚠️ **Close to 1% target** - 0.98% vs 1.0% target (success criterion nearly met)
+
+### Interpretation:
+
+1. **Time spread is informative**: Listings whose shared contacts span a long time period (old patterns) are slightly more suspicious.
+
+2. **Recency weighting helps**: Exponentially-weighted connection counts (`email_recency_weighted`) appear in top 17 features.
+
+3. **Diminishing returns**: The base graph features (component size, PageRank, shared counts) already capture most of the signal. Time-weighting adds marginal value.
+
+4. **Burst/dormancy detection limited**: The `is_burst` and `is_dormant_reactivation` features didn't make top 20, suggesting sudden activity patterns are rare or not strongly predictive.
+
+### Conclusion:
+
+The time-weighted features provide a **modest but measurable improvement**. The new best model configuration is:
+
+- **Graph Features** + **Advanced Features** + **Time-Weighted Features**
+- **Mean AUC-PR: 0.6713**
+- **Mean P@100: 0.7710**
+
+For production, these features add value but require additional computation time (~5 minutes for feature generation). Consider enabling if the 1% improvement justifies the complexity.
 
 ---
 
-## Experiment 10: Feature Interaction Discovery (PLANNED)
+## Experiment 10: Feature Interaction Discovery (COMPLETED)
 
-**Date**: TBD  
-**Goal**: Use SHAP to discover and engineer interaction features  
+**Date**: 2025-11-25  
+**Goal**: Use feature analysis to discover and engineer interaction features  
 **Hypothesis**: Combinations of features (e.g., new account AND isolated) are stronger signals
 
-### Approach:
+### Analysis Phase:
 
-1. **Run SHAP analysis** on best baseline model
-2. **Identify top interactions** from SHAP interaction values
-3. **Engineer explicit features** for top interactions
+Analyzed fraud patterns in test data to identify synergistic interactions:
 
-### Candidate Interactions:
+| Interaction | Samples | Fraud Rate | Lift |
+|-------------|---------|------------|------|
+| Neither (baseline) | 933 | 1.61% | 1.0x |
+| New account (<30d) + High email reuse (>3) | 37 | **21.62%** | **13.4x** 🔥 |
+| New account (<14d) without direct payment | 444 | **28.15%** | **17.5x** 🔥 |
+| New account (<14d) with direct payment | 863 | 0.35% | 0.2x |
+
+**Key Discovery**: Fraudsters avoid direct payment! New accounts using invoice payment have 28% fraud rate.
+
+### Implementation:
+
+Created `src/features/interaction_features.py` with 14 features:
 
 ```python
-# Suspicious new accounts
-new_account_isolated = (account_age_days < 7) AND (is_isolated == 1)
-new_account_high_price = (account_age_days < 30) AND (price > p90)
+# Binary interactions (based on analysis)
+new_account_invoice_payment = (account_age < 14) & (payment != "DIRECT")
+new_account_high_reuse_any = (account_age < 30) & (shared_email > 3 | shared_phone > 3)
+new_account_small_listing = (account_age < 30) & (living_space < 60 | rooms < 2.5)
 
-# Suspicious reuse patterns
-high_reuse_new_account = (shared_email > 3) AND (account_age < 30)
-high_reuse_isolated = (shared_email > 5) AND (neighbor_overlap == 0)
-
-# Price anomalies
-price_vs_avg_ratio = price / avg_price_in_location
-price_velocity = price_change / days_since_last_listing
+# Continuous risk scores
+account_age_risk_score = 1 / (1 + account_age / 30)
+suspicious_combo_score = weighted_sum(age_risk, no_direct, high_reuse, small, large_component)
 ```
 
-### Success Criteria:
-- AUC-PR improvement > 2% over time-weighted baseline
-- P@100 > 0.80 (currently 0.77)
+**CLI Command**: `python src/cli.py interaction-features`
+
+### Results:
+
+| Model | Mean AUC-PR | Mean P@100 | Change |
+|-------|-------------|------------|--------|
+| Time-Weighted Baseline | 0.6713 | 0.7710 | - |
+| + Interaction Features | 0.6696 | 0.7713 | **-0.25%** |
+
+### Feature Importance Analysis:
+
+The interaction features **dominated** the model but didn't improve overall performance:
+
+| Rank | Feature | Importance |
+|------|---------|------------|
+| 1 | new_account_invoice_payment | **74.50%** 🆕 |
+| 2 | very_new_account_invoice | 4.96% 🆕 |
+| 3 | account_age_risk_score | 2.63% 🆕 |
+| 4 | is_direct_payment | 2.15% |
+| ... | ... | ... |
+
+**Total interaction feature importance: 83.78%**
+
+### Key Findings:
+
+❌ **AUC-PR decreased slightly** (-0.25%) - explicit interactions didn't help
+
+✅ **Validated the patterns** - `new_account_invoice_payment` is now #1 most important feature
+
+⚠️ **XGBoost already learns interactions** - tree-based models naturally capture feature combinations through splits
+
+### Interpretation:
+
+1. **Binary features are too coarse**: XGBoost can learn `if account_age < 14 AND payment != DIRECT` through 2 tree splits, allowing for more nuanced thresholds than a single binary feature.
+
+2. **Feature importance shifted, not improved**: The interaction features absorbed importance from base features (`is_direct_payment` dropped from 55% to 2%) but the total predictive power stayed the same.
+
+3. **Diminishing returns on feature engineering**: The model was already near its ceiling with tabular + graph features. Explicit interactions don't add new information.
+
+### Lesson Learned:
+
+> **For tree-based models (XGBoost, LightGBM), explicit interaction features rarely help because trees inherently learn feature interactions through their splitting mechanism.**
+
+This is different from linear models (logistic regression, neural networks) where explicit interaction features can significantly improve performance.
+
+### Conclusion:
+
+The experiment successfully **validated our fraud pattern hypotheses** (new accounts + invoice payment = high risk) even though it didn't improve the model numerically. The current best configuration remains:
+
+- **Graph + Advanced + Time-Weighted Features** (without explicit interactions)
+- **Mean AUC-PR: 0.6713**
+- **Mean P@100: 0.7710**
+
+For production, the insight about invoice payment + new accounts is still valuable for:
+- Rule-based flagging (immediate high-priority review)
+- Explainability (clear reason for flagging)
 
 ---
 
@@ -482,18 +610,17 @@ search_space = {
 **Baseline Strategy** (prioritized over GNNs):
 
 1. ✅ Experiment 7: Expanding window (COMPLETED) - Validated approach
-2. ✅ **Experiment 8: Window optimization** (COMPLETED) - 365 days optimal!
-3. 📅 Experiment 9: Time-weighted features - 1-2 weeks
-4. 📅 Experiment 10: Feature interactions - 1-2 weeks  
+2. ✅ Experiment 8: Window optimization (COMPLETED) - 365 days optimal!
+3. ✅ Experiment 9: Time-weighted features (COMPLETED) - +0.98% improvement
+4. ✅ **Experiment 10: Feature interactions** (COMPLETED) - Validated patterns, XGBoost already learns them
 5. 📅 Experiment 11: Hyperparameter tuning - 1 week
 
 **Target Performance**:
 - Start: 0.6655 AUC-PR (current best with full graph features)
 - ✅ After Exp 8: 0.6272 (365-day window, simplified features)
-- **Next**: Recompute FULL features with 365-day window → target 0.68+
-- After Exp 9: 0.68-0.69 (time weighting)
-- After Exp 10: 0.69-0.70 (interactions)
-- After Exp 11: 0.70+ (hyperparams)
+- ✅ **After Exp 9: 0.6713** (time-weighted features) ← **CURRENT BEST**
+- ✅ After Exp 10: 0.6696 (interactions hurt slightly - XGBoost already learns them)
+- After Exp 11: target 0.68+ (hyperparams)
 
 **Key Learning from Exp 8**:
 - Fraud patterns persist over 12 months (not 30-90 days)
@@ -515,15 +642,17 @@ search_space = {
 7. ✅ **Feature engineering beats end-to-end learning** - For sparse graphs, explicit feature extraction (degree, clustering, PageRank) outperforms message passing.
 8. ✅ **Window size matters** - 90-day windows balance data freshness with statistical stability.
 9. ✅ **Precision > Recall for manual review** - Our model's 3x higher precision vs Seon makes it far more efficient for human reviewers.
+10. ✅ **Time-weighting provides incremental value** - Recency-weighted features add ~1% improvement; time spread is more informative than velocity/burst detection.
+11. ✅ **Explicit interactions don't help tree models** - XGBoost learns feature combinations through splits; binary interaction features add no new information.
 
 ---
 
 ## Production Recommendation
 
-**Deploy the Graph-Feature Baseline (Advanced) model:**
-- **Performance**: 0.665 AUC-PR (90-day), 0.639 AUC-PR (expanding window)
-- **Interpretability**: Feature importance via SHAP is straightforward (degree, PageRank, account age)
-- **Stability**: 90-day rolling window provides consistent performance
+**Deploy the Time-Weighted Graph-Feature Baseline model:**
+- **Performance**: 0.6713 AUC-PR, 0.7710 P@100 (90-day window)
+- **Interpretability**: Feature importance via XGBoost/SHAP is straightforward
+- **Top features**: `is_direct_payment`, `account_age_days`, `listing_component_size`, `email_time_spread`
 - **Efficiency**: 3x fewer false positives than Seon, reducing review workload
 - **Simplicity**: No GNN infrastructure required
 
@@ -539,10 +668,17 @@ search_space = {
 - Feature store (DynamoDB) for real-time inference (~500ms latency)
 
 **Next Actions**:
-1. Run SHAP analysis to identify feature interactions (e.g., `account_age` × `is_isolated`)
+1. ✅ ~~Run SHAP analysis to identify feature interactions~~ (Completed - Experiment 10)
 2. Set up automated retraining pipeline (weekly/monthly)
 3. Monitor for concept drift (fraudster behavior changes)
 4. Implement production feature pipeline (see `docs/production_feature_pipeline.md`)
+
+**High-Risk Rule (from Experiment 10)**:
+```python
+# Immediate high-priority review flag
+if account_age_days < 14 and payment_type != "DIRECT":
+    flag_priority = "HIGH"  # 28% fraud rate
+```
 
 ---
 

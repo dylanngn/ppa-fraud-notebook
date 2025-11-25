@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window
 
 install:
 	pip install -r requirements.txt
@@ -64,6 +64,17 @@ all: etl build-graph graph-features advanced-features train-baseline train-graph
 advanced-features:
 	@echo "Generating advanced graph features..."
 	python src/cli.py advanced-graph-features
+
+time-weighted-features:
+	@echo "Generating time-weighted graph features (Experiment 9)..."
+	python src/cli.py time-weighted-features
+
+interaction-features:
+	@echo "Generating interaction features (Experiment 10)..."
+	python src/cli.py interaction-features
+
+# Generate all feature types
+all-features: graph-features advanced-features time-weighted-features interaction-features
 
 # --- Expanding Window Experiments (Production-Realistic) ---
 
