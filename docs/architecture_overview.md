@@ -1,11 +1,11 @@
-# Architecture Overview: Graph Feature Baseline & Hybrid GNN-XGBoost
+# Architecture Overview: Continuous Fraud Detection System
 
-This document captures the current architecture (Nov 2025), including the production-ready graph-feature baseline and the research hybrid workflow.
+This document captures the current architecture (Nov 2025), including the production-ready graph-feature baseline, continuous learning framework, and research hybrid workflow.
 
 ## 1. System Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     DB[(Aurora DB)] -->|SSM Tunnel| ETL[ETL Pipeline]
     ETL -->|Parquet nodes/edges| Graph[Graph Builder]
 
@@ -15,12 +15,25 @@ flowchart LR
     Graph -->|HeteroData| GNN[GNN Training]
     GNN -->|64-d embeddings| XGB_Hybrid[Hybrid XGBoost]
 
-    XGB_Base --> Eval[Evaluation & Ops]
-    XGB_Hybrid --> Eval
+    XGB_Base --> MLflow[MLflow Tracking]
+    XGB_Hybrid --> MLflow
+    
+    MLflow -->|Model Registry| Adapt[Adaptation Engine]
+    Adapt -->|SHAP Analysis| Pipeline[Pipeline Orchestrator]
+    
+    Pipeline -->|Daily| Drift[Drift Detection]
+    Pipeline -->|Weekly| Retrain[Model Retraining]
+    Pipeline -->|Monthly| Hyperopt[Hyperparameter Optimization]
+    
+    Retrain --> MLflow
+    Hyperopt --> MLflow
 ```
 
-* **Baseline path**: tabular features + engineered graph statistics → XGBoost (production choice).
-* **Hybrid path**: tabular + graph statistics + residual HGT embeddings → XGBoost (research).
+**Key Paths**:
+* **Production**: tabular features + engineered graph statistics → XGBoost → MLflow → Adaptation Engine → Continuous Pipeline
+* **Research**: tabular + graph statistics + residual HGT embeddings → XGBoost (experimental)
+
+**Continuous Learning**: Automated daily drift checks, weekly retraining, monthly optimization with SHAP-driven adaptation suggestions.
 
 ## 2. ETL Pipeline (`src/data/etl.py`)
 
@@ -196,15 +209,45 @@ flowchart LR
     *   **AUC-PR**: Primary metric (focus on minority class).
     *   **Precision@100**: Operational efficiency (how many real frauds in the top 100?).
 
-## 9. Commands
+## 9. Continuous Learning Framework
 
+The system includes a complete continuous learning framework for automated model maintenance and adaptation.
+
+**Key Components**:
+- **MLflow Integration** (`src/training/mlflow_trainer.py`): Experiment tracking, model versioning, artifact management
+- **Adaptation Engine** (`src/explainability/adaptation_engine.py`): SHAP-driven rule suggestions, drift detection, feature pruning
+- **Pipeline Orchestrator** (`src/orchestration/continuous_pipeline.py`): Scheduled jobs (daily drift checks, weekly retraining, monthly optimization)
+
+**Schedule**:
+- Daily (06:00 UTC): Feature distribution drift detection
+- Weekly (Sunday 02:00 UTC): Model retraining evaluation
+- Monthly (1st, 02:00 UTC): Hyperparameter optimization
+
+**See**: `docs/continuous_fraud_detection_framework.md` for complete implementation details, configuration, and CLI reference.
+
+## 10. Commands Reference
+
+### Data Pipeline
 *   **ETL**: `make etl`
 *   **Build Graph**: `make build-graph`
 *   **Graph Features**: `make graph-features`
+
+### Training
 *   **Train Baseline (tabular only)**: `make train-baseline`
 *   **Train Graph-Feature Baseline**: `make train-graph-baseline`
+*   **Train with MLflow**: `make train-mlflow`
 *   **Hybrid (HGT example)**:
     *   `python src/cli.py train-embeddings --model hgt`
     *   `python src/cli.py train-hybrid --model hgt`
 *   **Legacy experiments**: `make train-gat`, `make train-sage`, `make train-hgt`, `make train-hgt-rte`
-*   **Notebooks**: `notebooks/03_model_comparison.ipynb`
+
+### Continuous Learning
+*   **MLflow**: `make mlflow-ui`, `make mlflow-compare`, `make mlflow-promote`
+*   **Adaptation**: `make analyze-adaptation`, `make adaptation-report`
+*   **Pipeline**: `make pipeline-start`, `make pipeline-daily`, `make pipeline-status`
+
+### Analysis
+*   **Notebooks**: 
+    *   `notebooks/01_raw_data_exploration.ipynb` - Raw data
+    *   `notebooks/02_data_exploration.ipynb` - Processed features
+    *   `notebooks/05_shap_analysis.ipynb` - SHAP + Adaptation Engine

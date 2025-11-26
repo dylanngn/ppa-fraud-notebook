@@ -583,26 +583,44 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
 ## Continuous Learning Feedback Loop
 
+The continuous learning framework is implemented via the **Pipeline Orchestrator** (`src/orchestration/continuous_pipeline.py`).
+
 ```mermaid
 graph TB
-    A[Manual Review Decision] --> B[Store Label]
-    B --> C{Weekly Trigger}
-    C --> D[Collect New Labels]
-    D --> E[Retrain Model]
-    E --> F{New Model Better?}
-    F -->|Yes| G[Deploy New Model]
-    F -->|No| H[Keep Current Model]
-    G --> I[Update Feature Store]
-    H --> I
+    A[Manual Review Decision] --> B[Store Label in Aurora]
+    B --> C[Pipeline Orchestrator]
+    
+    C -->|Daily| D[Drift Detection]
+    D -->|PSI > 0.2| E[Alert: Feature Drift]
+    E --> F[Adaptation Engine]
+    
+    C -->|Weekly| G[Collect New Labels]
+    G --> H[Retrain Model via MLflow]
+    H --> I{Compare with Production}
+    I -->|Better| J[Promote to Staging]
+    I -->|Worse| K[Keep Current Model]
+    
+    C -->|Monthly| L[Hyperparameter Optimization]
+    L --> H
+    
+    F --> M[Generate Adaptation Report]
+    M --> N[Rule Suggestions]
+    M --> O[Feature Pruning]
+    M --> P[Retrain Recommendation]
+    
+    J --> Q[MLflow Model Registry]
+    Q --> R[Deploy to Production API]
 ```
 
 ### Feedback Collection
 
 ```python
+# In PPA backend - when reviewer makes decision
 @event_listener("listing.review_completed")
 async def on_review_completed(listing_id, decision, reviewer_id):
     """
     Collect feedback for continuous learning.
+    This feeds into the weekly retraining pipeline.
     """
     await db.training_labels.create(
         listing_id=listing_id,
@@ -612,8 +630,68 @@ async def on_review_completed(listing_id, decision, reviewer_id):
         confidence="high"  # Human label
     )
     
-    # Log for drift monitoring
-    await monitoring.log_feedback(listing_id, decision)
+    # The Pipeline Orchestrator will pick this up during weekly retraining
+    # No need to trigger retraining immediately - scheduled job handles it
+```
+
+### Integration with MLflow Model Registry
+
+The Fraud Detection API should load models from MLflow Model Registry:
+
+```python
+# In Fraud Detection API (src/api/prediction_service.py)
+import mlflow
+
+def load_production_model():
+    """
+    Load the production model from MLflow Model Registry.
+    Falls back to local model if MLflow unavailable.
+    """
+    try:
+        # Load from MLflow Model Registry
+        model = mlflow.pyfunc.load_model(
+            model_uri="models:/fraud-detection/Production"
+        )
+        return model
+    except Exception as e:
+        logger.warning(f"MLflow unavailable, using local model: {e}")
+        # Fallback to local model
+        with open("artifacts/models/production/model_latest.pkl", "rb") as f:
+            return pickle.load(f)["model"]
+```
+
+### Adaptation Engine Integration
+
+The Adaptation Engine generates actionable insights that can be integrated into the review workflow:
+
+```python
+# In reviewer dashboard - show adaptation insights
+async def get_review_insights(listing_id: int):
+    """
+    Fetch SHAP explanation + adaptation suggestions for a listing.
+    """
+    # Get SHAP explanation from Fraud API
+    explanation = await fraud_api.explain(listing_id)
+    
+    # Get recent adaptation report
+    from src.explainability.adaptation_engine import AdaptationEngine
+    engine = AdaptationEngine(feature_names=explanation.features)
+    report = engine.get_latest_report()
+    
+    # Highlight if this listing matches suggested rules
+    matching_rules = []
+    for rule in report.rule_suggestions:
+        if listing_matches_rule(listing_id, rule):
+            matching_rules.append(rule)
+    
+    return {
+        "shap_explanation": explanation,
+        "adaptation_insights": {
+            "matching_rules": matching_rules,
+            "drift_alerts": report.drift_alerts,
+            "rising_features": report.rising_features,
+        }
+    }
 ```
 
 ## Performance Considerations
@@ -717,17 +795,29 @@ else:
 **Integration Flow:**
 1. User submits listing → Status: PENDING_APPROVAL
 2. PPA backend calls Fraud API `/predict`
-3. Fraud API returns score + confidence
-4. PPA applies decision logic:
+3. Fraud API loads model from **MLflow Model Registry** (Production stage)
+4. Fraud API returns score + confidence
+5. PPA applies decision logic:
    - Low risk → Auto-approve
    - Medium risk → Manual review queue
    - High risk → High-priority review queue
-5. Human reviewer sees SHAP explanation via `/explain`
-6. Reviewer decision feeds back to training data
-7. Weekly retraining improves model
+6. Human reviewer sees SHAP explanation via `/explain` + Adaptation Engine insights
+7. Reviewer decision stored in Aurora → feeds into weekly retraining pipeline
+8. **Pipeline Orchestrator** runs:
+   - **Daily**: Drift detection → alerts if feature distributions change
+   - **Weekly**: Retrain model → compare with production → promote if better
+   - **Monthly**: Hyperparameter optimization → find better configurations
+9. **Adaptation Engine** analyzes SHAP values → suggests new rules, feature pruning
+10. New model automatically deployed via MLflow Model Registry
 
 **Key Benefits:**
 - ⚡ Fast automated decisions (< 200ms API call)
 - 🎯 Precision-focused (reduce false positives by 3x vs Seon)
-- 🔍 Explainable (reviewers see WHY listing was flagged)
-- 🔄 Self-improving (continuous learning from human feedback)
+- 🔍 Explainable (reviewers see WHY listing was flagged via SHAP)
+- 🔄 Self-improving (automated continuous learning with drift detection)
+- 📊 Trackable (MLflow experiment tracking + model versioning)
+- 🤖 Adaptive (automatic rule suggestions from SHAP analysis)
+
+**See Also**:
+- `docs/continuous_fraud_detection_framework.md` - Complete framework documentation
+- `docs/architecture_overview.md` - System architecture details
