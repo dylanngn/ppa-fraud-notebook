@@ -2,6 +2,8 @@
 SHAP Explainability Service
 
 Provides on-demand explanations for predictions and discovers new feature opportunities.
+
+Requirements: Python 3.11+, SHAP 0.50+, XGBoost 3.1+
 """
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple

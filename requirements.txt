@@ -1,23 +1,45 @@
-polars>=1.0.0
-python-dotenv>=1.0.0
-connectorx>=0.3.2
-pyarrow>=14.0.0
-numpy>=1.24.0
-torch>=2.2.0
-sentence-transformers>=3.0.0
-xgboost>=2.0.0
-scikit-learn>=1.4.0
-torch_geometric>=2.5.0
-mlflow>=2.10.0
-fastapi>=0.110.0
-uvicorn>=0.27.0
-typer>=0.9.0
-rich>=13.0.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-scipy>=1.10.0
-jupyter>=1.0.0
-shap>=0.44.0
-pandas>=2.0.0
-networkx>=3.0.0
-optuna>=3.5.0
+# Requires Python 3.11+ (SHAP 0.50 dropped Python 3.10 support)
+# Updated: Nov 2025
+
+# Core data processing
+polars>=1.35.0
+python-dotenv>=1.2.0
+connectorx>=0.4.0
+pyarrow>=22.0.0
+numpy>=2.0.0
+pandas>=2.3.0
+
+# ML frameworks
+torch>=2.9.0
+sentence-transformers>=5.0.0
+torch_geometric>=2.7.0
+scikit-learn>=1.6.0
+
+# XGBoost + SHAP (0.50 fixes base_score compatibility - github.com/shap/shap/issues/4202)
+xgboost>=3.1.0
+shap>=0.50.0
+
+# Hyperparameter optimization
+optuna>=4.0.0
+
+# MLOps
+mlflow>=3.0.0
+
+# API
+fastapi>=0.122.0
+uvicorn>=0.38.0
+
+# CLI
+typer>=0.15.0
+rich>=14.0.0
+
+# Visualization
+matplotlib>=3.10.0
+seaborn>=0.13.0
+
+# Scientific computing
+scipy>=1.14.0
+networkx>=3.4.0
+
+# Development
+jupyter>=1.1.0
