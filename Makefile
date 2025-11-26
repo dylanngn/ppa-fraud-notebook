@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window optimize-hyperparams staged-hyperopt
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window optimize-hyperparams staged-hyperopt analyze-adaptation adaptation-report train-mlflow mlflow-ui mlflow-compare
 
 install:
 	pip install -r requirements.txt
@@ -140,3 +140,63 @@ api-demo:
 api-test:
 	@echo "Running API tests..."
 	pytest tests/features/test_temporal_validation.py -v
+
+# --- Adaptation Analysis ---
+
+analyze-adaptation:
+	@echo "Running adaptation analysis on baseline model..."
+	python src/cli.py analyze-adaptation --model-type baseline
+
+analyze-adaptation-all:
+	@echo "Running adaptation analysis on all windows..."
+	python src/cli.py analyze-adaptation --model-type baseline --all-windows
+
+adaptation-report:
+	@echo "Generating adaptation summary report..."
+	python src/cli.py generate-adaptation-report --model-type baseline --n-windows 15
+
+# --- MLflow ---
+
+train-mlflow:
+	@echo "Training with MLflow tracking..."
+	python src/cli.py train-mlflow --model-type baseline_graph
+
+train-mlflow-register:
+	@echo "Training with MLflow and registering model..."
+	python src/cli.py train-mlflow --model-type baseline_graph --register-model
+
+mlflow-ui:
+	@echo "Starting MLflow UI at http://localhost:5000..."
+	python src/cli.py mlflow-ui
+
+mlflow-compare:
+	@echo "Comparing MLflow runs..."
+	python src/cli.py mlflow-compare --top-n 10
+
+# --- Continuous Pipeline ---
+
+pipeline-daily:
+	@echo "Running daily drift check..."
+	python src/cli.py pipeline-daily
+
+pipeline-weekly:
+	@echo "Running weekly retrain..."
+	python src/cli.py pipeline-weekly
+
+pipeline-monthly:
+	@echo "Running monthly hyperopt (this may take hours)..."
+	python src/cli.py pipeline-monthly
+
+pipeline-start:
+	@echo "Starting continuous pipeline scheduler..."
+	@echo "Press Ctrl+C to stop."
+	python src/cli.py pipeline-start
+
+pipeline-status:
+	@echo "Showing pipeline status..."
+	python src/cli.py pipeline-status
+
+# --- Full Continuous Pipeline Setup ---
+
+pipeline-setup: all-features train-mlflow-register
+	@echo "Pipeline setup complete. Run 'make pipeline-start' to begin scheduling."

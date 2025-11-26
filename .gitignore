@@ -1,7 +1,8 @@
 artifacts
-artifacts
+mlruns
 .venv
 .env
+
 
 # Python Cache
 __pycache__/
@@ -11,3 +12,4 @@ __pycache__/
 
 # System
 .DS_Store
+

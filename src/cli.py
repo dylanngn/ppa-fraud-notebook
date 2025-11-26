@@ -1,5 +1,6 @@
 import typer
 from rich.console import Console
+from datetime import datetime
 import sys
 import os
 
@@ -562,6 +563,537 @@ def compare_all_models(
         console.print(f"[bold green]Results saved to: {output_dir}[/bold green]")
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
+
+
+@app.command()
+def analyze_adaptation(
+    model_type: str = typer.Option("baseline", help="Model type: baseline, baseline_graph, hybrid_*"),
+    window_idx: int = typer.Option(-1, help="Window index to analyze (-1 for latest)"),
+    output_dir: str = typer.Option("artifacts/reports", help="Output directory for reports"),
+    compute_interactions: bool = typer.Option(False, help="Compute SHAP interactions (slow)"),
+    all_windows: bool = typer.Option(False, help="Analyze all available windows"),
+):
+    """
+    Run SHAP-based adaptation analysis on trained models.
+    
+    Generates actionable adaptation suggestions:
+    - Rule suggestions (high-importance features with thresholds)
+    - Pruning candidates (zero-importance features)
+    - Drift alerts (feature importance changes)
+    - Retrain recommendations
+    
+    Example:
+        python src/cli.py analyze-adaptation --model-type baseline
+        python src/cli.py analyze-adaptation --all-windows
+    """
+    console.print(f"[bold cyan]Running Adaptation Analysis for {model_type}...[/bold cyan]")
+    
+    import glob
+    from src.explainability.adaptation_engine import AdaptationEngine, run_adaptation_analysis
+    from src.utils.explainability import load_saved_model
+    
+    models_dir = f"artifacts/models/{model_type}"
+    
+    if not os.path.exists(models_dir):
+        console.print(f"[bold red]Error: Models directory not found: {models_dir}[/bold red]")
+        console.print("Run training with --save-models flag first.")
+        return
+    
+    model_files = sorted(glob.glob(os.path.join(models_dir, "model_window_*.pkl")))
+    
+    if not model_files:
+        console.print(f"[bold red]Error: No model files found in {models_dir}[/bold red]")
+        return
+    
+    if all_windows:
+        # Analyze all windows
+        console.print(f"[bold yellow]Analyzing {len(model_files)} windows...[/bold yellow]")
+        
+        # Load or create engine with history
+        state_path = os.path.join(output_dir, f"adaptation_engine_{model_type}_state.pkl")
+        
+        if os.path.exists(state_path):
+            engine = AdaptationEngine.load_state(state_path)
+            console.print(f"Loaded engine state with {len(engine.importance_history)} history windows")
+        else:
+            # Get feature names from first model
+            bundle = load_saved_model(model_files[0])
+            engine = AdaptationEngine(feature_names=bundle["features"])
+        
+        for i, model_path in enumerate(model_files):
+            console.print(f"\n[dim]Processing window {i+1}/{len(model_files)}[/dim]")
+            
+            try:
+                bundle = load_saved_model(model_path)
+                report = engine.analyze_window(
+                    model=bundle["model"],
+                    X_test=bundle["X_test"],
+                    y_test=bundle["y_test"],
+                    y_pred=bundle["y_pred"],
+                    window_info=bundle.get("window_info", {"window_idx": i}),
+                    compute_interactions=compute_interactions,
+                )
+                
+                # Save report
+                report.save_markdown(f"{output_dir}/adaptation_report_window_{i}.md")
+                report.save_json(f"{output_dir}/adaptation_report_window_{i}.json")
+                
+                # Print summary
+                console.print(
+                    f"  AUC-PR: {report.model_performance.get('auc_pr', 0):.4f}, "
+                    f"Drift: {len(report.drift_alerts)}, "
+                    f"Rules: {len(report.rule_suggestions)}"
+                )
+                
+            except Exception as e:
+                console.print(f"[red]Error on window {i}: {e}[/red]")
+        
+        # Save engine state
+        engine.save_state(state_path)
+        console.print(f"\n[bold green]✓ Analyzed all windows. Reports saved to {output_dir}[/bold green]")
+        
+    else:
+        # Single window analysis
+        model_path = model_files[window_idx]
+        console.print(f"Analyzing: {os.path.basename(model_path)}")
+        
+        try:
+            report = run_adaptation_analysis(
+                model_path=model_path,
+                output_dir=output_dir,
+                compute_interactions=compute_interactions,
+            )
+            
+            console.print(f"\n[bold green]✓ Adaptation analysis complete![/bold green]")
+            console.print(f"\n[bold]Summary:[/bold]")
+            console.print(f"  Window: {report.window_idx}")
+            console.print(f"  AUC-PR: {report.model_performance.get('auc_pr', 0):.4f}")
+            console.print(f"  Drift Alerts: {len(report.drift_alerts)}")
+            console.print(f"  Rule Suggestions: {len(report.rule_suggestions)}")
+            console.print(f"  Pruning Candidates: {len(report.pruning_candidates)}")
+            console.print(f"  Retrain Recommended: {'Yes' if report.retrain_recommendation else 'No'}")
+            
+            if report.rule_suggestions:
+                console.print(f"\n[bold]Top Rule Suggestions:[/bold]")
+                for rule in report.rule_suggestions[:3]:
+                    console.print(f"  • {rule.title} ({rule.priority})")
+            
+        except Exception as e:
+            console.print(f"[bold red]Error: {e}[/bold red]")
+            import traceback
+            traceback.print_exc()
+
+
+@app.command()
+def generate_adaptation_report(
+    model_type: str = typer.Option("baseline", help="Model type to analyze"),
+    n_windows: int = typer.Option(10, help="Number of recent windows to analyze"),
+    output_path: str = typer.Option("artifacts/reports/adaptation_summary.md", help="Output path"),
+):
+    """
+    Generate a comprehensive adaptation report across multiple windows.
+    
+    Summarizes:
+    - Performance trends
+    - Feature importance stability
+    - Emerging patterns
+    - Recommendations
+    """
+    console.print(f"[bold cyan]Generating Adaptation Summary Report...[/bold cyan]")
+    
+    import glob
+    import json
+    from pathlib import Path
+    
+    reports_dir = Path("artifacts/reports")
+    report_files = sorted(reports_dir.glob("adaptation_report_window_*.json"))
+    
+    if not report_files:
+        console.print("[bold red]No adaptation reports found. Run analyze-adaptation first.[/bold red]")
+        return
+    
+    # Load recent reports
+    reports = []
+    for f in report_files[-n_windows:]:
+        with open(f) as fp:
+            reports.append(json.load(fp))
+    
+    console.print(f"Loaded {len(reports)} reports")
+    
+    # Generate summary markdown
+    lines = [
+        "# Adaptation Summary Report",
+        f"\n**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**Windows Analyzed**: {len(reports)}",
+        "",
+        "## Performance Trend",
+        "",
+    ]
+    
+    # Performance table
+    lines.append("| Window | AUC-PR | P@100 | Drift Alerts | Rules |")
+    lines.append("|--------|--------|-------|--------------|-------|")
+    
+    for r in reports:
+        perf = r.get("model_performance", {})
+        lines.append(
+            f"| {r.get('window_idx', '?')} | "
+            f"{perf.get('auc_pr', 0):.4f} | "
+            f"{perf.get('p@100', 0):.4f} | "
+            f"{len(r.get('drift_alerts', []))} | "
+            f"{len(r.get('rule_suggestions', []))} |"
+        )
+    
+    lines.append("")
+    
+    # Aggregate feature importance (average across windows)
+    from collections import defaultdict
+    feature_importance_sum = defaultdict(float)
+    feature_importance_count = defaultdict(int)
+    
+    for r in reports:
+        for feat, imp in r.get("current_importance", {}).items():
+            feature_importance_sum[feat] += imp
+            feature_importance_count[feat] += 1
+    
+    avg_importance = {
+        k: feature_importance_sum[k] / feature_importance_count[k]
+        for k in feature_importance_sum
+    }
+    
+    sorted_features = sorted(avg_importance.items(), key=lambda x: x[1], reverse=True)
+    
+    lines.append("## Most Important Features (Average)")
+    lines.append("")
+    for feat, imp in sorted_features[:15]:
+        lines.append(f"- **{feat}**: {imp:.4f}")
+    
+    lines.append("")
+    
+    # Aggregate rule suggestions
+    rule_counts = defaultdict(int)
+    for r in reports:
+        for rule in r.get("rule_suggestions", []):
+            rule_counts[rule.get("title", "Unknown")] += 1
+    
+    if rule_counts:
+        lines.append("## Most Frequent Rule Suggestions")
+        lines.append("")
+        for rule, count in sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
+            lines.append(f"- **{rule}**: {count} windows")
+        lines.append("")
+    
+    # Save
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write("\n".join(lines))
+    
+    console.print(f"[bold green]✓ Summary saved to {output_path}[/bold green]")
+
+
+# --- MLflow Commands ---
+
+@app.command()
+def train_mlflow(
+    model_type: str = typer.Option("baseline", help="Model type: baseline, baseline_graph"),
+    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
+    window_days: int = typer.Option(90, help="Training window size in days"),
+    step_days: int = typer.Option(14, help="Sliding window step size in days"),
+    register_model: bool = typer.Option(False, help="Register model in MLflow Model Registry"),
+):
+    """
+    Train fraud detection model with MLflow tracking.
+    
+    Features:
+    - Automatic experiment tracking (hyperparams, metrics, artifacts)
+    - Model versioning and registry
+    - SHAP explanations logged as artifacts
+    - Comparison with production model
+    
+    Example:
+        python src/cli.py train-mlflow --model-type baseline_graph
+        python src/cli.py train-mlflow --register-model
+    """
+    console.print(f"[bold cyan]Training {model_type} with MLflow tracking...[/bold cyan]")
+    
+    from src.training.mlflow_trainer import train_with_mlflow
+    
+    try:
+        result = train_with_mlflow(
+            experiment_name=experiment_name,
+            model_type=model_type,
+            window_days=window_days,
+            step_days=step_days,
+            register_model=register_model,
+        )
+        
+        console.print(f"\n[bold green]✓ Training complete![/bold green]")
+        console.print(f"\n[bold]Results:[/bold]")
+        console.print(f"  Run ID: {result['run_id']}")
+        console.print(f"  Mean AUC-PR: {result['mean_auc_pr']:.4f}")
+        console.print(f"  Best AUC-PR: {result['best_auc_pr']:.4f}")
+        console.print(f"  Model URI: {result['model_uri']}")
+        console.print(f"\n[dim]View in MLflow UI: mlflow ui --port 5000[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        import traceback
+        traceback.print_exc()
+
+
+@app.command()
+def mlflow_ui():
+    """
+    Start MLflow UI to view experiments.
+    
+    Opens browser at http://localhost:5000
+    """
+    console.print("[bold cyan]Starting MLflow UI...[/bold cyan]")
+    console.print("Open http://localhost:5000 in your browser")
+    console.print("Press Ctrl+C to stop")
+    
+    import subprocess
+    subprocess.run(["mlflow", "ui", "--port", "5000"])
+
+
+@app.command()
+def mlflow_compare(
+    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
+    metric: str = typer.Option("mean_auc_pr", help="Metric to compare"),
+    top_n: int = typer.Option(10, help="Number of top runs to show"),
+):
+    """
+    Compare MLflow runs by metric.
+    
+    Shows top N runs sorted by the specified metric.
+    """
+    console.print(f"[bold cyan]Comparing runs in {experiment_name}...[/bold cyan]")
+    
+    import mlflow
+    
+    try:
+        mlflow.set_experiment(experiment_name)
+        
+        # Search runs
+        runs = mlflow.search_runs(
+            order_by=[f"metrics.{metric} DESC"],
+            max_results=top_n,
+        )
+        
+        if runs.empty:
+            console.print("[yellow]No runs found in this experiment.[/yellow]")
+            return
+        
+        # Display results
+        console.print(f"\n[bold]Top {len(runs)} runs by {metric}:[/bold]")
+        console.print("-" * 80)
+        
+        for i, row in runs.iterrows():
+            run_name = row.get('tags.mlflow.runName', row['run_id'][:8])
+            metric_value = row.get(f'metrics.{metric}', 'N/A')
+            model_type = row.get('params.model_type', 'unknown')
+            
+            if isinstance(metric_value, float):
+                console.print(f"  {i+1}. {run_name}: {metric_value:.4f} ({model_type})")
+            else:
+                console.print(f"  {i+1}. {run_name}: {metric_value} ({model_type})")
+        
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+
+
+@app.command()
+def mlflow_promote(
+    model_name: str = typer.Option("fraud-detection", help="Registered model name"),
+    version: int = typer.Option(..., help="Model version to promote"),
+    stage: str = typer.Option("Production", help="Target stage: Staging or Production"),
+):
+    """
+    Promote a model version to Staging or Production.
+    
+    Example:
+        python src/cli.py mlflow-promote --version 2 --stage Production
+    """
+    console.print(f"[bold cyan]Promoting model {model_name} v{version} to {stage}...[/bold cyan]")
+    
+    from src.training.mlflow_trainer import MLflowTrainer
+    
+    try:
+        trainer = MLflowTrainer()
+        trainer.transition_model_stage(
+            name=model_name,
+            version=str(version),
+            stage=stage,
+            archive_existing=True,
+        )
+        
+        console.print(f"[bold green]✓ Model {model_name} v{version} promoted to {stage}[/bold green]")
+        
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+
+
+# --- Continuous Pipeline Commands ---
+
+@app.command()
+def pipeline_daily(
+    model_type: str = typer.Option("baseline_graph", help="Model type"),
+):
+    """
+    Run daily drift check.
+    
+    Compares current data distribution with training data.
+    Alerts if significant drift is detected.
+    """
+    console.print("[bold cyan]Running Daily Drift Check...[/bold cyan]")
+    
+    from src.orchestration.continuous_pipeline import ContinuousPipeline, PipelineConfig
+    
+    config = PipelineConfig(model_type=model_type)
+    pipeline = ContinuousPipeline(config)
+    
+    result = pipeline.run_daily_drift_check()
+    
+    if result.success:
+        console.print(f"\n[bold green]✓ Daily check complete[/bold green]")
+        console.print(f"  {result.summary}")
+    else:
+        console.print(f"\n[bold red]✗ Daily check failed[/bold red]")
+        console.print(f"  {result.summary}")
+
+
+@app.command()
+def pipeline_weekly(
+    model_type: str = typer.Option("baseline_graph", help="Model type"),
+    force: bool = typer.Option(False, help="Force deployment even if not improved"),
+):
+    """
+    Run weekly retrain and evaluation.
+    
+    Trains a new model and compares with production.
+    Deploys if improvement exceeds threshold.
+    """
+    console.print("[bold cyan]Running Weekly Retrain...[/bold cyan]")
+    
+    from src.orchestration.continuous_pipeline import ContinuousPipeline, PipelineConfig
+    
+    config = PipelineConfig(model_type=model_type)
+    pipeline = ContinuousPipeline(config)
+    
+    result = pipeline.run_weekly_retrain(force=force)
+    
+    if result.success:
+        console.print(f"\n[bold green]✓ Weekly retrain complete[/bold green]")
+        console.print(f"  {result.summary}")
+        if result.details.get("deployed"):
+            console.print(f"  [green]New model deployed![/green]")
+    else:
+        console.print(f"\n[bold red]✗ Weekly retrain failed[/bold red]")
+        console.print(f"  {result.summary}")
+
+
+@app.command()
+def pipeline_monthly():
+    """
+    Run monthly hyperparameter optimization.
+    
+    Performs staged hyperparameter search and retrains
+    with the best configuration.
+    """
+    console.print("[bold cyan]Running Monthly Hyperopt...[/bold cyan]")
+    console.print("[yellow]This may take 2-4 hours...[/yellow]")
+    
+    from src.orchestration.continuous_pipeline import ContinuousPipeline, PipelineConfig
+    
+    config = PipelineConfig()
+    pipeline = ContinuousPipeline(config)
+    
+    result = pipeline.run_monthly_hyperopt()
+    
+    if result.success:
+        console.print(f"\n[bold green]✓ Monthly hyperopt complete[/bold green]")
+        console.print(f"  {result.summary}")
+    else:
+        console.print(f"\n[bold red]✗ Monthly hyperopt failed[/bold red]")
+        console.print(f"  {result.summary}")
+
+
+@app.command()
+def pipeline_start(
+    model_type: str = typer.Option("baseline_graph", help="Model type"),
+):
+    """
+    Start the continuous pipeline scheduler.
+    
+    Runs scheduled jobs:
+    - Daily: Drift check at 06:00 UTC
+    - Weekly: Retrain on Sunday at 02:00 UTC
+    - Monthly: Hyperopt on 1st Sunday at 00:00 UTC
+    
+    Press Ctrl+C to stop.
+    """
+    console.print("[bold cyan]Starting Pipeline Scheduler...[/bold cyan]")
+    
+    from src.orchestration.continuous_pipeline import ContinuousPipeline, PipelineConfig
+    
+    config = PipelineConfig(model_type=model_type)
+    pipeline = ContinuousPipeline(config)
+    
+    try:
+        pipeline.start_scheduler(blocking=True)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Scheduler stopped.[/yellow]")
+
+
+@app.command()
+def pipeline_status():
+    """
+    Show pipeline status and recent runs.
+    """
+    console.print("[bold cyan]Pipeline Status[/bold cyan]")
+    
+    from pathlib import Path
+    import json
+    
+    reports_dir = Path("artifacts/reports")
+    
+    # Find recent drift reports
+    drift_reports = sorted(reports_dir.glob("drift_report_*.json"))[-5:]
+    
+    if drift_reports:
+        console.print("\n[bold]Recent Drift Reports:[/bold]")
+        for report_path in drift_reports:
+            with open(report_path) as f:
+                report = json.load(f)
+            status = "⚠️" if report.get("has_critical_drift") else "✅"
+            console.print(f"  {status} {report_path.name}: {report.get('drifted_features', 0)} drifted")
+    
+    # Find recent adaptation reports
+    adaptation_reports = sorted(reports_dir.glob("adaptation_report_*.md"))[-5:]
+    
+    if adaptation_reports:
+        console.print("\n[bold]Recent Adaptation Reports:[/bold]")
+        for report_path in adaptation_reports:
+            console.print(f"  📊 {report_path.name}")
+    
+    # Show MLflow runs
+    try:
+        import mlflow
+        mlflow.set_experiment("ppa-fraud-detection")
+        runs = mlflow.search_runs(max_results=5)
+        
+        if not runs.empty:
+            console.print("\n[bold]Recent MLflow Runs:[/bold]")
+            for _, row in runs.iterrows():
+                run_name = row.get('tags.mlflow.runName', row['run_id'][:8])
+                auc_pr = row.get('metrics.mean_auc_pr', 'N/A')
+                if isinstance(auc_pr, float):
+                    console.print(f"  🧪 {run_name}: AUC-PR = {auc_pr:.4f}")
+                else:
+                    console.print(f"  🧪 {run_name}: AUC-PR = {auc_pr}")
+    except Exception as e:
+        console.print(f"\n[dim]MLflow not available: {e}[/dim]")
+
 
 if __name__ == "__main__":
     app()

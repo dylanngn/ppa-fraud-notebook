@@ -783,6 +783,287 @@ if account_age_days < 14 and payment_type != "DIRECT":
 
 ---
 
+## Experiment 12: Adaptation Engine (COMPLETED)
+
+**Date**: 2025-11-26  
+**Goal**: Automate SHAP-based adaptation suggestions for continuous fraud detection  
+**Status**: ✅ Implemented
+
+### Implementation:
+
+Created `src/explainability/adaptation_engine.py` with the following capabilities:
+
+1. **Drift Detection**
+   - Track feature importance rank changes across windows
+   - Alert on significant shifts (>10 rank positions)
+   - Identify emerging fraud patterns
+
+2. **Rule Suggestion Engine**
+   - Convert high-importance features into business rules
+   - Calculate lift and fraud rate for thresholds
+   - Generate SQL/Python code snippets
+
+3. **Pruning Recommendations**
+   - Identify zero-importance features
+   - Recommend removal for model simplification
+
+4. **Retrain Recommendations**
+   - Detect performance drops (>5% AUC-PR)
+   - Identify critical drift patterns
+   - Suggest when to retrain
+
+### CLI Commands:
+
+```bash
+# Analyze single window
+python src/cli.py analyze-adaptation --model-type baseline
+
+# Analyze all windows (build history for drift detection)
+python src/cli.py analyze-adaptation --model-type baseline --all-windows
+
+# Generate summary report
+python src/cli.py generate-adaptation-report --model-type baseline
+```
+
+### Example Output:
+
+```markdown
+## ⚠️ Drift Alerts
+- 📈 **is_direct_payment**: Rank 14 → 1 (+13) [medium]
+
+## 🎯 Rule Suggestions
+### 1. 🟡 High-risk pattern: bundle_tier_score
+**Priority**: MEDIUM
+**Expected Impact**: 3.3x lift over baseline (41.1% fraud rate)
+
+if listing['bundle_tier_score'] == 1.0:
+    flag_priority = "HIGH"  # 3.3x lift
+
+## 🔄 Retrain Recommendation
+**⚠️ RETRAIN RECOMMENDED**: AUC-PR dropped 12.4%
+```
+
+### Key Findings:
+
+✅ **Drift detection works**: Successfully identified `is_direct_payment` rising from rank 14 → 1  
+✅ **Rule suggestions work**: Generated actionable rules with 3.3x lift  
+✅ **Retrain recommendations work**: Detects 5%+ AUC-PR drops  
+✅ **Persistent state**: Engine state persists across runs for historical comparison
+
+### Research Contribution:
+
+This implements the core vision for data mining research:
+- **SHAP → Actionable adaptations**: Automatic rule generation from feature importance
+- **Continuous monitoring**: Detect when fraud patterns change
+- **Explainable ML**: Every suggestion has quantified evidence (lift, fraud rate, sample size)
+
+### Next Steps:
+1. ~~MLflow integration for experiment tracking~~ ✅ (Experiment 13)
+2. ~~LLM narrator for human-readable explanations~~ (deferred)
+3. ~~Continuous pipeline orchestrator~~ (proposed - see `docs/continuous_pipeline_proposal.md`)
+
+---
+
+## Experiment 13: MLflow Integration (COMPLETED)
+
+**Date**: 2025-11-26  
+**Goal**: Add experiment tracking, model versioning, and artifact management  
+**Status**: ✅ Implemented
+
+### Implementation:
+
+Created `src/training/mlflow_trainer.py` with the following capabilities:
+
+1. **Experiment Tracking**
+   - Automatic logging of hyperparameters
+   - Per-window and aggregate metrics
+   - SHAP summary plots as artifacts
+   - Feature importance logging
+
+2. **Model Registry**
+   - Model versioning
+   - Staging/Production stage management
+   - Comparison with production model
+   - Automatic deployment recommendation
+
+3. **Integration with Existing Pipeline**
+   - Works with existing training infrastructure
+   - Logs optimized hyperparameters from Experiment 11
+   - Integrates with adaptation engine reports
+
+### CLI Commands:
+
+```bash
+# Train with MLflow tracking
+python src/cli.py train-mlflow --model-type baseline_graph
+make train-mlflow
+
+# Train and register model
+python src/cli.py train-mlflow --register-model
+make train-mlflow-register
+
+# Start MLflow UI
+python src/cli.py mlflow-ui
+make mlflow-ui
+
+# Compare runs
+python src/cli.py mlflow-compare --top-n 10
+make mlflow-compare
+
+# Promote model to production
+python src/cli.py mlflow-promote --version 2 --stage Production
+```
+
+### MLflow Artifacts:
+
+```
+mlruns/
+├── ppa-fraud-detection/
+│   ├── run_abc123/
+│   │   ├── params/
+│   │   │   ├── model_type
+│   │   │   ├── learning_rate
+│   │   │   ├── max_depth
+│   │   │   └── ...
+│   │   ├── metrics/
+│   │   │   ├── mean_auc_pr
+│   │   │   ├── best_auc_pr
+│   │   │   └── window_*_auc_pr
+│   │   └── artifacts/
+│   │       ├── model/
+│   │       ├── shap/shap_summary.png
+│   │       ├── importance/
+│   │       └── metadata/feature_names.json
+└── models/
+    └── fraud-detection/
+        ├── version-1/  # Staging
+        └── version-2/  # Production
+```
+
+### Key Features:
+
+✅ **Automatic SHAP logging**: Summary plots stored with each run  
+✅ **Production comparison**: Compares new model with production before deployment  
+✅ **Feature importance tracking**: Top features logged as metrics  
+✅ **Signature inference**: Input/output signatures for model serving
+
+### Research Contribution:
+
+This completes the MLOps infrastructure for:
+- **Reproducibility**: Every experiment is versioned and reproducible
+- **Model governance**: Clear staging → production promotion workflow
+- **Audit trail**: Complete history of model versions and performance
+
+---
+
+## Experiment 14: Continuous Pipeline Orchestrator (COMPLETED ✅)
+
+**Date**: 2025-11-26
+**Goal**: Implement the continuous learning orchestration layer with drift detection and scheduling.
+**Hypothesis**: Automated orchestration with drift monitoring enables proactive model maintenance.
+
+### Implementation:
+
+Created `src/orchestration/` module with four components:
+
+1. **DriftDetector** (`drift_detector.py`):
+   - PSI (Population Stability Index) for continuous features
+   - KS (Kolmogorov-Smirnov) test support
+   - Mean shift detection
+   - Automatic severity classification (critical/warning/normal)
+
+2. **Notifier** (`notifier.py`):
+   - Console notifications (default)
+   - Slack webhook integration
+   - Email (SMTP) support
+   - Composite notifier for multi-channel alerts
+
+3. **PipelineScheduler** (`scheduler.py`):
+   - APScheduler-based job management
+   - Default schedule:
+     - Daily: 06:00 UTC - Drift check
+     - Weekly: Sunday 02:00 UTC - Retrain evaluation
+     - Monthly: 1st Sunday 00:00 UTC - Hyperparameter optimization
+   - Graceful shutdown handling
+
+4. **ContinuousPipeline** (`continuous_pipeline.py`):
+   - Orchestrates complete pipeline lifecycle
+   - Configurable via `PipelineConfig` dataclass
+   - Methods:
+     - `run_daily_drift_check()`: Feature distribution monitoring
+     - `run_weekly_retrain()`: Train and compare with production
+     - `run_monthly_hyperopt()`: Staged hyperparameter search
+     - `start_scheduler()`: Begin automated scheduling
+
+### CLI Commands Added:
+
+```bash
+# Individual jobs
+python src/cli.py pipeline-daily
+python src/cli.py pipeline-weekly
+python src/cli.py pipeline-monthly
+
+# Start scheduler
+python src/cli.py pipeline-start
+
+# View status
+python src/cli.py pipeline-status
+```
+
+### Results:
+
+✅ **Daily Drift Check**: Successfully computes training statistics and detects distribution changes
+✅ **Notification System**: Console output working, Slack/email ready for configuration
+✅ **Scheduler Integration**: APScheduler configured with default schedule
+✅ **Status Dashboard**: Shows recent drift reports, adaptation analyses, and MLflow runs
+
+### Architecture:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CONTINUOUS PIPELINE                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   ┌─────────────┐     ┌──────────────┐     ┌───────────────┐    │
+│   │   Daily     │     │   Weekly     │     │   Monthly     │    │
+│   │   Job       │     │   Job        │     │   Job         │    │
+│   │             │     │              │     │               │    │
+│   │ • Drift     │     │ • Retrain    │     │ • Hyperopt    │    │
+│   │   Detection │     │ • Compare    │     │ • Best params │    │
+│   │ • Alert if  │     │ • Deploy if  │     │ • Force       │    │
+│   │   critical  │     │   improved   │     │   retrain     │    │
+│   └──────┬──────┘     └──────┬───────┘     └──────┬────────┘    │
+│          │                   │                    │              │
+│          └───────────────────┼────────────────────┘              │
+│                              ▼                                   │
+│   ┌────────────────────────────────────────────────────────┐    │
+│   │                    Notifier                             │    │
+│   │  Console │ Slack │ Email │ Composite                    │    │
+│   └────────────────────────────────────────────────────────┘    │
+│                              │                                   │
+│          ┌───────────────────┼───────────────────┐              │
+│          ▼                   ▼                   ▼              │
+│   ┌─────────────┐     ┌──────────────┐     ┌───────────────┐   │
+│   │   MLflow    │     │  Adaptation  │     │    Feature    │   │
+│   │   Tracking  │     │    Engine    │     │     Store     │   │
+│   └─────────────┘     └──────────────┘     └───────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Conclusion:
+
+The Continuous Pipeline Orchestrator completes the automation layer for the fraud detection framework. Combined with the Adaptation Engine (Experiment 12) and MLflow integration (Experiment 13), this provides a complete research-to-production pipeline that:
+
+1. **Monitors** for data drift daily
+2. **Retrains** models weekly with automatic deployment decisions
+3. **Optimizes** hyperparameters monthly
+4. **Alerts** operators of critical changes
+5. **Documents** all experiments and decisions
+
+This aligns with the data mining research focus by providing tooling to continuously understand and adapt to evolving fraud patterns.
+
+---
+
 ## Future Research Directions
 
 ### Short-Term (If resources available):
