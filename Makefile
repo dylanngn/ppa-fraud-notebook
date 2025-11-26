@@ -175,28 +175,6 @@ mlflow-compare:
 
 # --- Continuous Pipeline ---
 
-pipeline-daily:
-	@echo "Running daily drift check..."
-	python src/cli.py pipeline-daily
 
-pipeline-weekly:
-	@echo "Running weekly retrain..."
-	python src/cli.py pipeline-weekly
-
-pipeline-monthly:
-	@echo "Running monthly hyperopt (this may take hours)..."
-	python src/cli.py pipeline-monthly
-
-pipeline-start:
-	@echo "Starting continuous pipeline scheduler..."
-	@echo "Press Ctrl+C to stop."
-	python src/cli.py pipeline-start
-
-pipeline-status:
-	@echo "Showing pipeline status..."
-	python src/cli.py pipeline-status
 
 # --- Full Continuous Pipeline Setup ---
-
-pipeline-setup: all-features train-mlflow-register
-	@echo "Pipeline setup complete. Run 'make pipeline-start' to begin scheduling."

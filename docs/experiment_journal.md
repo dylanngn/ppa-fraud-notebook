@@ -783,20 +783,22 @@ if account_age_days < 14 and payment_type != "DIRECT":
 
 ---
 
-## Experiment 12: Adaptation Engine (COMPLETED)
+## Experiment 12: Continuous Pipeline Orchestration (REPLACED)
 
-**Date**: 2025-11-26  
-**Goal**: Automate SHAP-based adaptation suggestions for continuous fraud detection  
-**Status**: ✅ Implemented
+**Date**: 2025-11-26
+**Goal**: Implement a continuous learning pipeline for drift detection and retraining
+**Status**: 🔄 Replaced by GitHub Actions Plan
 
-### Implementation:
+### Decision:
+Instead of maintaining a custom Python-based orchestration module (`src/orchestration`), we have decided to use **GitHub Actions** (or similar CI/CD tools) to trigger individual pipeline steps. This reduces code maintenance and leverages existing infrastructure for scheduling.
 
-Created `src/explainability/adaptation_engine.py` with the following capabilities:
+### Outcome:
+- Removed `src/orchestration` module.
+- Created `docs/continuous_lifecycle_plan.md` outlining the architecture.
+- The pipeline logic (drift detection, training, hyperopt) remains in the CLI commands (`src/cli.py`), but the *scheduling* is now external.
 
-1. **Drift Detection**
-   - Track feature importance rank changes across windows
-   - Alert on significant shifts (>10 rank positions)
-   - Identify emerging fraud patterns
+### Plan:
+See `docs/continuous_lifecycle_plan.md` for the detailed architecture.
 
 2. **Rule Suggestion Engine**
    - Convert high-importance features into business rules

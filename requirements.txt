@@ -24,7 +24,7 @@ optuna>=4.0.0
 
 # MLOps
 mlflow>=3.0.0
-apscheduler>=3.11.0
+
 
 # API
 fastapi>=0.122.0
