@@ -44,17 +44,8 @@ train-hgt-rte:
 
 # -------------------
 
-check-timestamps:
-	python src/cli.py check-timestamps
-
-check-graph:
-	python src/cli.py check-graph-timestamps
-
 check-density:
 	python src/cli.py check-density
-
-debug:
-	python src/cli.py debug-polars
 
 # Run complete pipeline: ETL → Build Graph → Graph Features → Advanced Features → All Training Scripts
 all: etl build-graph graph-features advanced-features train-baseline train-graph-baseline train-gat train-sage train-hgt train-hgt-rte
@@ -127,20 +118,6 @@ compare-all:
 	@echo "Comparing all models (XGBoost vs Hybrid vs Seon)..."
 	python src/cli.py compare-all-models
 
-# --- Production API ---
-
-api-start:
-	@echo "Starting Fraud Detection API on http://localhost:8000"
-	uvicorn src.api.main:app --reload --port 8000
-
-api-demo:
-	@echo "Running API demo script..."
-	python scripts/demo_api.py
-
-api-test:
-	@echo "Running API tests..."
-	pytest tests/features/test_temporal_validation.py -v
-
 # --- Adaptation Analysis ---
 
 analyze-adaptation:
@@ -172,9 +149,3 @@ mlflow-ui:
 mlflow-compare:
 	@echo "Comparing MLflow runs..."
 	python src/cli.py mlflow-compare --top-n 10
-
-# --- Continuous Pipeline ---
-
-
-
-# --- Full Continuous Pipeline Setup ---

@@ -932,11 +932,5 @@ def mlflow_promote(
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
 
-
-# --- Continuous Pipeline Commands ---
-
-
-
-
 if __name__ == "__main__":
     app()

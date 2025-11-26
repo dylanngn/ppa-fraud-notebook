@@ -19,7 +19,6 @@ flowchart TB
     XGB_Hybrid --> MLflow
     
     MLflow -->|Model Registry| Adapt[Adaptation Engine]
-    Adapt -->|SHAP Analysis| Pipeline[Pipeline Orchestrator]
     
     Pipeline -->|Daily| Drift[Drift Detection]
     Pipeline -->|Weekly| Retrain[Model Retraining]
@@ -30,10 +29,8 @@ flowchart TB
 ```
 
 **Key Paths**:
-* **Production**: tabular features + engineered graph statistics → XGBoost → MLflow → Adaptation Engine → Continuous Pipeline
+* **Production**: tabular features + engineered graph statistics → XGBoost → MLflow → Adaptation Engine
 * **Research**: tabular + graph statistics + residual HGT embeddings → XGBoost (experimental)
-
-**Continuous Learning**: Automated daily drift checks, weekly retraining, monthly optimization with SHAP-driven adaptation suggestions.
 
 ## 2. ETL Pipeline (`src/data/etl.py`)
 
@@ -216,14 +213,6 @@ The system includes a complete continuous learning framework for automated model
 **Key Components**:
 - **MLflow Integration** (`src/training/mlflow_trainer.py`): Experiment tracking, model versioning, artifact management
 - **Adaptation Engine** (`src/explainability/adaptation_engine.py`): SHAP-driven rule suggestions, drift detection, feature pruning
-- **Pipeline Orchestrator** (`src/orchestration/continuous_pipeline.py`): Scheduled jobs (daily drift checks, weekly retraining, monthly optimization)
-
-**Schedule**:
-- Daily (06:00 UTC): Feature distribution drift detection
-- Weekly (Sunday 02:00 UTC): Model retraining evaluation
-- Monthly (1st, 02:00 UTC): Hyperparameter optimization
-
-**See**: `docs/continuous_fraud_detection_framework.md` for complete implementation details, configuration, and CLI reference.
 
 ## 10. Commands Reference
 
@@ -244,7 +233,6 @@ The system includes a complete continuous learning framework for automated model
 ### Continuous Learning
 *   **MLflow**: `make mlflow-ui`, `make mlflow-compare`, `make mlflow-promote`
 *   **Adaptation**: `make analyze-adaptation`, `make adaptation-report`
-*   **Pipeline**: `make pipeline-start`, `make pipeline-daily`, `make pipeline-status`
 
 ### Analysis
 *   **Notebooks**: 
