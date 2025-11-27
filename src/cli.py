@@ -10,8 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.data import etl, graph_builder
 from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
-from src.models import train_hybrid as hybrid_module
-from src.models import evaluate_seon as seon_module
+from src.utils import evaluate_seon as seon_module
 from src.features import advanced_graph_features as advanced_features_module
 from src.features import time_weighted_features as time_weighted_module
 from src.features import interaction_features as interaction_module
@@ -55,31 +54,34 @@ def train_baseline(
 # train-graph-baseline removed - use: train-baseline --include-graph
 
 @app.command()
-def train_embeddings(
-    model: str = typer.Option("hgt", help="Model type: gat, gcn, hgt, hgt_rte"),
-    epochs: int = typer.Option(20, help="Number of training epochs")
-):
+def train_hybrid_sage():
     """
-    Train GNN model and generate embeddings.
-    """
-    console.print(f"[bold green]Training Embeddings ({model.upper()})...[/bold green]")
-    from src.models import train_embeddings as train_embeddings_module
-    train_embeddings_module.train_embeddings(model_name=model, epochs=epochs)
-
-@app.command()
-def train_hybrid(
-    model: str = typer.Option("hgt", help="GNN model type: gat, gcn, hgt, hgt_rte")
-):
-    """
-    Train Hybrid Model (XGBoost + GNN Embeddings) with accumulating window.
+    Train SAGE Hybrid Model (XGBoost + SAGE Embeddings).
     
     Automatically:
+    - Trains SAGE embeddings with optimized parameters
     - Uses accumulating window (all historical data)
     - Tracks with MLflow
     - Registers model to Model Registry
     """
-    console.print(f"[bold green]Training Hybrid Model ({model.upper()})...[/bold green]")
-    hybrid_module.main(model_name=model)
+    console.print("[bold green]Training SAGE Hybrid Model...[/bold green]")
+    from src.models import train_hybrid_sage
+    train_hybrid_sage.main()
+
+@app.command()
+def train_hybrid_hgt():
+    """
+    Train HGT Hybrid Model (XGBoost + HGT Embeddings with RTE).
+    
+    Automatically:
+    - Trains HGT embeddings with RTE and optimized parameters
+    - Uses accumulating window (all historical data)
+    - Tracks with MLflow
+    - Registers model to Model Registry
+    """
+    console.print("[bold green]Training HGT Hybrid Model (with RTE)...[/bold green]")
+    from src.models import train_hybrid_hgt
+    train_hybrid_hgt.main()
 
 
 @app.command()
@@ -236,6 +238,36 @@ def check_density():
     console.print("[bold yellow]Checking Window Density...[/bold yellow]")
     from src.utils import check_window_density
     check_window_density.check_density()
+
+@app.command()
+def evaluate_seon(
+    evaluation_start_days: int = typer.Option(90, help="Days to skip before starting evaluation"),
+    step_days: int = typer.Option(14, help="Step size between evaluation windows"),
+    include_fallback: bool = typer.Option(True, help="Include fallback predictions when Seon data unavailable"),
+    log_to_mlflow: bool = typer.Option(True, help="Log metrics to MLflow for comparison"),
+):
+    """
+    Evaluate Seon (production baseline) performance.
+    
+    This evaluates the currently-used Seon fraud detection system as a baseline
+    for comparison with our trained models. Seon operates BEFORE listing publication,
+    making binary approve/reject decisions.
+    
+    Automatically:
+    - Evaluates Seon on evaluation windows (matching model evaluation approach)
+    - Logs metrics to MLflow for easy comparison
+    - Saves results CSV
+    
+    Note: This is evaluation-only (no training). The windows are used to evaluate
+    Seon on different time periods, matching how we evaluate our trained models.
+    """
+    console.print("[bold green]Evaluating Seon Baseline...[/bold green]")
+    seon_module.run_seon_evaluation(
+        evaluation_start_days=evaluation_start_days,
+        step_days=step_days,
+        include_fallback=include_fallback,
+        log_to_mlflow=log_to_mlflow
+    )
     
 # Explainability commands removed - use MLflow UI for SHAP and model comparison
 # MLflow automatically logs SHAP plots via mlflow.evaluate()

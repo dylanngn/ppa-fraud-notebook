@@ -24,23 +24,11 @@ train-baseline:
 train-graph-baseline:
 	python src/cli.py train-graph-baseline
 
-# --- Experiments ---
-
-train-gat:
-	python src/cli.py train-embeddings --model gat
-	python src/cli.py train-hybrid --model gat
-
 train-sage:
-	python src/cli.py train-embeddings --model sage
-	python src/cli.py train-hybrid --model sage
+	python src/cli.py train-hybrid-sage
 
 train-hgt:
-	python src/cli.py train-embeddings --model hgt
-	python src/cli.py train-hybrid --model hgt
-
-train-hgt-rte:
-	python src/cli.py train-embeddings --model hgt_rte
-	python src/cli.py train-hybrid --model hgt_rte
+	python src/cli.py train-hybrid-hgt
 
 # -------------------
 
@@ -48,7 +36,7 @@ check-density:
 	python src/cli.py check-density
 
 # Run complete pipeline: ETL → Build Graph → Graph Features → Advanced Features → All Training Scripts
-all: etl build-graph graph-features advanced-features train-baseline train-graph-baseline train-gat train-sage train-hgt train-hgt-rte
+all: etl build-graph graph-features advanced-features train-baseline train-sage train-hgt
 
 # --- Advanced Features ---
 
@@ -91,11 +79,7 @@ staged-hyperopt:
 
 seon:
 	@echo "Evaluating Seon (production baseline)..."
-	python src/cli.py evaluate-seon --window-days 90 --step-days 7
-
-compare-all:
-	@echo "Comparing all models (XGBoost vs Hybrid vs Seon)..."
-	python src/cli.py compare-all-models
+	python src/cli.py evaluate-seon --evaluation-start-days 90 --step-days 14
 
 # --- MLflow Model Management ---
 

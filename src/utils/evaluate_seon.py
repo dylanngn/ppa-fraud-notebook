@@ -10,15 +10,24 @@ Performance metrics are calculated based on:
 2. Fallback: first_published_date comparison (when Seon data unavailable)
 
 This represents the TRUE BASELINE we want to beat with our research.
+
+Note: This is evaluation-only (no training). The "window" strategy is used
+to evaluate Seon on different time periods to match our model evaluation approach.
 """
 
 import json
 import os
-from datetime import timedelta
-from typing import Dict, List
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import numpy as np
 import polars as pl
+import mlflow
+from sklearn.metrics import average_precision_score, roc_auc_score
+
+from src.utils.metrics import calculate_metrics
+
 
 def parse_seon_approval(auto_approval_criteria_col: pl.Series) -> pl.Series:
     """
@@ -192,6 +201,16 @@ def evaluate_seon_performance(
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     
+    # Calculate AUC-PR and AUC-ROC (using probabilities = predictions for binary case)
+    # For binary predictions, we use predictions as probabilities
+    y_pred_proba = y_pred.astype(float)
+    if len(np.unique(y_true)) > 1:
+        auc_pr = average_precision_score(y_true, y_pred_proba)
+        auc_roc = roc_auc_score(y_true, y_pred_proba)
+    else:
+        auc_pr = 0.0
+        auc_roc = 0.0
+    
     # Source breakdown
     source_counts = df_eval["seon_prediction_source"].value_counts()
     source_dict = {row["seon_prediction_source"]: row["count"] 
@@ -215,6 +234,8 @@ def evaluate_seon_performance(
         "precision": float(precision),
         "recall": float(recall),
         "f1_score": float(f1),
+        "auc_pr": float(auc_pr),
+        "auc_roc": float(auc_roc),
         
         # Fraud-specific metrics
         "fraud_count": int(y_true.sum()),
@@ -224,25 +245,34 @@ def evaluate_seon_performance(
     }
 
 
-def evaluate_seon_sliding_window(
+def evaluate_seon_evaluation_windows(
     df: pl.DataFrame,
-    window_days: int = 90,
+    evaluation_start_days: int = 90,
     step_days: int = 14,
     include_fallback: bool = True
 ) -> List[Dict]:
     """
-    Evaluate Seon performance using sliding window to match our model evaluation.
+    Evaluate Seon performance using sliding test windows to match model evaluation.
+    
+    Note: This is evaluation-only (no training). Seon uses sliding test windows
+    that match exactly how our trained models are evaluated on test sets.
+    
+    Models use:
+    - Training: Accumulating window (all historical data)
+    - Test: Sliding window (fixed 14-day windows that move forward)
+    
+    Seon evaluation matches the model test windows (sliding), since there's no training.
     
     Args:
         df: DataFrame with fraud_flag, seon_approved, first_published_date, submission_at
-        window_days: Size of training window (for consistency, not used by Seon)
-        step_days: Step size for sliding window
+        evaluation_start_days: Days to skip before starting evaluation (matches model initial_window_days)
+        step_days: Step size between evaluation windows (matches model step_days)
         include_fallback: Whether to include fallback predictions
         
     Returns:
-        List of dictionaries with metrics per window
+        List of dictionaries with metrics per evaluation window
     """
-    print("Evaluating Seon with sliding window...")
+    print("Evaluating Seon with sliding test windows (matching model evaluation)...")
     
     # Sort by time
     df = df.sort("submission_at")
@@ -250,15 +280,16 @@ def evaluate_seon_sliding_window(
     # Calculate Seon predictions once
     df = calculate_seon_labels(df)
     
-    # Define windows
+    # Define windows - matching model evaluation exactly
     start_date = df["submission_at"].min()
     end_date = df["submission_at"].max()
     
-    window_size = timedelta(days=window_days)
+    # Start evaluation after initial period (matches model's initial_window_days)
+    evaluation_start = start_date + timedelta(days=evaluation_start_days)
     step_size = timedelta(days=step_days)
-    test_size = timedelta(days=14)
+    test_size = timedelta(days=14)  # Match model evaluation test window size
     
-    current_date = start_date + window_size
+    current_date = evaluation_start
     
     results = []
     window_idx = 0
@@ -308,6 +339,18 @@ def evaluate_seon_sliding_window(
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
         
+        # Calculate AUC-PR and AUC-ROC
+        y_pred_proba = y_pred.astype(float)
+        if len(np.unique(y_true)) > 1:
+            auc_pr = average_precision_score(y_true, y_pred_proba)
+            auc_roc = roc_auc_score(y_true, y_pred_proba)
+        else:
+            auc_pr = 0.0
+            auc_roc = 0.0
+        
+        # Calculate P@100 and other top-K metrics
+        metrics = calculate_metrics(y_true, y_pred_proba)
+        
         # Source counts
         source_counts = test_eval["seon_prediction_source"].value_counts()
         source_dict = {row["seon_prediction_source"]: row["count"] 
@@ -316,6 +359,7 @@ def evaluate_seon_sliding_window(
         print(f"Window {test_start.date()} - {test_end.date()}: "
               f"Precision = {precision:.4f}, "
               f"Recall = {recall:.4f}, "
+              f"AUC-PR = {auc_pr:.4f}, "
               f"F1 = {f1:.4f}, "
               f"Fraud Count = {y_true.sum()}")
         
@@ -339,6 +383,10 @@ def evaluate_seon_sliding_window(
             "precision": precision,
             "recall": recall,
             "f1_score": f1,
+            "auc_pr": auc_pr,
+            "auc_roc": auc_roc,
+            "p_at_100": metrics.get("p@100", 0.0),
+            "lift_at_100": metrics.get("lift@100", 0.0),
             "fraud_count": int(y_true.sum()),
             "fraud_rate": float(y_true.mean()),
             "catch_rate": recall,
@@ -352,20 +400,28 @@ def evaluate_seon_sliding_window(
 
 
 def run_seon_evaluation(
-    window_days: int = 90,
+    evaluation_start_days: int = 90,
     step_days: int = 14,
     include_fallback: bool = True,
-    results_filename: str = "artifacts/results/seon_baseline_results.csv"
-):
+    log_to_mlflow: bool = True,
+    results_filename: Optional[str] = None
+) -> Optional[List[Dict]]:
     """
-    Run Seon evaluation and save results.
+    Run Seon evaluation and save results, optionally logging to MLflow.
     
     Args:
-        window_days: Window size in days
-        step_days: Step size in days
+        evaluation_start_days: Days to skip before starting evaluation
+        step_days: Step size between evaluation windows
         include_fallback: Whether to use fallback predictions
-        results_filename: Output file path
+        log_to_mlflow: Whether to log metrics to MLflow for comparison
+        results_filename: Output file path (default: artifacts/results/seon_baseline_results.csv)
+        
+    Returns:
+        List of evaluation results or None if error
     """
+    if results_filename is None:
+        results_filename = "artifacts/results/seon_baseline_results.csv"
+    
     # Load listing data
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Error: nodes_listing.parquet not found. Run ETL first.")
@@ -385,10 +441,10 @@ def run_seon_evaluation(
     print(f"Total listings: {len(df)}")
     print(f"Fraud cases: {df['is_fraud'].sum()}")
     
-    # Run sliding window evaluation
-    results = evaluate_seon_sliding_window(
+    # Run evaluation windows
+    results = evaluate_seon_evaluation_windows(
         df,
-        window_days=window_days,
+        evaluation_start_days=evaluation_start_days,
         step_days=step_days,
         include_fallback=include_fallback
     )
@@ -402,15 +458,81 @@ def run_seon_evaluation(
     results_df = pl.DataFrame(results)
     results_df.write_csv(results_filename)
     
+    # Calculate aggregate metrics
+    mean_precision = float(results_df['precision'].mean())
+    mean_recall = float(results_df['recall'].mean())
+    mean_f1 = float(results_df['f1_score'].mean())
+    mean_auc_pr = float(results_df['auc_pr'].mean())
+    mean_auc_roc = float(results_df['auc_roc'].mean())
+    mean_p100 = float(results_df['p_at_100'].mean())
+    mean_catch_rate = float(results_df['catch_rate'].mean())
+    mean_false_alarm_rate = float(results_df['false_alarm_rate'].mean())
+    
+    # Log to MLflow if requested
+    if log_to_mlflow:
+        print("\nLogging to MLflow...")
+        experiment_name = "ppa-fraud-detection"
+        mlflow.set_experiment(experiment_name)
+        
+        with mlflow.start_run(
+            run_name=f"seon_baseline_{datetime.now().strftime('%Y%m%d_%H%M')}",
+            tags={
+                "model_type": "seon_baseline",
+                "evaluation_mode": "sliding_test_windows",
+                "baseline": "true"
+            }
+        ) as run:
+            # Log parameters
+            mlflow.log_params({
+                "evaluation_start_days": evaluation_start_days,
+                "step_days": step_days,
+                "include_fallback": include_fallback,
+                "num_windows": len(results),
+                "total_listings": len(df),
+                "fraud_rate": float(df['is_fraud'].mean()),
+            })
+            
+            # Log aggregate metrics
+            mlflow.log_metrics({
+                "mean_precision": mean_precision,
+                "mean_recall": mean_recall,
+                "mean_f1_score": mean_f1,
+                "mean_auc_pr": mean_auc_pr,
+                "mean_auc_roc": mean_auc_roc,
+                "mean_p_at_100": mean_p100,
+                "mean_catch_rate": mean_catch_rate,
+                "mean_false_alarm_rate": mean_false_alarm_rate,
+            })
+            
+            # Log results CSV as artifact
+            mlflow.log_artifact(results_filename, artifact_path="results")
+            
+            # Log dataset info
+            try:
+                dataset = mlflow.data.from_polars(
+                    df.head(1000),  # Sample for dataset logging
+                    name="seon_baseline_evaluation",
+                    targets="is_fraud"
+                )
+                mlflow.log_input(dataset, context="evaluation")
+            except Exception as e:
+                print(f"Warning: Could not log dataset: {e}")
+            
+            print(f"✓ Logged to MLflow run: {run.info.run_id}")
+    
+    # Print summary
     print(f"\n{'='*80}")
     print("SEON BASELINE PERFORMANCE SUMMARY")
     print(f"{'='*80}")
     print(f"Windows evaluated: {len(results)}")
-    print(f"Mean Precision: {float(results_df['precision'].mean()):.4f}")
-    print(f"Mean Recall: {float(results_df['recall'].mean()):.4f}")
-    print(f"Mean F1 Score: {float(results_df['f1_score'].mean()):.4f}")
-    print(f"Mean Catch Rate: {float(results_df['catch_rate'].mean()):.4f}")
-    print(f"Mean False Alarm Rate: {float(results_df['false_alarm_rate'].mean()):.4f}")
+    print(f"Mean Precision: {mean_precision:.4f}")
+    print(f"Mean Recall: {mean_recall:.4f}")
+    print(f"Mean F1 Score: {mean_f1:.4f}")
+    print(f"Mean AUC-PR: {mean_auc_pr:.4f}")
+    print(f"Mean AUC-ROC: {mean_auc_roc:.4f}")
+    print(f"Mean P@100: {mean_p100:.4f}")
+    print(f"Mean Catch Rate: {mean_catch_rate:.4f}")
+    print(f"Mean False Alarm Rate: {mean_false_alarm_rate:.4f}")
     
     coverage_pct = (results_df['seon_approved_available'].sum() / 
                     results_df['total_test'].sum() * 100)
@@ -418,14 +540,26 @@ def run_seon_evaluation(
     print(f"Fallback Used: {results_df['fallback_used'].sum()} cases")
     
     print(f"\nResults saved to: {results_filename}")
+    if log_to_mlflow:
+        print("Metrics logged to MLflow for comparison with trained models")
     print(f"{'='*80}")
     
     return results
 
 
-def main(window_days: int = 90, step_days: int = 14, include_fallback: bool = True):
+def main(
+    evaluation_start_days: int = 90,
+    step_days: int = 14,
+    include_fallback: bool = True,
+    log_to_mlflow: bool = True
+):
     """Main entry point for CLI."""
-    run_seon_evaluation(window_days, step_days, include_fallback)
+    run_seon_evaluation(
+        evaluation_start_days=evaluation_start_days,
+        step_days=step_days,
+        include_fallback=include_fallback,
+        log_to_mlflow=log_to_mlflow
+    )
 
 
 if __name__ == "__main__":
