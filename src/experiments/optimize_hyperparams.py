@@ -16,6 +16,7 @@ from typing import Optional
 
 import numpy as np
 import optuna
+import mlflow
 import polars as pl
 import xgboost as xgb
 from optuna.samplers import TPESampler
@@ -162,6 +163,16 @@ def objective(trial: optuna.Trial, df: pl.DataFrame, features: list, n_windows: 
     trial.set_user_attr("mean_p@100", mean_p_at_100)
     trial.set_user_attr("n_windows", windows_evaluated)
     
+    # Log to MLflow (nested run for this trial)
+    with mlflow.start_run(run_name=f"trial_{trial.number}", nested=True):
+        mlflow.log_params(params)
+        mlflow.log_metrics({
+            "composite_score": composite_score,
+            "mean_auc_pr": mean_auc_pr,
+            "mean_p_at_100": mean_p_at_100,
+            "n_windows": float(windows_evaluated)
+        })
+    
     return composite_score
 
 
@@ -229,13 +240,30 @@ def run_hyperparameter_optimization(
     
     timeout_seconds = timeout_minutes * 60 if timeout_minutes else None
     
-    study.optimize(
-        lambda trial: objective(trial, df, features, n_windows),
-        n_trials=n_trials,
-        timeout=timeout_seconds,
-        show_progress_bar=True,
-        gc_after_trial=True,
-    )
+    # Start parent MLflow run for the study
+    mlflow.set_experiment("ppa-fraud-detection")
+    with mlflow.start_run(run_name=f"hyperopt_{study_name}", tags={"type": "hyperopt"}):
+        mlflow.log_params({
+            "n_trials": n_trials,
+            "n_windows": n_windows,
+            "study_name": study_name
+        })
+        
+        study.optimize(
+            lambda trial: objective(trial, df, features, n_windows),
+            n_trials=n_trials,
+            timeout=timeout_seconds,
+            show_progress_bar=True,
+            gc_after_trial=True,
+        )
+        
+        # Log best results to parent run
+        mlflow.log_params({f"best_{k}": v for k, v in study.best_trial.params.items()})
+        mlflow.log_metrics({
+            "best_value": study.best_value,
+            "best_auc_pr": study.best_trial.user_attrs.get("mean_auc_pr", 0),
+            "best_p_at_100": study.best_trial.user_attrs.get("mean_p@100", 0)
+        })
     
     # Extract results
     print("\n" + "-" * 70)

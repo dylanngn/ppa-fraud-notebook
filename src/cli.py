@@ -10,16 +10,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.data import etl, graph_builder
 from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
-from src.models import train_graph_baseline as graph_baseline_module
-from src.models import train_hybrid as hybrid_module
 from src.models import train_hybrid as hybrid_module
 from src.models import evaluate_seon as seon_module
 from src.features import advanced_graph_features as advanced_features_module
 from src.features import time_weighted_features as time_weighted_module
 from src.features import interaction_features as interaction_module
-# Lazy imports for optional dependencies (optuna)
-# from src.experiments import optimize_hyperparams as hyperopt_module
-# from src.experiments import staged_hyperopt as staged_hyperopt_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -42,32 +37,22 @@ def build_graph():
 
 @app.command()
 def train_baseline(
-    window_days: int = typer.Option(90, help="Training window size in days"),
-    step_days: int = typer.Option(7, help="Sliding window step size in days"),
-    save_models: bool = typer.Option(True, help="Save models for SHAP analysis")
+    include_graph: bool = typer.Option(True, help="Include graph features")
 ):
     """
-    Train the Baseline XGBoost model using Sliding Window Backtesting.
+    Train Baseline XGBoost with expanding window.
+    
+    Automatically:
+    - Uses expanding window (accumulating data)
+    - Tracks with MLflow
+    - Registers best model to Model Registry
     """
-    console.print(f"[bold green]Training Baseline XGBoost (Window: {window_days} days)...[/bold green]")
-    baseline_module.run_baseline(
-        window_days=window_days, 
-        step_days=step_days, 
-        save_models=save_models,
-        models_dir="artifacts/models/baseline"
-    )
+    console.print(f"[bold green]Training Baseline XGBoost (Expanding Window)...[/bold green]")
+    baseline_module.run_baseline(include_graph_features=include_graph)
 
 
-@app.command()
-def train_graph_baseline(
-    window_days: int = typer.Option(90, help="Training window size in days"),
-    step_days: int = typer.Option(7, help="Sliding window step size in days")
-):
-    """
-    Train the Graph-Feature XGBoost baseline.
-    """
-    console.print(f"[bold green]Training Graph-Feature Baseline (Window: {window_days} days)...[/bold green]")
-    graph_baseline_module.main(window_days=window_days, step_days=step_days)
+
+# train-graph-baseline removed - use: train-baseline --include-graph
 
 @app.command()
 def train_embeddings(
@@ -83,14 +68,18 @@ def train_embeddings(
 
 @app.command()
 def train_hybrid(
-    model: str = typer.Option("hgt", help="Model type for embeddings: gat, gcn, hgt, hgt_rte"),
-    save_models: bool = typer.Option(True, help="Save models for SHAP analysis")
+    model: str = typer.Option("hgt", help="GNN model type: gat, gcn, hgt, hgt_rte")
 ):
     """
-    Train the Hybrid Model (XGBoost + GNN Embeddings).
+    Train Hybrid Model (XGBoost + GNN Embeddings) with expanding window.
+    
+    Automatically:
+    - Uses expanding window
+    - Tracks with MLflow
+    - Registers model to Model Registry
     """
     console.print(f"[bold green]Training Hybrid Model ({model.upper()})...[/bold green]")
-    hybrid_module.main(model_name=model, save_models=save_models)
+    hybrid_module.main(model_name=model)
 
 
 @app.command()
@@ -141,47 +130,11 @@ def interaction_features():
     interaction_module.generate_interaction_features()
 
 
-@app.command()
-def train_baseline_expanding(
-    window_days: int = typer.Option(180, help="Initial training window size in days"),
-    step_days: int = typer.Option(7, help="Sliding window step size in days")
-):
-    """
-    Train baseline XGBoost with expanding window (accumulating data).
-    Simulates production continuous learning.
-    """
-    console.print("[bold green]Training Baseline (Expanding Window)...[/bold green]")
-    from src.models import train_baseline_expanding
-    train_baseline_expanding.main(window_days=window_days, step_days=step_days)
 
-
-@app.command()
-def train_hybrid_expanding(
-    model: str = typer.Option("hgt", help="Model type: hgt, gat, sage"),
-    window_days: int = typer.Option(180, help="Initial training window size in days"),
-    step_days: int = typer.Option(7, help="Sliding window step size in days")
-):
-    """
-    Train hybrid model with expanding window (accumulating data).
-    Gives HGT/GNN access to complete graph structure.
-    """
-    console.print(f"[bold green]Training Hybrid {model.upper()} (Expanding Window)...[/bold green]")
-    from src.models import train_hybrid_expanding
-    train_hybrid_expanding.main(model_name=model, window_days=window_days, step_days=step_days)
-
-
-@app.command()
-def retrain_production(
-    include_production: bool = typer.Option(True, help="Include production data")
-):
-    """
-    Retrain production model with all historical + production data.
-    Used for weekly continuous learning.
-    """
-    console.print("[bold green]Retraining Production Model...[/bold green]")
-    from src.training import continuous_learner
-    continuous_learner.train_production_model(include_production_data=include_production)
-
+# Removed deprecated commands:
+# - train-baseline-expanding → use train-baseline (now uses expanding window by default)
+# - train-hybrid-expanding → use train-hybrid (now uses expanding window by default)
+# - retrain-production → use train-baseline (same logic)
 
 @app.command()
 def optimize_graph_window():
@@ -285,145 +238,10 @@ def check_density():
     console.print("[bold yellow]Checking Window Density...[/bold yellow]")
     from src.utils import check_window_density
     check_window_density.check_density()
-
-@app.command()
-def debug_polars():
-    """
-    Run Polars casting debug script.
-    """
-    console.print("[bold yellow]Debugging Polars Casting...[/bold yellow]")
-    from src.utils import debug_polars_cast
-    debug_polars_cast.debug_polars_cast()
-
-@app.command()
-def explain_model(
-    model_type: str = typer.Option(..., help="Model type: baseline, graph_baseline, or hybrid_MODEL"),
-    window_idx: int = typer.Option(-1, help="Window index to explain (-1 for latest)"),
-    output_dir: str = typer.Option(None, help="Output directory for plots")
-):
-    """
-    Generate SHAP explanations for a trained model window.
-    """
-    console.print(f"[bold cyan]Generating SHAP Explanations for {model_type}...[/bold cyan]")
     
-    from src.utils.explainability import ModelExplainer, load_saved_model, save_explainer
-    import glob
-    
-    # Determine models directory
-    models_dir = f"artifacts/models/{model_type}"
-    
-    if not os.path.exists(models_dir):
-        console.print(f"[bold red]Error: Models directory not found: {models_dir}[/bold red]")
-        console.print("Run training with --save-models flag first.")
-        return
-    
-    # Find model files
-    model_files = sorted(glob.glob(os.path.join(models_dir, "model_window_*.pkl")))
-    
-    if not model_files:
-        console.print(f"[bold red]Error: No model files found in {models_dir}[/bold red]")
-        return
-    
-    # Select model
-    if window_idx == -1:
-        model_path = model_files[-1]  # Latest window
-        console.print(f"Using latest model window: {os.path.basename(model_path)}")
-    else:
-        model_path = os.path.join(models_dir, f"model_window_{window_idx}.pkl")
-        if not os.path.exists(model_path):
-            console.print(f"[bold red]Error: Model window {window_idx} not found[/bold red]")
-            return
-    
-    # Load model
-    console.print(f"Loading model from {model_path}...")
-    model_bundle = load_saved_model(model_path)
-    
-    # Create explainer
-    explainer = ModelExplainer(
-        model=model_bundle['model'],
-        feature_names=model_bundle['features'],
-        X_test=model_bundle['X_test'],
-        y_test=model_bundle['y_test'],
-        y_pred=model_bundle['y_pred'],
-        model_type=model_type,
-        window_info=model_bundle.get('window_info', {})
-    )
-    
-    # Determine output directory
-    if output_dir is None:
-        window_idx_actual = model_bundle.get('window_info', {}).get('window_idx', 0)
-        output_dir = f"artifacts/shap/{model_type}/window_{window_idx_actual}"
-    
-    # Generate all explanations
-    save_explainer(explainer, output_dir, prefix="")
-    
-    console.print(f"[bold green]✓ SHAP explanations saved to {output_dir}[/bold green]")
-
-@app.command()
-def compare_models_shap(
-    models: str = typer.Option(..., help="Comma-separated model types (e.g., baseline,hybrid_hgt)"),
-    window_idx: int = typer.Option(-1, help="Window index to compare (-1 for latest)"),
-    output_path: str = typer.Option("artifacts/shap/model_comparison.png", help="Output path for comparison plot")
-):
-    """
-    Compare SHAP feature importance across multiple models.
-    """
-    console.print("[bold cyan]Comparing Models with SHAP...[/bold cyan]")
-    
-    from src.utils.explainability import ModelExplainer, load_saved_model, compare_models
-    import glob
-    
-    model_types = [m.strip() for m in models.split(',')]
-    explainers = {}
-    
-    for model_type in model_types:
-        models_dir = f"artifacts/models/{model_type}"
-        
-        if not os.path.exists(models_dir):
-            console.print(f"[yellow]Warning: Skipping {model_type} - directory not found[/yellow]")
-            continue
-        
-        # Find model files
-        model_files = sorted(glob.glob(os.path.join(models_dir, "model_window_*.pkl")))
-        
-        if not model_files:
-            console.print(f"[yellow]Warning: Skipping {model_type} - no models found[/yellow]")
-            continue
-        
-        # Select model
-        if window_idx == -1:
-            model_path = model_files[-1]
-        else:
-            model_path = os.path.join(models_dir, f"model_window_{window_idx}.pkl")
-            if not os.path.exists(model_path):
-                console.print(f"[yellow]Warning: Skipping {model_type} - window {window_idx} not found[/yellow]")
-                continue
-        
-        # Load and create explainer
-        console.print(f"Loading {model_type} from {os.path.basename(model_path)}...")
-        model_bundle = load_saved_model(model_path)
-        
-        explainer = ModelExplainer(
-            model=model_bundle['model'],
-            feature_names=model_bundle['features'],
-            X_test=model_bundle['X_test'],
-            y_test=model_bundle['y_test'],
-            y_pred=model_bundle['y_pred'],
-            model_type=model_type,
-            window_info=model_bundle.get('window_info', {})
-        )
-        
-        explainers[model_type] = explainer
-    
-    if len(explainers) < 2:
-        console.print("[bold red]Error: Need at least 2 models to compare[/bold red]")
-        return
-    
-    # Generate comparison
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    compare_models(explainers, output_path=output_path)
-    
-    console.print(f"[bold green]✓ Model comparison saved to {output_path}[/bold green]")
+# Explainability commands removed - use MLflow UI for SHAP and model comparison
+# MLflow automatically logs SHAP plots via mlflow.evaluate()
+# Compare models in MLflow UI by selecting multiple runs
 
 @app.command()
 def analyze_failures(
@@ -498,72 +316,10 @@ def analyze_failures(
     
     console.print(f"[bold green]✓ Analysis saved to {output_dir}[/bold green]")
 
-@app.command()
-def compare_baseline_hybrid(
-    baseline: str = typer.Option("baseline", help="Baseline model type"),
-    hybrid: str = typer.Option("hybrid_hgt", help="Hybrid model type"),
-    output_dir: str = typer.Option("artifacts/shap/comparison", help="Output directory")
-):
-    """
-    Generate comprehensive comparison report between baseline and hybrid models.
-    
-    This answers: Why doesn't the hybrid model outperform the baseline?
-    """
-    console.print("[bold cyan]Comparing Baseline vs Hybrid Models...[/bold cyan]")
-    
-    from src.utils.compare_baseline_hybrid import generate_comparison_report
-    
-    try:
-        generate_comparison_report(baseline, hybrid, output_dir)
-        console.print(f"\n[bold green]✓ Comparison report complete![/bold green]")
-        console.print(f"[bold green]Results saved to: {output_dir}[/bold green]")
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
 
-@app.command()
-def evaluate_seon(
-    window_days: int = typer.Option(90, help="Training window size in days"),
-    step_days: int = typer.Option(7, help="Sliding window step size in days"),
-    include_fallback: bool = typer.Option(True, help="Include fallback predictions")
-):
-    """
-    Evaluate Seon (production baseline) performance using sliding window.
-    
-    Seon is the current production fraud detection system that we want to beat.
-    This command calculates its performance metrics for comparison with our models.
-    """
-    console.print(f"[bold green]Evaluating Seon Baseline (Window: {window_days} days)...[/bold green]")
-    seon_module.main(window_days=window_days, step_days=step_days, include_fallback=include_fallback)
-
-@app.command()
-def compare_all_models(
-    window_days: int = typer.Option(90, help="Window size for comparison"),
-    step_days: int = typer.Option(7, help="Step size for windows"),
-    output_dir: str = typer.Option("artifacts/results/comparison", help="Output directory")
-):
-    """
-    Compare ALL models: Baseline XGBoost, Hybrid (GNN+XGBoost), and Seon.
-    
-    This generates a comprehensive comparison showing:
-    - Performance metrics across all models
-    - Which model performs best
-    - Whether research models beat production Seon baseline
-    """
-    console.print("[bold cyan]Comparing All Models: XGBoost vs Hybrid vs Seon...[/bold cyan]")
-    
-    from src.utils.compare_all_models import generate_comprehensive_comparison
-    
-    try:
-        generate_comprehensive_comparison(
-            window_days=window_days,
-            step_days=step_days,
-            output_dir=output_dir
-        )
-        console.print(f"\n[bold green]✓ Comprehensive comparison complete![/bold green]")
-        console.print(f"[bold green]Results saved to: {output_dir}[/bold green]")
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
-
+# Model comparison commands removed - use MLflow UI
+# Compare models by selecting multiple runs in MLflow UI
+# View side-by-side metrics, parameters, and SHAP plots
 
 @app.command()
 def analyze_adaptation(
@@ -792,53 +548,9 @@ def generate_adaptation_report(
 
 
 # --- MLflow Commands ---
+# Note: train-mlflow is deprecated. Use train-baseline or train-hybrid instead.
+# All training commands now use MLflow by default.
 
-@app.command()
-def train_mlflow(
-    model_type: str = typer.Option("baseline", help="Model type: baseline, baseline_graph"),
-    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
-    window_days: int = typer.Option(90, help="Training window size in days"),
-    step_days: int = typer.Option(14, help="Sliding window step size in days"),
-    register_model: bool = typer.Option(False, help="Register model in MLflow Model Registry"),
-):
-    """
-    Train fraud detection model with MLflow tracking.
-    
-    Features:
-    - Automatic experiment tracking (hyperparams, metrics, artifacts)
-    - Model versioning and registry
-    - SHAP explanations logged as artifacts
-    - Comparison with production model
-    
-    Example:
-        python src/cli.py train-mlflow --model-type baseline_graph
-        python src/cli.py train-mlflow --register-model
-    """
-    console.print(f"[bold cyan]Training {model_type} with MLflow tracking...[/bold cyan]")
-    
-    from src.training.mlflow_trainer import train_with_mlflow
-    
-    try:
-        result = train_with_mlflow(
-            experiment_name=experiment_name,
-            model_type=model_type,
-            window_days=window_days,
-            step_days=step_days,
-            register_model=register_model,
-        )
-        
-        console.print(f"\n[bold green]✓ Training complete![/bold green]")
-        console.print(f"\n[bold]Results:[/bold]")
-        console.print(f"  Run ID: {result['run_id']}")
-        console.print(f"  Mean AUC-PR: {result['mean_auc_pr']:.4f}")
-        console.print(f"  Best AUC-PR: {result['best_auc_pr']:.4f}")
-        console.print(f"  Model URI: {result['model_uri']}")
-        console.print(f"\n[dim]View in MLflow UI: mlflow ui --port 5000[/dim]")
-        
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
-        import traceback
-        traceback.print_exc()
 
 
 @app.command()
@@ -916,15 +628,16 @@ def mlflow_promote(
     """
     console.print(f"[bold cyan]Promoting model {model_name} v{version} to {stage}...[/bold cyan]")
     
-    from src.training.mlflow_trainer import MLflowTrainer
+    import mlflow
+    from mlflow.tracking import MlflowClient
     
     try:
-        trainer = MLflowTrainer()
-        trainer.transition_model_stage(
+        client = MlflowClient()
+        client.transition_model_version_stage(
             name=model_name,
-            version=str(version),
+            version=version,
             stage=stage,
-            archive_existing=True,
+            archive_existing_versions=True
         )
         
         console.print(f"[bold green]✓ Model {model_name} v{version} promoted to {stage}[/bold green]")

@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import xgboost as xgb
+import mlflow
+from mlflow.models import infer_signature
 
 from src.utils.metrics import calculate_metrics
 
@@ -220,163 +222,298 @@ def get_base_features():
     ]
 
 
-def train_sliding_window(df, window_days=90, step_days=14, extra_features=None, save_models=True, models_dir="artifacts/models"):
+def train_expanding_window(df, initial_window_days=180, step_days=7, extra_features=None, model_name="baseline"):
     """
-    Performs sliding window backtesting.
+    Train with EXPANDING window (accumulating data) and MLflow tracking.
+    
+    Always enabled:
+    - MLflow experiment tracking
+    - Model saving to mlruns/models/
+    - Automatic model registration to Model Registry
     
     Args:
         df: DataFrame with features and target
-        window_days: Size of training window in days
-        step_days: Step size for sliding window in days
-        extra_features: Additional feature column names to include (e.g., embeddings, graph features)
-        save_models: Whether to save trained models for SHAP analysis
-        models_dir: Directory to save models
+        initial_window_days: Initial training window size (default: 180 days)
+        step_days: Step size for evaluation (default: 7 days)
+        extra_features: Additional feature columns (e.g., embeddings)
+        model_name: Model name for MLflow registry (default: "baseline")
+    
+    Returns:
+        Dictionary with run info and metrics
     """
     if extra_features is None:
         extra_features = []
     
+    print("="*70)
+    print(f"EXPANDING WINDOW TRAINING - {model_name.upper()}")
+    print("="*70)
+    
     # Sort by time
     df = df.sort("submission_at")
     
-    # Define Window
-    start_date = df["submission_at"].min()
-    end_date = df["submission_at"].max()
-    
-    window_size = timedelta(days=window_days)
-    step_size = timedelta(days=step_days)
-    test_size = timedelta(days=14)
-    
-    current_date = start_date + window_size
-    
-    results = []
-    saved_models = []
-    
     # Build feature list
-    all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS + TIME_WEIGHTED_FEATURE_COLUMNS + INTERACTION_FEATURE_COLUMNS
+    all_graph_cols = (
+        GRAPH_FEATURE_COLUMNS + 
+        ADVANCED_GRAPH_FEATURE_COLUMNS + 
+        TIME_WEIGHTED_FEATURE_COLUMNS + 
+        INTERACTION_FEATURE_COLUMNS
+    )
     graph_columns = [col for col in all_graph_cols if col in df.columns]
     features = get_base_features() + graph_columns + extra_features
     target = "is_fraud"
     
-    if save_models:
-        os.makedirs(models_dir, exist_ok=True)
+    # Define window parameters  
+    start_date = df["submission_at"].min()
+    end_date = df["submission_at"].max()
     
-    window_idx = 0
-    while current_date + test_size <= end_date:
-        train_end = current_date
-        test_end = current_date + test_size
+    print(f"Data range: {start_date.date()} to {end_date.date()}")
+    print(f"Total listings: {len(df):,}")
+    print(f"Features: {len(features)}")
+    print(f"Initial window: {initial_window_days} days, Step: {step_days} days\n")
+    
+    # MLflow experiment setup
+    experiment_name = "ppa-fraud-detection"
+    mlflow.set_experiment(experiment_name)
+    
+    # Start parent run
+    with mlflow.start_run(
+        run_name=f"{model_name}_expanding_{datetime.now().strftime('%Y%m%d_%H%M')}",
+        tags={"model_type": model_name, "training_mode": "expanding_window"}
+    ) as parent_run:
         
-        # Split
-        train_data = df.filter((pl.col("submission_at") < train_end) & (pl.col("submission_at") >= train_end - window_size))
-        test_data = df.filter((pl.col("submission_at") >= train_end) & (pl.col("submission_at") < test_end))
-        
-        if len(test_data) == 0 or len(train_data) == 0:
-            current_date += step_size
-            continue
-            
-        X_train = train_data.select(features).to_numpy()
-        y_train = train_data.select(target).to_numpy().flatten()
-        X_test = test_data.select(features).to_numpy()
-        y_test = test_data.select(target).to_numpy().flatten()
-        
-        # Train XGBoost
-        model = xgb.XGBClassifier(
-            objective="binary:logistic",
-            eval_metric="aucpr",
-            scale_pos_weight=len(y_train[y_train==0]) / len(y_train[y_train==1]) if len(y_train[y_train==1]) > 0 else 1,
-            n_estimators=100,
-            max_depth=6,
-            learning_rate=0.1,
-            n_jobs=-1
-        )
-        
-        model.fit(X_train, y_train)
-        
-        # Predict
-        proba = model.predict_proba(X_test)[:, 1]
-        
-        # Evaluate using unified metrics
-        metrics = calculate_metrics(y_test, proba)
-        
-        print(f"Window {train_end.date()} - {test_end.date()}: "
-              f"AUC-PR = {metrics['auc_pr']:.4f}, "
-              f"P@100 = {metrics['p@100']:.4f}, "
-              f"Lift@100 = {metrics['lift@100']:.2f}, "
-              f"Fraud Count = {metrics['fraud_count']}")
-        
-        results.append({
-            "window_start": train_end,
-            **metrics
+        # Log configuration
+        mlflow.log_params({
+            "model_name": model_name,
+            "initial_window_days": initial_window_days,
+            "step_days": step_days,
+            "feature_count": len(features),
+            "total_samples": len(df),
+            "fraud_rate": float(df[target].mean()),
         })
         
-        # Save model if requested
-        if save_models:
-            model_bundle = {
-                'model': model,
-                'features': features,
-                'X_test': X_test,
-                'y_test': y_test,
-                'y_pred': proba,
-                'window_info': {
-                    'window_idx': window_idx,
-                    'window_start': train_end,
-                    'window_end': test_end,
-                    'train_size': len(train_data),
-                    'test_size': len(test_data)
-                },
-                'metrics': metrics
-            }
-            
-            model_path = os.path.join(models_dir, f"model_window_{window_idx}.pkl")
-            with open(model_path, 'wb') as f:
-                pickle.dump(model_bundle, f)
-            
-            saved_models.append(model_path)
+        # Log dataset
+        try:
+            dataset = mlflow.data.from_pandas(
+                df.to_pandas(), 
+                name=f"{model_name}_fraud_detection",
+                targets=target
+            )
+            mlflow.log_input(dataset, context="training")
+        except Exception as e:
+            print(f"Warning: Could not log dataset: {e}")
         
-        window_idx += 1
-        current_date += step_size
+        # Training loop
+        current_date = start_date + timedelta(days=initial_window_days)
+        test_size = timedelta(days=14)
+        step_size = timedelta(days=step_days)
+        
+        results = []
+        window_idx = 0
+        best_auc_pr = 0
+        best_model = None
+        best_run_id = None
+        
+        while current_date + test_size <= end_date:
+            train_end = current_date
+            test_end = current_date + test_size
+            
+            # EXPANDING WINDOW: Use ALL data from start to train_end
+            train_data = df.filter(pl.col("submission_at") < train_end)
+            test_data = df.filter(
+                (pl.col("submission_at") >= train_end) & 
+                (pl.col("submission_at") < test_end)
+            )
+            
+            if len(test_data) < 50 or len(train_data) < 1000:
+                current_date += step_size
+                continue
+            
+            X_train = train_data.select(features).to_numpy()
+            y_train = train_data.select(target).to_numpy().flatten()
+            X_test = test_data.select(features).to_numpy()
+            y_test = test_data.select(target).to_numpy().flatten()
+            
+            if sum(y_test) == 0:
+                current_date += step_size
+                continue
+            
+            # Nested run for this window
+            with mlflow.start_run(
+                run_name=f"window_{window_idx}",
+                nested=True
+            ) as window_run:
+                
+                # Enable autologging
+                mlflow.xgboost.autolog(log_input_examples=True, log_model_signatures=True)
+                
+                # Log window info
+                mlflow.log_params({
+                    "window_index": window_idx,
+                    "window_start": str(start_date.date()),
+                    "window_end": str(train_end.date()),
+                    "test_start": str(train_end.date()),
+                    "test_end": str(test_end.date()),
+                    "train_size": len(train_data),
+                    "test_size": len(test_data),
+                    "fraud_rate_train": float(y_train.mean()),
+                    "fraud_rate_test": float(y_test.mean()),
+                })
+                
+                # Train model
+                scale_pos_weight = len(y_train[y_train==0]) / max(len(y_train[y_train==1]), 1)
+                
+                model = xgb.XGBClassifier(
+                    objective="binary:logistic",
+                    eval_metric="aucpr",
+                    scale_pos_weight=scale_pos_weight,
+                    n_estimators=100,
+                    max_depth=6,
+                    learning_rate=0.1,
+                    n_jobs=-1,
+                    random_state=42
+                )
+                
+                model.fit(X_train, y_train)
+                
+                # Predict
+                proba = model.predict_proba(X_test)[:, 1]
+                
+                # Evaluate
+                metrics = calculate_metrics(y_test, proba)
+                
+                # Log custom metrics
+                mlflow.log_metrics({
+                    "auc_pr": metrics["auc_pr"],
+                    "auc_roc": metrics["auc_roc"],
+                    "p_at_100": metrics["p@100"],
+                    "lift_at_100": metrics["lift@100"],
+                    "fraud_count": metrics["fraud_count"],
+                })
+                
+                # Use mlflow.evaluate for SHAP
+                try:
+                    eval_data = test_data.select(features).to_pandas()
+                    eval_data["target"] = y_test
+                    
+                    run_id = mlflow.active_run().info.run_id
+                    model_uri = f"runs:/{run_id}/model"
+                    
+                    mlflow.evaluate(
+                        model=model_uri,
+                        data=eval_data,
+                        targets="target",
+                        model_type="classifier",
+                        evaluators=["default"],
+                        evaluator_config={"log_explainer": True}
+                    )
+                except Exception as e:
+                    print(f"Warning: MLflow evaluate failed: {e}")
+                
+                print(f"Window {window_idx}: Train={len(train_data):,}, "
+                      f"Test={len(test_data):,}, AUC-PR={metrics['auc_pr']:.4f}")
+                
+                # Track best model
+                if metrics["auc_pr"] > best_auc_pr:
+                    best_auc_pr = metrics["auc_pr"]
+                    best_model = model
+                    best_run_id = window_run.info.run_id
+                
+                results.append({
+                    "window_idx": window_idx,
+                    "window_start": train_end,
+                    "train_size": len(train_data),
+                    "test_size": len(test_data),
+                    **metrics
+                })
+            
+            window_idx += 1
+            current_date += step_size
+        
+        # Log aggregate metrics to parent run
+        if results:
+            results_df = pl.DataFrame(results)
+            mean_auc_pr = float(results_df["auc_pr"].mean())
+            mean_p100 = float(results_df["p@100"].mean())
+            
+            mlflow.log_metrics({
+                "mean_auc_pr": mean_auc_pr,
+                "mean_p_at_100": mean_p100,
+                "best_auc_pr": best_auc_pr,
+                "num_windows": float(len(results)),
+            })
+            
+            # Save results CSV as artifact
+            results_path = f"mlruns/results/{model_name}_expanding_results.csv"
+            os.makedirs(os.path.dirname(results_path), exist_ok=True)
+            results_df.write_csv(results_path)
+            mlflow.log_artifact(results_path, artifact_path="results")
+            
+            print("\n" + "="*70)
+            print("TRAINING COMPLETE")
+            print("="*70)
+            print(f"Windows evaluated: {len(results)}")
+            print(f"Mean AUC-PR: {mean_auc_pr:.4f}")
+            print(f"Best AUC-PR: {best_auc_pr:.4f}")
+            
+            # Register best model to Model Registry
+            if best_model is not None and best_run_id is not None:
+                print(f"\nRegistering best model (window with AUC-PR={best_auc_pr:.4f})...")
+                
+                try:
+                    model_uri = f"runs:/{best_run_id}/model"
+                    registered_model = mlflow.register_model(
+                        model_uri=model_uri,
+                        name=f"fraud-detection-{model_name}"
+                    )
+                    
+                    print(f"✓ Registered as: {registered_model.name} (version {registered_model.version})")
+                    
+                    # Add description to model version
+                    client = mlflow.tracking.MlflowClient()
+                    client.update_model_version(
+                        name=registered_model.name,
+                        version=registered_model.version,
+                        description=f"Expanding window training. Mean AUC-PR: {mean_auc_pr:.4f}, Best: {best_auc_pr:.4f}"
+                    )
+                    
+                    mlflow.log_param("registered_model_version", registered_model.version)
+                    
+                except Exception as e:
+                    print(f"Warning: Model registration failed: {e}")
+        
+        return {
+            "run_id": parent_run.info.run_id,
+            "results": results,
+            "mean_auc_pr": mean_auc_pr if results else 0,
+            "best_auc_pr": best_auc_pr,
+            "num_windows": len(results),
+        }
+
+def run_baseline(include_graph_features: bool = True):
+    """
+    Train baseline XGBoost with expanding window and MLflow tracking.
     
-    if save_models:
-        return results, saved_models
-    return results
-
-def run_baseline(
-    window_days: int = 90,
-    step_days: int = 14,
-    include_graph_features: bool = False,
-    results_filename: str = "artifacts/results/baseline_results.csv",
-    save_models: bool = True,
-    models_dir: str = "artifacts/models/baseline"
-):
-    # Check if artifacts exist
-    if not os.path.exists("artifacts/nodes_listing.parquet"):
-        print("Artifacts not found. Please run ETL.py first.")
-    else:
-        df = load_data()
-        df = feature_engineering(df, include_graph_features=include_graph_features)
-        
-        result = train_sliding_window(df, window_days, step_days, save_models=save_models, models_dir=models_dir)
-        
-        if save_models:
-            results, saved_model_paths = result
-            print(f"\nSaved {len(saved_model_paths)} models to {models_dir}")
-        else:
-            results = result
-        
-        # Save results to CSV
-        os.makedirs("artifacts/results", exist_ok=True)
-        results_df = pl.DataFrame(results)
-        results_df.write_csv(results_filename)
-        print(f"\nSaved results to {results_filename}")
-        print(f"Mean AUC-PR: {float(results_df['auc_pr'].mean()):.4f}")
-        print(f"Mean AUC-ROC: {float(results_df['auc_roc'].mean()):.4f}")
-        print(f"Mean P@100: {float(results_df['p@100'].mean()):.4f}")
-        print(f"Mean Lift@100: {float(results_df['lift@100'].mean()):.2f}")
-        
-        return results
+    Always enabled:
+    - MLflow tracking
+    - Model registration
+    - Graph features (optional)
+    
+    Args:
+        include_graph_features: Whether to include graph features (default: True)
+    """
+    print("Loading data...")
+    df = load_data()
+    df = feature_engineering(df, include_graph_features=include_graph_features)
+    
+    model_name = "baseline" if not include_graph_features else "baseline_graph"
+    result = train_expanding_window(df, model_name=model_name)
+    
+    return result
 
 
-def main(window_days: int = 90, step_days: int = 14):
-    run_baseline(window_days=window_days, step_days=step_days, include_graph_features=False)
+def main():
+    """CLI entry point for baseline training."""
+    run_baseline(include_graph_features=True)
 
 if __name__ == "__main__":
     main()

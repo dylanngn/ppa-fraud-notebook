@@ -5,7 +5,7 @@ import torch
 
 from src.models.train_baseline import (
     feature_engineering,
-    train_sliding_window,
+    train_expanding_window,
 )
 
 
@@ -47,45 +47,37 @@ def load_embeddings(df, model_name="hgt"):
     return df, embed_cols
 
 
-def main(model_name="hgt", save_models=True):
+def main(model_name="hgt"):
+    """
+    Train hybrid model with expanding window and MLflow tracking.
+    
+    Always enabled:
+    - MLflow tracking
+    - Model registration
+    - Expanding window
+    
+    Args:
+        model_name: GNN model type (hgt, gat, gcn, hgt_rte)
+    """
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
         return
     
-    # 1. Load Data & Embeddings
+    # Load Data & Embeddings
     df, embed_cols = load_embeddings(None, model_name)
     
-    # 2. Feature Engineering (Tabular)
+    # Feature Engineering (Tabular)
     df = feature_engineering(df)
     
-    # 3. Train (Sliding Window) with embeddings as extra features
+    # Train with expanding window + MLflow
     print(f"Training hybrid model with {len(embed_cols)} embedding features...")
-    models_dir = f"artifacts/models/hybrid_{model_name}"
-    
-    result = train_sliding_window(
-        df, 
-        window_days=90, 
-        step_days=14, 
+    result = train_expanding_window(
+        df,
         extra_features=embed_cols,
-        save_models=save_models,
-        models_dir=models_dir
+        model_name=f"hybrid_{model_name}"
     )
     
-    if save_models:
-        results, saved_model_paths = result
-        print(f"\nSaved {len(saved_model_paths)} models to {models_dir}")
-    else:
-        results = result
-    
-    # Save results
-    os.makedirs("artifacts/results", exist_ok=True)
-    results_df = pl.DataFrame(results)
-    results_df.write_csv(f"artifacts/results/hybrid_{model_name}_results.csv")
-    print(f"\nSaved results to artifacts/results/hybrid_{model_name}_results.csv")
-    print(f"Mean AUC-PR: {float(results_df['auc_pr'].mean()):.4f}")
-    print(f"Mean AUC-ROC: {float(results_df['auc_roc'].mean()):.4f}")
-    print(f"Mean P@100: {float(results_df['p@100'].mean()):.4f}")
-    print(f"Mean Lift@100: {float(results_df['lift@100'].mean()):.2f}")
+    return result
 
 
 if __name__ == "__main__":
