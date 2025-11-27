@@ -1,6 +1,6 @@
 import os
 import pickle
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +10,12 @@ import mlflow
 from mlflow.models import infer_signature
 
 from src.utils.metrics import calculate_metrics
+from src.utils.mlflow_feature_store import (
+    log_feature_store_metadata,
+    log_feature_store_statistics,
+    log_feature_lineage
+)
+from src.features.store import FeatureStore
 
 GRAPH_FEATURES_PATH = Path("artifacts/listing_graph_features.parquet")
 GRAPH_FEATURE_COLUMNS = [
@@ -222,6 +228,48 @@ def get_base_features():
     ]
 
 
+def _build_feature_sources(feature_names: list) -> dict:
+    """Build a mapping of feature names to their sources."""
+    sources = {}
+    
+    # Base tabular features
+    base_features = get_base_features()
+    for feat in base_features:
+        if feat in feature_names:
+            sources[feat] = "tabular"
+    
+    # Graph features
+    graph_features = GRAPH_FEATURE_COLUMNS
+    for feat in graph_features:
+        if feat in feature_names:
+            sources[feat] = "graph"
+    
+    # Advanced graph features
+    advanced_features = ADVANCED_GRAPH_FEATURE_COLUMNS
+    for feat in advanced_features:
+        if feat in feature_names:
+            sources[feat] = "graph_advanced"
+    
+    # Time-weighted features
+    time_weighted_features = TIME_WEIGHTED_FEATURE_COLUMNS
+    for feat in time_weighted_features:
+        if feat in feature_names:
+            sources[feat] = "time_weighted"
+    
+    # Interaction features
+    interaction_features = INTERACTION_FEATURE_COLUMNS
+    for feat in interaction_features:
+        if feat in feature_names:
+            sources[feat] = "interaction"
+    
+    # Default for any remaining
+    for feat in feature_names:
+        if feat not in sources:
+            sources[feat] = "unknown"
+    
+    return sources
+
+
 def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_features=None, model_name="baseline"):
     """
     Train with accumulating window (all historical data) and MLflow tracking.
@@ -275,11 +323,18 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
     experiment_name = "ppa-fraud-detection"
     mlflow.set_experiment(experiment_name)
     
-        # Start parent run
-        with mlflow.start_run(
-            run_name=f"{model_name}_accumulating_{datetime.now().strftime('%Y%m%d_%H%M')}",
-            tags={"model_type": model_name, "training_mode": "accumulating_window"}
-        ) as parent_run:
+    # Initialize feature store for metadata logging
+    try:
+        feature_store = FeatureStore(artifacts_dir=Path("artifacts"))
+    except Exception as e:
+        print(f"Warning: Could not initialize FeatureStore: {e}")
+        feature_store = None
+    
+    # Start parent run
+    with mlflow.start_run(
+        run_name=f"{model_name}_accumulating_{datetime.now().strftime('%Y%m%d_%H%M')}",
+        tags={"model_type": model_name, "training_mode": "accumulating_window"}
+    ) as parent_run:
         
         # Log configuration
         mlflow.log_params({
@@ -291,10 +346,36 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
             "fraud_rate": float(df[target].mean()),
         })
         
-        # Log dataset
+        # Log feature store metadata
+        if feature_store is not None:
+            try:
+                log_feature_store_metadata(
+                    feature_store=feature_store,
+                    feature_names=features,
+                    artifacts_dir=Path("artifacts"),
+                    context="training"
+                )
+                
+                # Log feature lineage
+                feature_sources = _build_feature_sources(features)
+                log_feature_lineage(features, feature_sources)
+                
+                # Log feature store statistics (sample from training data)
+                sample_listing_ids = df.head(1000)["insertion_id"].to_list() if "insertion_id" in df.columns else None
+                log_feature_store_statistics(
+                    feature_store=feature_store,
+                    sample_listing_ids=sample_listing_ids,
+                    as_of_time=end_date  # Use end of data range as reference
+                )
+            except Exception as e:
+                print(f"Warning: Feature store metadata logging failed: {e}")
+            except Exception as e:
+                print(f"Warning: Feature store metadata logging failed: {e}")
+        
+        # Log dataset (using Polars directly - MLflow supports it)
         try:
-            dataset = mlflow.data.from_pandas(
-                df.to_pandas(), 
+            dataset = mlflow.data.from_polars(
+                df, 
                 name=f"{model_name}_fraud_detection",
                 targets=target
             )
@@ -391,6 +472,8 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                 })
                 
                 # Use mlflow.evaluate for SHAP
+                # Note: mlflow.evaluate() requires pandas DataFrame, not Polars
+                # This is a small test set conversion, so acceptable performance impact
                 try:
                     eval_data = test_data.select(features).to_pandas()
                     eval_data["target"] = y_test
