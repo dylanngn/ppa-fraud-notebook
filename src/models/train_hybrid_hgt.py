@@ -351,6 +351,31 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
         print(f"Saved embeddings to {save_path}")
         mlflow.log_artifact(save_path)
         
+        # Register GNN model to Model Registry
+        # Note: autolog may have already logged the model, but we explicitly log and register
+        try:
+            print("\nRegistering HGT GNN model to Model Registry...")
+            # Log model explicitly (autolog may have logged it, but this ensures it's registered)
+            model_uri = mlflow.pytorch.log_model(
+                pytorch_model=model,
+                artifact_path="gnn_model",
+                registered_model_name="fraud-detection-gnn-hgt"
+            )
+            print(f"✓ HGT GNN model registered successfully: {model_uri}")
+        except Exception as e:
+            print(f"Warning: GNN model registration failed: {e}")
+            # Try alternative: register from autologged model
+            try:
+                run_id = mlflow.active_run().info.run_id
+                model_uri = f"runs:/{run_id}/model"
+                registered_model = mlflow.register_model(
+                    model_uri=model_uri,
+                    name="fraud-detection-gnn-hgt"
+                )
+                print(f"✓ HGT GNN model registered via autolog: {registered_model.name} v{registered_model.version}")
+            except Exception as e2:
+                print(f"Warning: Alternative registration also failed: {e2}")
+        
     finally:
         mlflow.end_run()
 

@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt train-mlflow mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
 
 install:
 	pip install -r requirements.txt
@@ -98,14 +98,8 @@ mlflow-drift-summary:
 	python src/cli.py mlflow-drift-summary
 
 # --- MLflow ---
-
-train-mlflow:
-	@echo "Training with MLflow tracking..."
-	python src/cli.py train-mlflow --model-type baseline_graph
-
-train-mlflow-register:
-	@echo "Training with MLflow and registering model..."
-	python src/cli.py train-mlflow --model-type baseline_graph --register-model
+# Note: All training commands (train-baseline, train-sage, train-hgt) 
+# automatically use MLflow tracking and register models to the Model Registry.
 
 mlflow-ui:
 	@echo "Starting MLflow UI at http://localhost:5000..."

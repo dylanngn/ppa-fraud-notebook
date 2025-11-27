@@ -277,13 +277,10 @@ python src/cli.py mlflow-drift-summary --model-name fraud-detection-baseline_gra
 *   **Graph Features**: `make graph-features`
 
 ### Training
-*   **Train Baseline (tabular only)**: `make train-baseline`
-*   **Train Graph-Feature Baseline**: `make train-graph-baseline`
-*   **Train with MLflow**: `make train-mlflow`
-*   **Hybrid (HGT example)**:
-    *   `python src/cli.py train-embeddings --model hgt`
-    *   `python src/cli.py train-hybrid --model hgt`
-*   **Legacy experiments**: `make train-gat`, `make train-sage`, `make train-hgt`, `make train-hgt-rte`
+*   **Train Baseline (with graph features)**: `make train-baseline`
+*   **Train SAGE Hybrid Model**: `make train-sage`
+*   **Train HGT Hybrid Model**: `make train-hgt`
+*   **Note**: All training commands automatically use MLflow tracking and register models to the Model Registry
 
 ### Continuous Learning
 *   **MLflow**: 

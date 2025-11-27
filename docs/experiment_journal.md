@@ -813,19 +813,13 @@ Created `src/training/mlflow_trainer.py` with the following capabilities:
 ### CLI Commands:
 
 ```bash
-# Train with MLflow tracking
-python src/cli.py train-mlflow --model-type baseline_graph
-make train-mlflow
+# Train models (all automatically use MLflow tracking and register models)
+make train-baseline    # Baseline XGBoost with graph features
+make train-sage         # SAGE hybrid model (GNN + XGBoost)
+make train-hgt          # HGT hybrid model (GNN + XGBoost)
 
-# Train and register model
-python src/cli.py train-mlflow --register-model
-make train-mlflow-register
-
-# Start MLflow UI
-python src/cli.py mlflow-ui
-make mlflow-ui
-
-# Compare runs
+# MLflow UI and comparison
+make mlflow-ui          # Start MLflow UI at http://localhost:5000
 python src/cli.py mlflow-compare --top-n 10
 make mlflow-compare
 
