@@ -17,6 +17,7 @@ from torch_geometric.nn import HGTConv, Linear
 
 from src.models.train_baseline import feature_engineering, train_accumulating_window
 from src.utils.metrics import calculate_metrics
+from src.utils.mlflow_init import init_mlflow
 
 
 class TemporalEncoding(nn.Module):
@@ -181,6 +182,8 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
     """
     print("Training HGT Embeddings (with RTE)...")
     
+    # Initialize MLflow with database backend
+    init_mlflow()
     mlflow.set_experiment("ppa-fraud-detection")
     mlflow.pytorch.autolog()
     
@@ -356,9 +359,10 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
         try:
             print("\nRegistering HGT GNN model to Model Registry...")
             # Log model explicitly (autolog may have logged it, but this ensures it's registered)
+            # Note: Using 'name' parameter instead of deprecated 'artifact_path' for MLflow 3.0+
             model_uri = mlflow.pytorch.log_model(
                 pytorch_model=model,
-                artifact_path="gnn_model",
+                name="gnn_model",  # Replaces deprecated 'artifact_path'
                 registered_model_name="fraud-detection-gnn-hgt"
             )
             print(f"✓ HGT GNN model registered successfully: {model_uri}")

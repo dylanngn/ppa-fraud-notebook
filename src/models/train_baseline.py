@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import xgboost as xgb
 import mlflow
-from mlflow.models import infer_signature
+from mlflow.models import infer_signature, evaluate
 
 from src.utils.metrics import calculate_metrics
 from src.utils.mlflow_feature_store import (
@@ -15,6 +15,7 @@ from src.utils.mlflow_feature_store import (
     log_feature_store_statistics,
     log_feature_lineage
 )
+from src.utils.mlflow_init import init_mlflow
 from src.features.store import FeatureStore
 
 GRAPH_FEATURES_PATH = Path("artifacts/listing_graph_features.parquet")
@@ -320,6 +321,9 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
     print(f"Initial window: {initial_window_days} days, Step: {step_days} days\n")
     
     # MLflow experiment setup
+    # Initialize MLflow with database backend (idempotent - safe to call multiple times)
+    # Best practice: Set MLFLOW_TRACKING_URI environment variable instead
+    init_mlflow()
     experiment_name = "ppa-fraud-detection"
     mlflow.set_experiment(experiment_name)
     
@@ -471,8 +475,8 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                     "fraud_count": metrics["fraud_count"],
                 })
                 
-                # Use mlflow.evaluate for SHAP
-                # Note: mlflow.evaluate() requires pandas DataFrame, not Polars
+                # Use mlflow.models.evaluate for SHAP (replaces deprecated mlflow.evaluate)
+                # Note: mlflow.models.evaluate() requires pandas DataFrame, not Polars
                 # This is a small test set conversion, so acceptable performance impact
                 try:
                     eval_data = test_data.select(features).to_pandas()
@@ -481,13 +485,15 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                     run_id = mlflow.active_run().info.run_id
                     model_uri = f"runs:/{run_id}/model"
                     
-                    mlflow.evaluate(
+                    # Use mlflow.models.evaluate() instead of deprecated mlflow.evaluate()
+                    # evaluator_config must be a dict mapping evaluator name to config dict
+                    evaluate(
                         model=model_uri,
                         data=eval_data,
                         targets="target",
                         model_type="classifier",
                         evaluators=["default"],
-                        evaluator_config={"log_explainer": True}
+                        evaluator_config={"default": {"log_explainer": True}}
                     )
                 except Exception as e:
                     print(f"Warning: MLflow evaluate failed: {e}")

@@ -237,11 +237,11 @@ def evaluate_seon(
     )
     
 # Explainability commands removed - use MLflow UI for SHAP and model comparison
-# MLflow automatically logs SHAP plots via mlflow.evaluate()
+# MLflow automatically logs SHAP plots via mlflow.models.evaluate()
 # Compare models in MLflow UI by selecting multiple runs
 
 # analyze-failures command removed - use MLflow UI for SHAP analysis
-# MLflow.evaluate() automatically generates SHAP plots for all models
+# mlflow.models.evaluate() automatically generates SHAP plots for all models
 # View SHAP explanations in MLflow UI under run artifacts
 
 
@@ -381,18 +381,61 @@ def mlflow_drift_summary(
 
 
 @app.command()
-def mlflow_ui():
+def mlflow_ui(
+    backend_store_uri: str = typer.Option(None, help="Backend store URI (default: sqlite:///mlflow.db)"),
+    port: int = typer.Option(5000, help="Port for MLflow UI"),
+    host: str = typer.Option("127.0.0.1", help="Host for MLflow UI"),
+):
     """
-    Start MLflow UI to view experiments.
+    Start MLflow UI to view experiments and trained models.
     
-    Opens browser at http://localhost:5000
+    This works with your current client mode setup! The UI reads from the same
+    SQLite database (mlflow.db) that your training scripts write to.
+    
+    You can:
+    - View all training runs and metrics
+    - Compare models side-by-side
+    - Browse SHAP plots and artifacts
+    - Access the Model Registry
+    - Download models
+    
+    Usage:
+    1. Start training (writes to mlflow.db directly):
+       make train-baseline
+    
+    2. In another terminal, start the UI (reads from same mlflow.db):
+       make mlflow-ui
+       # or
+       python src/cli.py mlflow-ui
+    
+    3. Open http://localhost:5000 in your browser
+    
+    Note: Your training scripts continue using client mode (direct DB connection).
+    You don't need to change MLFLOW_TRACKING_URI - the UI reads from the same
+    database your training scripts write to.
     """
-    console.print("[bold cyan]Starting MLflow UI...[/bold cyan]")
-    console.print("Open http://localhost:5000 in your browser")
-    console.print("Press Ctrl+C to stop")
+    console.print("[bold cyan]Starting MLflow Server...[/bold cyan]")
     
     import subprocess
-    subprocess.run(["mlflow", "ui", "--port", "5000"])
+    from pathlib import Path
+    
+    if backend_store_uri is None:
+        db_path = Path("mlflow.db").absolute()
+        backend_store_uri = f"sqlite:///{db_path}"
+        console.print(f"Using database backend: {backend_store_uri}")
+    else:
+        console.print(f"Using backend store: {backend_store_uri}")
+    
+    console.print(f"MLflow UI will be available at http://{host}:{port}")
+    console.print("Press Ctrl+C to stop the server")
+    console.print("\n[dim]Note: After starting server, set MLFLOW_TRACKING_URI=http://localhost:5000 in your environment[/dim]")
+    
+    subprocess.run([
+        "mlflow", "ui",
+        "--port", str(port),
+        "--host", host,
+        "--backend-store-uri", backend_store_uri
+    ])
 
 
 @app.command()
