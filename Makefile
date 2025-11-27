@@ -35,8 +35,9 @@ train-hgt:
 check-density:
 	python src/cli.py check-density
 
-# Run complete pipeline: ETL → Build Graph → Graph Features → Advanced Features → All Training Scripts
-all: etl build-graph graph-features advanced-features train-baseline train-sage train-hgt
+# Run complete pipeline: ETL → Build Graph → All Features → All Training Scripts
+# Note: Training scripts run sequentially to avoid MLflow conflicts and GPU/memory contention
+all: etl build-graph all-features train-baseline train-sage train-hgt
 
 # --- Advanced Features ---
 

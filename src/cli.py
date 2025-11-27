@@ -153,12 +153,17 @@ def optimize_hyperparams(
     n_windows: int = typer.Option(5, help="CV windows per trial for faster optimization"),
     timeout_minutes: int = typer.Option(None, help="Optional timeout in minutes"),
     skip_validation: bool = typer.Option(False, help="Skip full validation after optimization"),
+    initial_window_days: int = typer.Option(180, help="Initial training window size for accumulating windows"),
 ):
     """
     Experiment 11: Hyperparameter optimization using Optuna.
     
     Tunes XGBoost hyperparameters to maximize:
         0.7 * AUC-PR + 0.3 * P@100
+    
+    Uses accumulating window strategy (production-realistic):
+    - Training data accumulates from initial window to current date
+    - Aligns with production continuous learning approach
     
     Search space includes:
     - n_estimators: [100, 500]
@@ -173,53 +178,15 @@ def optimize_hyperparams(
     
     Target: Push AUC-PR from 0.6713 to 0.70+
     """
-    console.print("[bold green]Experiment 11: Hyperparameter Optimization...[/bold green]")
+    console.print("[bold green]Experiment 11: Hyperparameter Optimization (Accumulating Windows)...[/bold green]")
     from src.experiments import optimize_hyperparams as hyperopt_module
     hyperopt_module.main(
         n_trials=n_trials,
         n_windows=n_windows,
         timeout_minutes=timeout_minutes,
         validate=not skip_validation,
+        initial_window_days=initial_window_days,
     )
-
-
-@app.command()
-def staged_hyperopt(
-    n_windows: int = typer.Option(5, help="CV windows per configuration"),
-):
-    """
-    Experiment 11b: Staged hyperparameter optimization.
-    
-    A structured 3-stage approach:
-    
-    Stage 1: Parameter sensitivity analysis
-        - Tests individual parameter variations
-        - Identifies which hyperparameters matter most
-    
-    Stage 2: Promising combinations
-        - Tests 6 pre-defined configurations based on:
-          * XGBoost best practices
-          * Fraud detection literature
-          * Imbalanced learning principles
-    
-    Stage 3: Compose final combination
-        - Combines winning elements from Stage 1 & 2
-        - Tests hybrid configurations
-    
-    More interpretable than blind Optuna search!
-    """
-    console.print("[bold green]Experiment 11b: Staged Hyperparameter Optimization...[/bold green]")
-    from src.experiments import staged_hyperopt as staged_hyperopt_module
-    staged_hyperopt_module.main(n_windows=n_windows)
-
-@app.command()
-def check_graph_timestamps():
-    """
-    Check timestamps in the built graph artifact.
-    """
-    console.print("[bold yellow]Checking Graph Timestamps...[/bold yellow]")
-    from src.utils import check_graph_timestamps
-    check_graph_timestamps.check_graph_timestamps()
 
 @app.command()
 def check_timestamps():
