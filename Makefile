@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding expanding-all retrain-production optimize-window optimize-hyperparams staged-hyperopt analyze-adaptation adaptation-report train-mlflow mlflow-ui mlflow-compare
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt train-mlflow mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
 
 install:
 	pip install -r requirements.txt
@@ -67,27 +67,6 @@ interaction-features:
 # Generate all feature types
 all-features: graph-features advanced-features time-weighted-features interaction-features
 
-# --- Expanding Window Experiments (Production-Realistic) ---
-
-train-baseline-expanding:
-	@echo "Training Baseline with expanding window (accumulating data)..."
-	python src/cli.py train-baseline-expanding --window-days 180 --step-days 7
-
-train-hgt-expanding:
-	@echo "Training HGT with expanding window (complete graph)..."
-	python src/cli.py train-hybrid-expanding --model hgt --window-days 180 --step-days 7
-
-train-gat-expanding:
-	@echo "Training GAT with expanding window (complete graph)..."
-	python src/cli.py train-hybrid-expanding --model gat --window-days 180 --step-days 7
-
-train-sage-expanding:
-	@echo "Training SAGE with expanding window (complete graph)..."
-	python src/cli.py train-hybrid-expanding --model sage --window-days 180 --step-days 7
-
-# Run all expanding window experiments (with prerequisites)
-expanding-all: etl build-graph graph-features advanced-features train-baseline-expanding train-hgt-expanding train-gat-expanding train-sage-expanding
-
 # --- Production Continuous Learning ---
 
 retrain-production:
@@ -118,19 +97,21 @@ compare-all:
 	@echo "Comparing all models (XGBoost vs Hybrid vs Seon)..."
 	python src/cli.py compare-all-models
 
-# --- Adaptation Analysis ---
+# --- MLflow Model Management ---
 
-analyze-adaptation:
-	@echo "Running adaptation analysis on baseline model..."
-	python src/cli.py analyze-adaptation --model-type baseline
+mlflow-compare-models:
+	@echo "Compare two MLflow runs..."
+	@echo "Usage: make mlflow-compare-models PROD_RUN=<id> CAND_RUN=<id>"
+	python src/cli.py mlflow-compare-models --production-run-id $(PROD_RUN) --candidate-run-id $(CAND_RUN)
 
-analyze-adaptation-all:
-	@echo "Running adaptation analysis on all windows..."
-	python src/cli.py analyze-adaptation --model-type baseline --all-windows
+mlflow-deployment-recommendation:
+	@echo "Get deployment recommendation from Model Registry..."
+	@echo "Usage: make mlflow-deployment-recommendation CAND_RUN=<id>"
+	python src/cli.py mlflow-deployment-recommendation --candidate-run-id $(CAND_RUN)
 
-adaptation-report:
-	@echo "Generating adaptation summary report..."
-	python src/cli.py generate-adaptation-report --model-type baseline --n-windows 15
+mlflow-drift-summary:
+	@echo "Analyze model drift from Model Registry..."
+	python src/cli.py mlflow-drift-summary
 
 # --- MLflow ---
 

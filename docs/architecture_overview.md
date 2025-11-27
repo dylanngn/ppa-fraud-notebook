@@ -18,18 +18,23 @@ flowchart TB
     XGB_Base --> MLflow[MLflow Tracking]
     XGB_Hybrid --> MLflow
     
-    MLflow -->|Model Registry| Adapt[Adaptation Engine]
+    XGB_Base --> MLflow[MLflow Tracking]
+    XGB_Hybrid --> MLflow
     
-    Pipeline -->|Daily| Drift[Drift Detection]
+    MLflow -->|Model Registry| Deploy[Deployment Decision]
+    
     Pipeline -->|Weekly| Retrain[Model Retraining]
     Pipeline -->|Monthly| Hyperopt[Hyperparameter Optimization]
+    Pipeline -->|On-Demand| Compare[Model Comparison]
     
     Retrain --> MLflow
     Hyperopt --> MLflow
+    Compare --> MLflow
+    Deploy -->|Staging/Production| Registry[Model Registry]
 ```
 
 **Key Paths**:
-* **Production**: tabular features + engineered graph statistics → XGBoost → MLflow → Adaptation Engine
+* **Production**: tabular features + engineered graph statistics → XGBoost → MLflow → Model Registry → Deployment
 * **Research**: tabular + graph statistics + residual HGT embeddings → XGBoost (experimental)
 
 ## 2. ETL Pipeline (`src/data/etl.py`)
@@ -117,7 +122,7 @@ XGBoost Classifier
 ```
 
 **Training Strategy**:
-- **Method**: Sliding Window (90-day train, 14-day test) or Expanding Window.
+- **Method**: Accumulating Window (all historical data up to train_end, 14-day test).
 - **Feature Engineering**: See Section 4.
 
 ---
@@ -208,11 +213,61 @@ flowchart LR
 
 ## 9. Continuous Learning Framework
 
-The system includes a complete continuous learning framework for automated model maintenance and adaptation.
+The system follows MLflow best practices for model lifecycle management, deployment, and drift detection.
 
 **Key Components**:
-- **MLflow Integration** (`src/training/mlflow_trainer.py`): Experiment tracking, model versioning, artifact management
-- **Adaptation Engine** (`src/explainability/adaptation_engine.py`): SHAP-driven rule suggestions, drift detection, feature pruning
+- **MLflow Integration**: Experiment tracking, model versioning, artifact management
+- **Model Registry**: Versioning, staging, and production deployment
+- **MLflow-Native Comparison**: Model comparison and drift detection using MLflow APIs
+
+### 9.1 MLflow Integration
+
+All training runs are automatically tracked in MLflow with:
+- Hyperparameters and configuration
+- Per-window and aggregate metrics
+- SHAP summary plots (via `mlflow.evaluate()`)
+- Model artifacts and versioning
+- Model Registry for staging/production promotion
+
+### 9.2 Model Registry and Deployment
+
+The system uses MLflow Model Registry for production-ready model management:
+
+**Model Registry Workflow**:
+1. **Training**: Models are automatically registered during training
+2. **Staging**: New models are compared against production and promoted to Staging if they meet criteria
+3. **Production**: Staging models are promoted to Production after validation
+4. **Drift Detection**: Recent versions are compared to detect performance degradation
+
+**Deployment Decision Logic**:
+- **PRODUCTION**: Significant improvement (≥1% absolute, ≥1% relative) → Direct production deployment
+- **STAGING**: Small improvement (>0% but <threshold) → Staging for validation
+- **REJECT**: No improvement or degradation → Reject candidate
+
+**Usage**:
+```bash
+# Compare two model runs
+python src/cli.py mlflow-compare-models --production-run-id abc123 --candidate-run-id def456
+
+# Get deployment recommendation (compares against production in Model Registry)
+python src/cli.py mlflow-deployment-recommendation --candidate-run-id abc123
+
+# Analyze drift across recent model versions
+python src/cli.py mlflow-drift-summary --model-name fraud-detection-baseline_graph
+```
+
+**Model Comparison Features**:
+- Compares all metrics (AUC-PR, P@100, etc.)
+- Calculates absolute and percentage improvements
+- Provides deployment recommendations
+- Tracks drift across model versions
+
+**Benefits of MLflow-Native Approach**:
+- Standard MLflow workflows (no custom code)
+- Integrated with MLflow UI for visualization
+- Model Registry provides audit trail
+- Supports automated deployment pipelines
+- Industry-standard best practices
 
 ## 10. Commands Reference
 
@@ -231,8 +286,14 @@ The system includes a complete continuous learning framework for automated model
 *   **Legacy experiments**: `make train-gat`, `make train-sage`, `make train-hgt`, `make train-hgt-rte`
 
 ### Continuous Learning
-*   **MLflow**: `make mlflow-ui`, `make mlflow-compare`, `make mlflow-promote`
-*   **Adaptation**: `make analyze-adaptation`, `make adaptation-report`
+*   **MLflow**: 
+    *   `make mlflow-ui` - Start MLflow UI
+    *   `make mlflow-compare` - Compare runs by metric
+    *   `make mlflow-promote` - Promote model to Production
+*   **Model Management**:
+    *   `make mlflow-compare-models PROD_RUN=<id> CAND_RUN=<id>` - Compare two runs
+    *   `make mlflow-deployment-recommendation CAND_RUN=<id>` - Get deployment recommendation
+    *   `make mlflow-drift-summary` - Analyze model drift
 
 ### Analysis
 *   **Notebooks**: 

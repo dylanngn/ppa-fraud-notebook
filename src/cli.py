@@ -40,14 +40,14 @@ def train_baseline(
     include_graph: bool = typer.Option(True, help="Include graph features")
 ):
     """
-    Train Baseline XGBoost with expanding window.
+    Train Baseline XGBoost with accumulating window.
     
     Automatically:
-    - Uses expanding window (accumulating data)
+    - Uses accumulating window (all historical data)
     - Tracks with MLflow
     - Registers best model to Model Registry
     """
-    console.print(f"[bold green]Training Baseline XGBoost (Expanding Window)...[/bold green]")
+    console.print(f"[bold green]Training Baseline XGBoost...[/bold green]")
     baseline_module.run_baseline(include_graph_features=include_graph)
 
 
@@ -71,10 +71,10 @@ def train_hybrid(
     model: str = typer.Option("hgt", help="GNN model type: gat, gcn, hgt, hgt_rte")
 ):
     """
-    Train Hybrid Model (XGBoost + GNN Embeddings) with expanding window.
+    Train Hybrid Model (XGBoost + GNN Embeddings) with accumulating window.
     
     Automatically:
-    - Uses expanding window
+    - Uses accumulating window (all historical data)
     - Tracks with MLflow
     - Registers model to Model Registry
     """
@@ -132,8 +132,6 @@ def interaction_features():
 
 
 # Removed deprecated commands:
-# - train-baseline-expanding → use train-baseline (now uses expanding window by default)
-# - train-hybrid-expanding → use train-hybrid (now uses expanding window by default)
 # - retrain-production → use train-baseline (same logic)
 
 @app.command()
@@ -243,78 +241,9 @@ def check_density():
 # MLflow automatically logs SHAP plots via mlflow.evaluate()
 # Compare models in MLflow UI by selecting multiple runs
 
-@app.command()
-def analyze_failures(
-    model_type: str = typer.Option(..., help="Model type: baseline, graph_baseline, or hybrid_MODEL"),
-    window_idx: int = typer.Option(-1, help="Window index to analyze (-1 for latest)"),
-    prediction_type: str = typer.Option("FP", help="Prediction type to analyze: TP, FP, TN, FN"),
-    top_k: int = typer.Option(20, help="Number of instances to explain")
-):
-    """
-    Analyze false positives, false negatives, or other prediction types with SHAP.
-    """
-    console.print(f"[bold cyan]Analyzing {prediction_type} predictions for {model_type}...[/bold cyan]")
-    
-    from src.utils.explainability import ModelExplainer, load_saved_model
-    import glob
-    
-    models_dir = f"artifacts/models/{model_type}"
-    
-    if not os.path.exists(models_dir):
-        console.print(f"[bold red]Error: Models directory not found: {models_dir}[/bold red]")
-        return
-    
-    # Find and load model
-    model_files = sorted(glob.glob(os.path.join(models_dir, "model_window_*.pkl")))
-    
-    if not model_files:
-        console.print(f"[bold red]Error: No model files found[/bold red]")
-        return
-    
-    model_path = model_files[-1] if window_idx == -1 else os.path.join(models_dir, f"model_window_{window_idx}.pkl")
-    
-    if not os.path.exists(model_path):
-        console.print(f"[bold red]Error: Model not found at {model_path}[/bold red]")
-        return
-    
-    console.print(f"Loading model from {model_path}...")
-    model_bundle = load_saved_model(model_path)
-    
-    # Create explainer
-    explainer = ModelExplainer(
-        model=model_bundle['model'],
-        feature_names=model_bundle['features'],
-        X_test=model_bundle['X_test'],
-        y_test=model_bundle['y_test'],
-        y_pred=model_bundle['y_pred'],
-        model_type=model_type,
-        window_info=model_bundle.get('window_info', {})
-    )
-    
-    # Generate explanations
-    window_idx_actual = model_bundle.get('window_info', {}).get('window_idx', 0)
-    output_dir = f"artifacts/shap/{model_type}/window_{window_idx_actual}/{prediction_type}_analysis"
-    
-    explainer.explain_top_predictions(
-        top_k=top_k,
-        prediction_type=prediction_type,
-        output_dir=output_dir
-    )
-    
-    # Also generate cohort comparison if analyzing FP or FN
-    if prediction_type in ['FP', 'FN']:
-        comparison_type = 'TP' if prediction_type == 'FP' else 'TP'
-        comparison_path = os.path.join(
-            f"artifacts/shap/{model_type}/window_{window_idx_actual}",
-            f"{prediction_type}_vs_{comparison_type}_comparison.png"
-        )
-        explainer.analyze_cohort_differences(
-            cohort1_type=comparison_type,
-            cohort2_type=prediction_type,
-            output_path=comparison_path
-        )
-    
-    console.print(f"[bold green]✓ Analysis saved to {output_dir}[/bold green]")
+# analyze-failures command removed - use MLflow UI for SHAP analysis
+# MLflow.evaluate() automatically generates SHAP plots for all models
+# View SHAP explanations in MLflow UI under run artifacts
 
 
 # Model comparison commands removed - use MLflow UI
@@ -322,229 +251,128 @@ def analyze_failures(
 # View side-by-side metrics, parameters, and SHAP plots
 
 @app.command()
-def analyze_adaptation(
-    model_type: str = typer.Option("baseline", help="Model type: baseline, baseline_graph, hybrid_*"),
-    window_idx: int = typer.Option(-1, help="Window index to analyze (-1 for latest)"),
-    output_dir: str = typer.Option("artifacts/reports", help="Output directory for reports"),
-    compute_interactions: bool = typer.Option(False, help="Compute SHAP interactions (slow)"),
-    all_windows: bool = typer.Option(False, help="Analyze all available windows"),
+def mlflow_compare_models(
+    production_run_id: str = typer.Option(..., help="MLflow run ID of production model"),
+    candidate_run_id: str = typer.Option(..., help="MLflow run ID of candidate model"),
+    primary_metric: str = typer.Option("auc_pr", help="Primary metric to compare"),
+    improvement_threshold: float = typer.Option(0.01, help="Minimum improvement threshold"),
 ):
     """
-    Run SHAP-based adaptation analysis on trained models.
+    Compare two MLflow runs to evaluate model improvements.
     
-    Generates actionable adaptation suggestions:
-    - Rule suggestions (high-importance features with thresholds)
-    - Pruning candidates (zero-importance features)
-    - Drift alerts (feature importance changes)
-    - Retrain recommendations
+    Uses MLflow-native model comparison following best practices.
     
     Example:
-        python src/cli.py analyze-adaptation --model-type baseline
-        python src/cli.py analyze-adaptation --all-windows
+        python src/cli.py mlflow-compare-models --production-run-id abc123 --candidate-run-id def456
     """
-    console.print(f"[bold cyan]Running Adaptation Analysis for {model_type}...[/bold cyan]")
+    console.print(f"[bold cyan]Comparing models...[/bold cyan]")
     
-    import glob
-    from src.explainability.adaptation_engine import AdaptationEngine, run_adaptation_analysis
-    from src.utils.explainability import load_saved_model
+    from src.utils.mlflow_model_comparison import compare_models
     
-    models_dir = f"artifacts/models/{model_type}"
+    result = compare_models(
+        production_run_id=production_run_id,
+        candidate_run_id=candidate_run_id,
+        primary_metric=primary_metric,
+        improvement_threshold=improvement_threshold,
+    )
     
-    if not os.path.exists(models_dir):
-        console.print(f"[bold red]Error: Models directory not found: {models_dir}[/bold red]")
-        console.print("Run training with --save-models flag first.")
+    if "error" in result:
+        console.print(f"[bold red]Error: {result['error']}[/bold red]")
         return
     
-    model_files = sorted(glob.glob(os.path.join(models_dir, "model_window_*.pkl")))
-    
-    if not model_files:
-        console.print(f"[bold red]Error: No model files found in {models_dir}[/bold red]")
-        return
-    
-    if all_windows:
-        # Analyze all windows
-        console.print(f"[bold yellow]Analyzing {len(model_files)} windows...[/bold yellow]")
-        
-        # Load or create engine with history
-        state_path = os.path.join(output_dir, f"adaptation_engine_{model_type}_state.pkl")
-        
-        if os.path.exists(state_path):
-            engine = AdaptationEngine.load_state(state_path)
-            console.print(f"Loaded engine state with {len(engine.importance_history)} history windows")
-        else:
-            # Get feature names from first model
-            bundle = load_saved_model(model_files[0])
-            engine = AdaptationEngine(feature_names=bundle["features"])
-        
-        for i, model_path in enumerate(model_files):
-            console.print(f"\n[dim]Processing window {i+1}/{len(model_files)}[/dim]")
-            
-            try:
-                bundle = load_saved_model(model_path)
-                report = engine.analyze_window(
-                    model=bundle["model"],
-                    X_test=bundle["X_test"],
-                    y_test=bundle["y_test"],
-                    y_pred=bundle["y_pred"],
-                    window_info=bundle.get("window_info", {"window_idx": i}),
-                    compute_interactions=compute_interactions,
-                )
-                
-                # Save report
-                report.save_markdown(f"{output_dir}/adaptation_report_window_{i}.md")
-                report.save_json(f"{output_dir}/adaptation_report_window_{i}.json")
-                
-                # Print summary
-                console.print(
-                    f"  AUC-PR: {report.model_performance.get('auc_pr', 0):.4f}, "
-                    f"Drift: {len(report.drift_alerts)}, "
-                    f"Rules: {len(report.rule_suggestions)}"
-                )
-                
-            except Exception as e:
-                console.print(f"[red]Error on window {i}: {e}[/red]")
-        
-        # Save engine state
-        engine.save_state(state_path)
-        console.print(f"\n[bold green]✓ Analyzed all windows. Reports saved to {output_dir}[/bold green]")
-        
-    else:
-        # Single window analysis
-        model_path = model_files[window_idx]
-        console.print(f"Analyzing: {os.path.basename(model_path)}")
-        
-        try:
-            report = run_adaptation_analysis(
-                model_path=model_path,
-                output_dir=output_dir,
-                compute_interactions=compute_interactions,
-            )
-            
-            console.print(f"\n[bold green]✓ Adaptation analysis complete![/bold green]")
-            console.print(f"\n[bold]Summary:[/bold]")
-            console.print(f"  Window: {report.window_idx}")
-            console.print(f"  AUC-PR: {report.model_performance.get('auc_pr', 0):.4f}")
-            console.print(f"  Drift Alerts: {len(report.drift_alerts)}")
-            console.print(f"  Rule Suggestions: {len(report.rule_suggestions)}")
-            console.print(f"  Pruning Candidates: {len(report.pruning_candidates)}")
-            console.print(f"  Retrain Recommended: {'Yes' if report.retrain_recommendation else 'No'}")
-            
-            if report.rule_suggestions:
-                console.print(f"\n[bold]Top Rule Suggestions:[/bold]")
-                for rule in report.rule_suggestions[:3]:
-                    console.print(f"  • {rule.title} ({rule.priority})")
-            
-        except Exception as e:
-            console.print(f"[bold red]Error: {e}[/bold red]")
-            import traceback
-            traceback.print_exc()
+    console.print(f"\n[bold]Comparison Results:[/bold]")
+    console.print(f"  Primary Metric: {primary_metric}")
+    console.print(f"  Production: {result['production_value']:.4f}")
+    console.print(f"  Candidate: {result['candidate_value']:.4f}")
+    console.print(f"  Improvement: {result['improvement']:+.4f} ({result['improvement_pct']:+.2f}%)")
+    console.print(f"  Recommendation: {'✓ Deploy' if result['should_deploy'] else '✗ Reject'}")
+    console.print(f"  Reason: {result['reason']}")
 
 
 @app.command()
-def generate_adaptation_report(
-    model_type: str = typer.Option("baseline", help="Model type to analyze"),
-    n_windows: int = typer.Option(10, help="Number of recent windows to analyze"),
-    output_path: str = typer.Option("artifacts/reports/adaptation_summary.md", help="Output path"),
+def mlflow_deployment_recommendation(
+    model_name: str = typer.Option("fraud-detection-baseline_graph", help="Registered model name"),
+    candidate_run_id: str = typer.Option(..., help="MLflow run ID of candidate model"),
+    primary_metric: str = typer.Option("auc_pr", help="Primary metric to evaluate"),
+    improvement_threshold: float = typer.Option(0.01, help="Absolute improvement threshold"),
+    min_improvement_pct: float = typer.Option(1.0, help="Minimum percentage improvement"),
 ):
     """
-    Generate a comprehensive adaptation report across multiple windows.
+    Get deployment recommendation using MLflow Model Registry.
     
-    Summarizes:
-    - Performance trends
-    - Feature importance stability
-    - Emerging patterns
-    - Recommendations
+    Compares candidate model against production and recommends:
+    - PRODUCTION: Significant improvement
+    - STAGING: Small improvement (needs validation)
+    - REJECT: No improvement or degradation
+    
+    Example:
+        python src/cli.py mlflow-deployment-recommendation --candidate-run-id abc123
     """
-    console.print(f"[bold cyan]Generating Adaptation Summary Report...[/bold cyan]")
+    console.print(f"[bold cyan]Evaluating deployment recommendation...[/bold cyan]")
     
-    import glob
-    import json
-    from pathlib import Path
+    from src.utils.mlflow_model_comparison import recommend_deployment
     
-    reports_dir = Path("artifacts/reports")
-    report_files = sorted(reports_dir.glob("adaptation_report_window_*.json"))
+    recommendation = recommend_deployment(
+        model_name=model_name,
+        candidate_run_id=candidate_run_id,
+        primary_metric=primary_metric,
+        improvement_threshold=improvement_threshold,
+        min_improvement_pct=min_improvement_pct,
+    )
     
-    if not report_files:
-        console.print("[bold red]No adaptation reports found. Run analyze-adaptation first.[/bold red]")
+    console.print(f"\n[bold]Deployment Recommendation:[/bold]")
+    console.print(f"  Status: {recommendation['recommendation']}")
+    console.print(f"  Stage: {recommendation['stage'] or 'N/A'}")
+    console.print(f"  Reason: {recommendation['reason']}")
+    
+    if "comparison" in recommendation:
+        comp = recommendation["comparison"]
+        if "production_value" in comp:
+            console.print(f"\n[bold]Metrics Comparison:[/bold]")
+            console.print(f"  Production {primary_metric}: {comp['production_value']:.4f}")
+            console.print(f"  Candidate {primary_metric}: {comp['candidate_value']:.4f}")
+            console.print(f"  Improvement: {comp.get('improvement', 0):+.4f} ({comp.get('improvement_pct', 0):+.2f}%)")
+
+
+@app.command()
+def mlflow_drift_summary(
+    model_name: str = typer.Option("fraud-detection-baseline_graph", help="Registered model name"),
+    n_versions: int = typer.Option(5, help="Number of recent versions to analyze"),
+):
+    """
+    Analyze model drift by comparing recent model versions.
+    
+    Uses MLflow Model Registry to detect performance degradation.
+    
+    Example:
+        python src/cli.py mlflow-drift-summary --model-name fraud-detection-baseline_graph
+    """
+    console.print(f"[bold cyan]Analyzing model drift...[/bold cyan]")
+    
+    from src.utils.mlflow_model_comparison import get_model_drift_summary
+    
+    summary = get_model_drift_summary(
+        model_name=model_name,
+        n_recent_versions=n_versions,
+    )
+    
+    if "error" in summary:
+        console.print(f"[bold red]Error: {summary['error']}[/bold red]")
         return
     
-    # Load recent reports
-    reports = []
-    for f in report_files[-n_windows:]:
-        with open(f) as fp:
-            reports.append(json.load(fp))
+    console.print(f"\n[bold]Drift Analysis:[/bold]")
+    console.print(f"  Drift Detected: {'⚠️ Yes' if summary['drift_detected'] else '✅ No'}")
+    console.print(f"  Production Version: {summary.get('production_version', 'N/A')}")
+    console.print(f"  Versions Analyzed: {summary['versions_analyzed']}")
     
-    console.print(f"Loaded {len(reports)} reports")
-    
-    # Generate summary markdown
-    lines = [
-        "# Adaptation Summary Report",
-        f"\n**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"**Windows Analyzed**: {len(reports)}",
-        "",
-        "## Performance Trend",
-        "",
-    ]
-    
-    # Performance table
-    lines.append("| Window | AUC-PR | P@100 | Drift Alerts | Rules |")
-    lines.append("|--------|--------|-------|--------------|-------|")
-    
-    for r in reports:
-        perf = r.get("model_performance", {})
-        lines.append(
-            f"| {r.get('window_idx', '?')} | "
-            f"{perf.get('auc_pr', 0):.4f} | "
-            f"{perf.get('p@100', 0):.4f} | "
-            f"{len(r.get('drift_alerts', []))} | "
-            f"{len(r.get('rule_suggestions', []))} |"
-        )
-    
-    lines.append("")
-    
-    # Aggregate feature importance (average across windows)
-    from collections import defaultdict
-    feature_importance_sum = defaultdict(float)
-    feature_importance_count = defaultdict(int)
-    
-    for r in reports:
-        for feat, imp in r.get("current_importance", {}).items():
-            feature_importance_sum[feat] += imp
-            feature_importance_count[feat] += 1
-    
-    avg_importance = {
-        k: feature_importance_sum[k] / feature_importance_count[k]
-        for k in feature_importance_sum
-    }
-    
-    sorted_features = sorted(avg_importance.items(), key=lambda x: x[1], reverse=True)
-    
-    lines.append("## Most Important Features (Average)")
-    lines.append("")
-    for feat, imp in sorted_features[:15]:
-        lines.append(f"- **{feat}**: {imp:.4f}")
-    
-    lines.append("")
-    
-    # Aggregate rule suggestions
-    rule_counts = defaultdict(int)
-    for r in reports:
-        for rule in r.get("rule_suggestions", []):
-            rule_counts[rule.get("title", "Unknown")] += 1
-    
-    if rule_counts:
-        lines.append("## Most Frequent Rule Suggestions")
-        lines.append("")
-        for rule, count in sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
-            lines.append(f"- **{rule}**: {count} windows")
-        lines.append("")
-    
-    # Save
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        f.write("\n".join(lines))
-    
-    console.print(f"[bold green]✓ Summary saved to {output_path}[/bold green]")
+    if summary['drift_detected']:
+        console.print(f"\n[bold yellow]Drift Reasons:[/bold yellow]")
+        for reason in summary['drift_reasons']:
+            console.print(f"  • {reason}")
+    else:
+        console.print(f"\n[bold green]No significant drift detected[/bold green]")
+
+
 
 
 # --- MLflow Commands ---

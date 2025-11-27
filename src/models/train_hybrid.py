@@ -5,7 +5,7 @@ import torch
 
 from src.models.train_baseline import (
     feature_engineering,
-    train_expanding_window,
+    train_accumulating_window,
 )
 
 
@@ -49,12 +49,12 @@ def load_embeddings(df, model_name="hgt"):
 
 def main(model_name="hgt"):
     """
-    Train hybrid model with expanding window and MLflow tracking.
+    Train hybrid model with accumulating window and MLflow tracking.
     
     Always enabled:
     - MLflow tracking
     - Model registration
-    - Expanding window
+    - Accumulating window
     
     Args:
         model_name: GNN model type (hgt, gat, gcn, hgt_rte)
@@ -69,9 +69,9 @@ def main(model_name="hgt"):
     # Feature Engineering (Tabular)
     df = feature_engineering(df)
     
-    # Train with expanding window + MLflow
+    # Train with accumulating window + MLflow
     print(f"Training hybrid model with {len(embed_cols)} embedding features...")
-    result = train_expanding_window(
+    result = train_accumulating_window(
         df,
         extra_features=embed_cols,
         model_name=f"hybrid_{model_name}"

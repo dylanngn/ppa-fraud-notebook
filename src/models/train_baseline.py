@@ -222,9 +222,9 @@ def get_base_features():
     ]
 
 
-def train_expanding_window(df, initial_window_days=180, step_days=7, extra_features=None, model_name="baseline"):
+def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_features=None, model_name="baseline"):
     """
-    Train with EXPANDING window (accumulating data) and MLflow tracking.
+    Train with accumulating window (all historical data) and MLflow tracking.
     
     Always enabled:
     - MLflow experiment tracking
@@ -245,7 +245,7 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
         extra_features = []
     
     print("="*70)
-    print(f"EXPANDING WINDOW TRAINING - {model_name.upper()}")
+    print(f"ACCUMULATING WINDOW TRAINING - {model_name.upper()}")
     print("="*70)
     
     # Sort by time
@@ -275,11 +275,11 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
     experiment_name = "ppa-fraud-detection"
     mlflow.set_experiment(experiment_name)
     
-    # Start parent run
-    with mlflow.start_run(
-        run_name=f"{model_name}_expanding_{datetime.now().strftime('%Y%m%d_%H%M')}",
-        tags={"model_type": model_name, "training_mode": "expanding_window"}
-    ) as parent_run:
+        # Start parent run
+        with mlflow.start_run(
+            run_name=f"{model_name}_accumulating_{datetime.now().strftime('%Y%m%d_%H%M')}",
+            tags={"model_type": model_name, "training_mode": "accumulating_window"}
+        ) as parent_run:
         
         # Log configuration
         mlflow.log_params({
@@ -317,7 +317,7 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
             train_end = current_date
             test_end = current_date + test_size
             
-            # EXPANDING WINDOW: Use ALL data from start to train_end
+            # ACCUMULATING WINDOW: Use ALL data from start to train_end
             train_data = df.filter(pl.col("submission_at") < train_end)
             test_data = df.filter(
                 (pl.col("submission_at") >= train_end) & 
@@ -443,7 +443,7 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
             })
             
             # Save results CSV as artifact
-            results_path = f"mlruns/results/{model_name}_expanding_results.csv"
+            results_path = f"mlruns/results/{model_name}_accumulating_results.csv"
             os.makedirs(os.path.dirname(results_path), exist_ok=True)
             results_df.write_csv(results_path)
             mlflow.log_artifact(results_path, artifact_path="results")
@@ -473,7 +473,7 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
                     client.update_model_version(
                         name=registered_model.name,
                         version=registered_model.version,
-                        description=f"Expanding window training. Mean AUC-PR: {mean_auc_pr:.4f}, Best: {best_auc_pr:.4f}"
+                        description=f"Accumulating window training. Mean AUC-PR: {mean_auc_pr:.4f}, Best: {best_auc_pr:.4f}"
                     )
                     
                     mlflow.log_param("registered_model_version", registered_model.version)
@@ -491,7 +491,7 @@ def train_expanding_window(df, initial_window_days=180, step_days=7, extra_featu
 
 def run_baseline(include_graph_features: bool = True):
     """
-    Train baseline XGBoost with expanding window and MLflow tracking.
+    Train baseline XGBoost with accumulating window and MLflow tracking.
     
     Always enabled:
     - MLflow tracking
@@ -506,7 +506,7 @@ def run_baseline(include_graph_features: bool = True):
     df = feature_engineering(df, include_graph_features=include_graph_features)
     
     model_name = "baseline" if not include_graph_features else "baseline_graph"
-    result = train_expanding_window(df, model_name=model_name)
+    result = train_accumulating_window(df, model_name=model_name)
     
     return result
 
