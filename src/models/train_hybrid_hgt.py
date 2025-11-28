@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import mlflow
 from torch_geometric.nn import HGTConv, Linear
 
-from src.models.train_baseline import feature_engineering, train_accumulating_window
+from src.models.train_baseline import train_accumulating_window
 from src.utils.metrics import calculate_metrics
 
 
@@ -405,33 +405,182 @@ def load_hgt_embeddings():
     return df, embed_cols
 
 
+def create_hgt_embedding_generator():
+    """
+    Creates an embedding generator function for per-window embedding generation.
+    This ensures temporal fairness by filtering the graph before generating embeddings.
+    
+    Returns:
+        Callback function(train_data, test_data, train_end) -> (train_embeddings_df, test_embeddings_df, embed_cols)
+    """
+    # Load the trained model and full graph once
+    if not os.path.exists("artifacts/model_hgt_best.pt"):
+        raise FileNotFoundError(
+            "HGT model not found. Run train_hgt_embeddings() first."
+        )
+    
+    if not os.path.exists("artifacts/graph.pt"):
+        raise FileNotFoundError(
+            "Graph not found. Run graph_builder.py first."
+        )
+    
+    # Load model and graph
+    data = torch.load("artifacts/graph.pt", weights_only=False)
+    
+    # Device selection
+    if torch.backends.mps.is_available():
+        device = torch.device('mps')
+    elif torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+    
+    # Initialize model
+    model = HGTWrapper(
+        metadata=data.metadata(),
+        hidden_channels=64,
+        out_channels=64,
+        num_heads=4,
+        num_layers=2,
+    ).to(device)
+    
+    # Load trained weights
+    model.load_state_dict(torch.load("artifacts/model_hgt_best.pt", weights_only=False))
+    model.eval()
+    
+    # Load listing node mapping
+    df_listing_all = pl.read_parquet("artifacts/nodes_listing.parquet")
+    listing_id_to_idx = {row["insertion_id"]: idx for idx, row in enumerate(df_listing_all.iter_rows(named=True))}
+    
+    def generate_embeddings_for_window(train_data, test_data, train_end):
+        """
+        Generate embeddings for a specific window with temporal filtering.
+        
+        Args:
+            train_data: Training DataFrame (already filtered by time)
+            test_data: Test DataFrame (already filtered by time)
+            train_end: Cutoff datetime for temporal filtering
+        
+        Returns:
+            (train_embeddings_df, test_embeddings_df, embed_cols)
+        """
+        # Convert train_end to nanoseconds timestamp
+        train_end_ns = int(train_end.timestamp() * 1e9)
+        
+        # Filter graph to only include edges/nodes before train_end
+        filtered_data, filtered_edge_times = filter_graph_by_time(data, train_end_ns)
+        filtered_data = filtered_data.to(device)
+        
+        # Move edge times to device
+        filtered_edge_times_device = {
+            k: v.to(device) if v is not None else None 
+            for k, v in filtered_edge_times.items()
+        }
+        
+        # Generate embeddings on filtered graph
+        with torch.no_grad():
+            z_listing = model(
+                filtered_data.x_dict, 
+                filtered_data.edge_index_dict, 
+                filtered_edge_times_device
+            )
+        
+        if isinstance(z_listing, dict):
+            z_listing = z_listing['listing']
+        
+        embeddings = z_listing.cpu().numpy()
+        
+        # Create embedding DataFrame
+        embed_cols = [f"embed_{i}" for i in range(embeddings.shape[1])]
+        
+        # Map embeddings to insertion_ids
+        train_insertion_ids = train_data["insertion_id"].to_list()
+        test_insertion_ids = test_data["insertion_id"].to_list()
+        
+        # Get indices for train and test listings
+        train_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in train_insertion_ids]
+        test_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in test_insertion_ids]
+        
+        # Extract embeddings for train and test
+        train_embeddings = []
+        test_embeddings = []
+        
+        for idx in train_indices:
+            if idx >= 0 and idx < len(embeddings):
+                train_embeddings.append(embeddings[idx])
+            else:
+                # Listing not in graph, use zero embeddings
+                train_embeddings.append([0.0] * len(embed_cols))
+        
+        for idx in test_indices:
+            if idx >= 0 and idx < len(embeddings):
+                test_embeddings.append(embeddings[idx])
+            else:
+                # Listing not in graph, use zero embeddings
+                test_embeddings.append([0.0] * len(embed_cols))
+        
+        # Create DataFrames
+        train_embeddings_df = pl.DataFrame({
+            "insertion_id": train_insertion_ids,
+            **{col: [emb[i] for emb in train_embeddings] for i, col in enumerate(embed_cols)}
+        })
+        
+        test_embeddings_df = pl.DataFrame({
+            "insertion_id": test_insertion_ids,
+            **{col: [emb[i] for emb in test_embeddings] for i, col in enumerate(embed_cols)}
+        })
+        
+        return train_embeddings_df, test_embeddings_df, embed_cols
+    
+    return generate_embeddings_for_window
+
+
 def main():
     """
     Train HGT hybrid model: embeddings + XGBoost.
     
     Pipeline:
-    1. Train HGT embeddings on graph (with RTE)
-    2. Load embeddings and merge with tabular features
-    3. Train hybrid XGBoost model with accumulating window
+    1. Train HGT model on graph (temporal split, with RTE)
+    2. Create embedding generator for per-window embedding generation
+    3. Train hybrid XGBoost model with accumulating window (embeddings generated per window with temporal filtering)
     """
     if not os.path.exists("artifacts/nodes_listing.parquet"):
         print("Artifacts not found. Please run ETL.py first.")
         return
     
-    # Step 1: Train embeddings
+    # Step 1: Train HGT model (once, on training split)
+    print("="*70)
+    print("STEP 1: Training HGT Model (with RTE)")
+    print("="*70)
     train_hgt_embeddings()
     
-    # Step 2: Load data & embeddings
-    df, embed_cols = load_hgt_embeddings()
+    # Step 2: Create embedding generator (will generate embeddings per window)
+    print("\n" + "="*70)
+    print("STEP 2: Creating Per-Window Embedding Generator")
+    print("="*70)
+    embedding_generator = create_hgt_embedding_generator()
     
-    # Step 3: Feature engineering
-    df = feature_engineering(df)
+    # Step 3: Load base data (without embeddings - they'll be generated per window)
+    print("\n" + "="*70)
+    print("STEP 3: Loading Base Data")
+    print("="*70)
+    df_listing = pl.read_parquet("artifacts/nodes_listing.parquet")
+    df_users = pl.read_parquet("artifacts/nodes_user.parquet")
+    df = df_listing.join(df_users, on="user_id", how="left")
     
-    # Step 4: Train hybrid model
-    print(f"Training HGT hybrid model with {len(embed_cols)} embedding features...")
+    # Step 4: Add base tabular features (graph features will be added per window)
+    from src.models.train_baseline import _add_base_tabular_features
+    df = _add_base_tabular_features(df)
+    
+    # Step 5: Train hybrid model with per-window embeddings
+    print("\n" + "="*70)
+    print("STEP 4: Training Hybrid Model with Per-Window Embeddings")
+    print("="*70)
+    print("Note: Embeddings will be generated per window with temporal filtering")
+    print("      This ensures fair comparison with baseline (no data leakage)")
     result = train_accumulating_window(
         df,
-        extra_features=embed_cols,
+        embedding_generator=embedding_generator,
         model_name="hybrid_hgt"
     )
     

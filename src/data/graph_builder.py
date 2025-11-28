@@ -5,6 +5,7 @@ import torch_geometric.transforms as T
 import os
 import numpy as np
 import pickle
+from sentence_transformers import SentenceTransformer
 
 def load_node_mapping(df, id_col, node_type):
     """
@@ -23,6 +24,41 @@ def load_node_mapping(df, id_col, node_type):
     mapping = {raw_id: i for i, raw_id in enumerate(ids)}
     
     return mapping, df
+
+def generate_embeddings(df_listings):
+    """
+    Generates text embeddings for listing descriptions.
+    
+    This function is called on-demand when building the graph for GNN training.
+    Embeddings are NOT stored in parquet files - they are generated fresh each time.
+    
+    Args:
+        df_listings: Polars DataFrame with 'description_text' column
+        
+    Returns:
+        numpy array of shape (n_listings, 384) with embeddings
+    """
+    print("Generating Text Embeddings for GNN (this may take a while)...")
+    
+    # Check if GPU is available
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.backends.mps.is_available():
+        device = "mps"
+    print(f"Using device: {device}")
+
+    model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+    
+    # Handle null descriptions
+    if "description_text" not in df_listings.columns:
+        print("Warning: description_text not found. Using empty strings.")
+        texts = [""] * len(df_listings)
+    else:
+        texts = df_listings["description_text"].fill_null("").to_list()
+    
+    embeddings = model.encode(texts, show_progress_bar=True, batch_size=32)
+    
+    print(f"Generated {len(embeddings)} embeddings of dimension {embeddings.shape[1]}")
+    return embeddings
 
 def build_graph():
     print("Loading Parquet artifacts...")
@@ -107,8 +143,13 @@ def build_graph():
         "bundle_period", "latitude", "longitude"
     ]).to_numpy()
     
-    # Embeddings
-    embeddings = np.stack(df_listing["description_embedding"].to_numpy())
+    # Embeddings - Generate on-the-fly if not present
+    if "description_embedding" in df_listing.columns:
+        print("Using pre-computed embeddings from nodes_listing.parquet")
+        embeddings = np.stack(df_listing["description_embedding"].to_numpy())
+    else:
+        print("description_embedding not found. Generating embeddings on-the-fly...")
+        embeddings = generate_embeddings(df_listing)
     
     # Concatenate
     x_listing = np.concatenate([

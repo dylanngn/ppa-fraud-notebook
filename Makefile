@@ -53,8 +53,12 @@ interaction-features:
 	@echo "Generating interaction features (Experiment 10)..."
 	python src/cli.py interaction-features
 
+text-features:
+	@echo "Generating text features for XGBoost..."
+	python src/cli.py text-features
+
 # Generate all feature types
-all-features: graph-features advanced-features time-weighted-features interaction-features
+all-features: graph-features advanced-features time-weighted-features interaction-features text-features
 
 # --- Seon Evaluation ---
 

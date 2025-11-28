@@ -1,8 +1,11 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from datetime import datetime
 
 import polars as pl
 import numpy as np
+
+from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
 
 ARTIFACTS_DIR = Path("artifacts")
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
@@ -133,13 +136,45 @@ def _calculate_clustering_coefficient(listing_ids: List[int],
     return agg.rename({"listing_id": "insertion_id"})
 
 
-def generate_advanced_features(output_path: Path = OUTPUT_PATH) -> None:
+def generate_advanced_features(
+    output_path: Path = OUTPUT_PATH,
+    cutoff_date: Optional[datetime] = None
+) -> None:
+    """
+    Generate advanced graph features.
+    
+    Args:
+        output_path: Path to save features
+        cutoff_date: If provided, only use edges from listings before this date.
+                     This prevents temporal leakage. If None, uses all edges.
+    """
     print("[advanced-features] Loading data...")
     listings_df = _load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
 
     contact_email_edges = _safe_edges(EDGE_LISTING_CONTACT_EMAIL)
     contact_phone_edges = _safe_edges(EDGE_LISTING_CONTACT_PHONE)
+    
+    # Apply temporal filtering if cutoff_date is provided
+    if cutoff_date is not None:
+        print(f"[advanced-features] Filtering edges by cutoff_date: {cutoff_date}")
+        listings_with_time = load_listings_with_timestamps()
+        
+        if contact_email_edges is not None:
+            contact_email_edges = filter_edges_by_time(
+                contact_email_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
+        
+        if contact_phone_edges is not None:
+            contact_phone_edges = filter_edges_by_time(
+                contact_phone_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
 
     feature_frames = [listings_df]
 

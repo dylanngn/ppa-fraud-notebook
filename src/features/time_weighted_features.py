@@ -17,11 +17,13 @@ OPTIMIZATION: Uses chunked processing to avoid memory issues with large graphs.
 
 from pathlib import Path
 from typing import Optional, Dict
-from datetime import timedelta
+from datetime import timedelta, datetime
 import math
 
 import polars as pl
 import numpy as np
+
+from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
 
 ARTIFACTS_DIR = Path("artifacts")
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
@@ -366,8 +368,18 @@ def _compute_combined_features(
     return combined
 
 
-def generate_time_weighted_features(output_path: Path = OUTPUT_PATH) -> None:
-    """Generate time-weighted graph features for all listings."""
+def generate_time_weighted_features(
+    output_path: Path = OUTPUT_PATH,
+    cutoff_date: Optional[datetime] = None
+) -> None:
+    """
+    Generate time-weighted graph features for all listings.
+    
+    Args:
+        output_path: Path to save features
+        cutoff_date: If provided, only use edges from listings before this date.
+                     This prevents temporal leakage. If None, uses all edges.
+    """
     print("[time-weighted] Loading listings with timestamps...")
     listings_df = _load_listings_with_timestamps()
     print(f"[time-weighted] Loaded {listings_df.shape[0]:,} listings")
@@ -375,6 +387,27 @@ def generate_time_weighted_features(output_path: Path = OUTPUT_PATH) -> None:
     # Load edges
     email_edges = _safe_edges(EDGE_LISTING_CONTACT_EMAIL)
     phone_edges = _safe_edges(EDGE_LISTING_CONTACT_PHONE)
+    
+    # Apply temporal filtering if cutoff_date is provided
+    if cutoff_date is not None:
+        print(f"[time-weighted] Filtering edges by cutoff_date: {cutoff_date}")
+        listings_with_time = load_listings_with_timestamps()
+        
+        if email_edges is not None:
+            email_edges = filter_edges_by_time(
+                email_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
+        
+        if phone_edges is not None:
+            phone_edges = filter_edges_by_time(
+                phone_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
     
     if email_edges is not None:
         print(f"[time-weighted] Email edges: {email_edges.shape[0]:,}")

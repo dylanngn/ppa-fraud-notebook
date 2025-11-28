@@ -1,7 +1,10 @@
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
+from datetime import datetime
 
 import polars as pl
+
+from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
 
 
 ARTIFACTS_DIR = Path("artifacts")
@@ -80,13 +83,25 @@ def _contact_edge_features(edges: Optional[pl.DataFrame], prefix: str) -> Option
     return agg.rename({"listing_id": "insertion_id"})
 
 
-def _user_features() -> Optional[pl.DataFrame]:
+def _user_features(cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
     if not (_ensure_artifact(EDGE_USER_POSTS_LISTING) and _ensure_artifact(EDGE_USER_IP)):
         return None
 
     posts = pl.read_parquet(EDGE_USER_POSTS_LISTING).drop_nulls(["source", "target"])
     if posts.is_empty():
         return None
+
+    # Apply temporal filtering if cutoff_date is provided
+    if cutoff_date is not None:
+        listings_with_time = load_listings_with_timestamps()
+        posts = filter_edges_by_time(
+            posts,
+            listings_with_time,
+            cutoff_date,
+            edge_type="target_to_listing"  # target is listing_id
+        )
+        if posts.is_empty():
+            return None
 
     posts = posts.rename({"source": "user_id", "target": "insertion_id"})
     listing_to_user = posts.select(["insertion_id", "user_id"])
@@ -97,6 +112,16 @@ def _user_features() -> Optional[pl.DataFrame]:
     )
 
     user_ip = pl.read_parquet(EDGE_USER_IP).drop_nulls(["source", "target"])
+    
+    # Apply temporal filtering to user_ip edges if cutoff_date is provided
+    if cutoff_date is not None:
+        # For user_ip edges, we need to filter by the listing's submission_at
+        # But user_ip edges don't directly have listing_id. We need to join through posts.
+        # Actually, user_ip edges connect user -> ip, and we get listing through user.
+        # So we filter posts first (done above), then filter user_ip by users in filtered posts.
+        filtered_user_ids = posts.select("user_id").unique()
+        user_ip = user_ip.join(filtered_user_ids, on="source", how="inner")
+    
     user_ip = user_ip.rename({"source": "user_id", "target": "ip"})
 
     ip_user_counts = (
@@ -155,7 +180,8 @@ class DisjointSet:
 
 def _component_sizes(listing_ids: List[int],
                      email_edges: Optional[pl.DataFrame],
-                     phone_edges: Optional[pl.DataFrame]) -> Optional[pl.DataFrame]:
+                     phone_edges: Optional[pl.DataFrame],
+                     cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
     if not listing_ids:
         return None
 
@@ -186,7 +212,8 @@ def _component_sizes(listing_ids: List[int],
 
 def _pagerank_feature(listing_ids: List[int],
                       email_edges: Optional[pl.DataFrame],
-                      phone_edges: Optional[pl.DataFrame]) -> Optional[pl.DataFrame]:
+                      phone_edges: Optional[pl.DataFrame],
+                      cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
     try:
         import networkx as nx
     except ImportError:
@@ -223,12 +250,45 @@ def _pagerank_feature(listing_ids: List[int],
     return pl.DataFrame(data, schema=["insertion_id", "listing_pagerank"])
 
 
-def generate_graph_features(output_path: Path = OUTPUT_PATH) -> None:
+def generate_graph_features(
+    output_path: Path = OUTPUT_PATH,
+    cutoff_date: Optional[datetime] = None
+) -> None:
+    """
+    Generate graph features for listings.
+    
+    Args:
+        output_path: Path to save features
+        cutoff_date: If provided, only use edges from listings before this date.
+                     This prevents temporal leakage. If None, uses all edges.
+    """
     listings_df = _load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
 
+    # Load edges
     contact_email_edges = _safe_edges(EDGE_LISTING_CONTACT_EMAIL)
     contact_phone_edges = _safe_edges(EDGE_LISTING_CONTACT_PHONE)
+    
+    # Apply temporal filtering if cutoff_date is provided
+    if cutoff_date is not None:
+        print(f"[graph-features] Filtering edges by cutoff_date: {cutoff_date}")
+        listings_with_time = load_listings_with_timestamps()
+        
+        if contact_email_edges is not None:
+            contact_email_edges = filter_edges_by_time(
+                contact_email_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
+        
+        if contact_phone_edges is not None:
+            contact_phone_edges = filter_edges_by_time(
+                contact_phone_edges,
+                listings_with_time,
+                cutoff_date,
+                edge_type="listing_to_target"
+            )
 
     feature_frames = [listings_df]
 
@@ -240,15 +300,15 @@ def generate_graph_features(output_path: Path = OUTPUT_PATH) -> None:
     if phone_features is not None:
         feature_frames.append(phone_features)
 
-    user_features = _user_features()
+    user_features = _user_features(cutoff_date=cutoff_date)
     if user_features is not None:
         feature_frames.append(user_features)
 
-    component_sizes = _component_sizes(listing_ids, contact_email_edges, contact_phone_edges)
+    component_sizes = _component_sizes(listing_ids, contact_email_edges, contact_phone_edges, cutoff_date=cutoff_date)
     if component_sizes is not None:
         feature_frames.append(component_sizes)
 
-    pagerank_feature = _pagerank_feature(listing_ids, contact_email_edges, contact_phone_edges)
+    pagerank_feature = _pagerank_feature(listing_ids, contact_email_edges, contact_phone_edges, cutoff_date=cutoff_date)
     if pagerank_feature is not None:
         feature_frames.append(pagerank_feature)
 

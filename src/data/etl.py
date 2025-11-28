@@ -1,7 +1,5 @@
 import polars as pl
 import os
-from sentence_transformers import SentenceTransformer
-import torch
 from dotenv import load_dotenv
 
 # Database Connection URI
@@ -136,11 +134,9 @@ def extract_data():
     """
     Orchestrates the ETL process.
     """
-    # 1. Fetch Raw Data (Checkpointing)
     fetch_raw_users()
     fetch_raw_insertions()
     
-    # 2. Load Raw Data
     print("Loading raw data from Parquet artifacts...")
     df_users = pl.read_parquet("artifacts/raw_users.parquet")
     df_insertions = pl.read_parquet("artifacts/raw_insertions.parquet")
@@ -151,7 +147,7 @@ def process_listings(df_insertions):
     """
     Parses the listing JSON and extracts features.
     """
-    # Define Schema for JSON parsing (Enhanced)
+    # Define Schema for JSON parsing
     listing_dtype = pl.Struct({
         "offerType": pl.Utf8,
         "lister": pl.Struct({
@@ -241,7 +237,6 @@ def process_listings(df_insertions):
         })
     })
 
-    # Schema for Bundle JSON
     bundle_dtype = pl.Struct({
         "period": pl.Int64,
         "tier": pl.Utf8
@@ -253,14 +248,12 @@ def process_listings(df_insertions):
         })
     })
 
-    # Parse JSON
     df = df_insertions.lazy().with_columns([
         pl.col("listing_json").str.json_decode(listing_dtype).alias("listing_struct"),
         pl.col("selected_bundle_json").str.json_decode(bundle_dtype).alias("bundle_struct"),
         pl.col("auto_approval_criteria_json").str.json_decode(auto_approval_criteria_dtype).alias("auto_approval_criteria_struct")
     ])
     
-    # Extract relevant fields
     df_processed = df.select([
         pl.col("object_reference"),
         pl.col("platform"),
@@ -270,7 +263,6 @@ def process_listings(df_insertions):
         pl.col("listing_created_at"),
         pl.col("submission_at"),
         
-        # Fraud Logic
         pl.col("fraud_flag"),
         (pl.col("fraud_flag").is_not_null()).alias("is_fraud"),
         (
@@ -278,17 +270,13 @@ def process_listings(df_insertions):
             (pl.col("fraud_flag") > pl.col("first_published_date"))
         ).alias("is_slip_through_fraud"),
         
-        # Customer Segment
         pl.col("customer_segment"),
 
-        # Bundle Info
         pl.col("bundle_struct").struct.field("period").alias("bundle_period"),
         pl.col("bundle_struct").struct.field("tier").alias("bundle_tier"),
 
-        # Offer Type
         pl.col("listing_struct").struct.field("offerType").alias("offer_type"),
 
-        # Lister Info
         pl.col("listing_struct").struct.field("lister").struct.field("username").alias("lister_username"),
         pl.col("listing_struct").struct.field("lister").struct.field("email").alias("lister_email"),
         pl.col("listing_struct").struct.field("lister").struct.field("phone").alias("lister_phone"),
@@ -298,7 +286,6 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("locality").alias("lister_city"),
         pl.col("listing_struct").struct.field("lister").struct.field("address").struct.field("country").alias("lister_country"),
 
-        # Billing Info
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("email").alias("billing_email"),
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("phoneDay").alias("billing_phone_day"),
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("phoneMobile").alias("billing_phone_mobile"),
@@ -308,7 +295,6 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("address").struct.field("country").alias("billing_country"),
         pl.col("listing_struct").struct.field("lister").struct.field("billing").struct.field("payment").struct.field("paymentType").alias("payment_type"),
 
-        # Contact Info
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("inquiry").struct.field("givenName").alias("inquiry_given_name"),
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("inquiry").struct.field("familyName").alias("inquiry_family_name"),
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("inquiry").struct.field("email").alias("contact_inquiry_email"),
@@ -318,12 +304,10 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("viewing").struct.field("phone").alias("contact_viewing_phone"),
         pl.col("listing_struct").struct.field("lister").struct.field("contacts").struct.field("viewing").struct.field("mobile").alias("contact_viewing_mobile"),
         
-        # Listing Details (Prices)
         pl.col("listing_struct").struct.field("prices").struct.field("buy").struct.field("price").alias("price_buy"),
         pl.col("listing_struct").struct.field("prices").struct.field("rent").struct.field("gross").alias("price_rent_gross"),
         pl.col("listing_struct").struct.field("prices").struct.field("rent").struct.field("net").alias("price_rent_net"),
         
-        # Characteristics
         pl.col("listing_struct").struct.field("characteristics").struct.field("livingSpace").alias("living_space"),
         pl.col("listing_struct").struct.field("characteristics").struct.field("numberOfRooms").alias("rooms"),
         pl.col("listing_struct").struct.field("characteristics").struct.field("yearBuilt").alias("year_built"),
@@ -335,7 +319,6 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("characteristics").struct.field("hasParking").alias("has_parking"),
         pl.col("listing_struct").struct.field("characteristics").struct.field("isOldBuilding").alias("is_old"),
 
-        # Location
         pl.col("listing_struct").struct.field("address").struct.field("street").alias("street"),
         pl.col("listing_struct").struct.field("address").struct.field("postalCode").alias("zip_code"),
         pl.col("listing_struct").struct.field("address").struct.field("locality").alias("city"),
@@ -344,7 +327,6 @@ def process_listings(df_insertions):
         pl.col("listing_struct").struct.field("address").struct.field("geoCoordinates").struct.field("latitude").alias("latitude"),
         pl.col("listing_struct").struct.field("address").struct.field("geoCoordinates").struct.field("longitude").alias("longitude"),
         
-        # Localization & Text
         pl.col("listing_struct").struct.field("localization").struct.field("primary").alias("language"),
         pl.coalesce([
             pl.col("listing_struct").struct.field("localization").struct.field("de").struct.field("text").struct.field("description"),
@@ -359,63 +341,29 @@ def process_listings(df_insertions):
     
     return df_processed
 
-def generate_embeddings(df_listings):
-    """
-    Generates text embeddings for listing descriptions.
-    """
-    print("Generating Text Embeddings (this may take a while)...")
-    
-    # Check if GPU is available
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if torch.backends.mps.is_available():
-        device = "mps"
-    print(f"Using device: {device}")
-
-    model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-    
-    # Handle null descriptions
-    texts = df_listings["description_text"].fill_null("").to_list()
-    
-    embeddings = model.encode(texts, show_progress_bar=True, batch_size=32)
-    
-    # Convert embeddings to a list of lists (or keep as numpy/tensor for saving)
-    # For Parquet, list of lists is okay, or we can save as a separate numpy file.
-    # Let's save as a column of lists for simplicity in Parquet
-    
-    df_with_embeddings = df_listings.with_columns(
-        pl.Series(name="description_embedding", values=embeddings)
-    )
-    
-    return df_with_embeddings
-
 def create_nodes_and_edges(df_users, df_listings):
     """
     Creates the nodes and edges for the Heterogeneous Graph.
     """
     print("Creating Nodes and Edges...")
     
-    # --- NODES ---
-    
-    # Prepare mapping DataFrames (include account_created_at for listings)
     user_id_map = df_users.select([
         "user_id", 
         "owner_id",
         pl.col("created_at").alias("account_created_at")
     ])
     
-    # 1. User Nodes
     nodes_user = df_users.select([
         pl.col("owner_id").alias("user_id"),
         pl.col("created_at").alias("account_created_at"),
         pl.col("contact_emails").str.extract(r"@([^@,]+)", 1).alias("email_domain")
     ]).unique(subset=["user_id"])
     
-    # 2. Listing Nodes (Enhanced)
     nodes_listing = df_listings.join(user_id_map, on="user_id", how="left").select([
         pl.col("object_reference").alias("insertion_id"),
         pl.col("owner_id").alias("user_id"),
-        pl.col("account_created_at"),  # Join from user_id_map
-        pl.col("platform"),  # For analysis
+        pl.col("account_created_at"),
+        pl.col("platform"),
         pl.col("offer_type"),
         pl.col("price_buy"),
         pl.col("price_rent_gross"),
@@ -442,18 +390,16 @@ def create_nodes_and_edges(df_users, df_listings):
         pl.col("payment_type"),
         pl.col("customer_segment"),
         pl.col("language"),
-        pl.col("description_embedding"),
+        pl.col("description_text"),
         pl.col("fraud_flag").is_not_null().alias("is_fraud"),
         pl.col("submission_at"),
-        pl.col("seon_approved"),  # Already extracted from auto_approval_criteria_json in process_insertions()
+        pl.col("seon_approved"),
         pl.col("fraud_flag"),
         pl.col("first_published_date")
     ]).unique(subset=["insertion_id"])
     
-    # 3. IP Address Nodes
     nodes_ip = df_listings.select("user_ip_address").unique().drop_nulls()
 
-    # 4. Email Nodes
     email_cols = [
         "lister_email", "billing_email", 
         "contact_inquiry_email", "contact_viewing_email"
@@ -462,7 +408,6 @@ def create_nodes_and_edges(df_users, df_listings):
     emails_from_listings = [df_listings.select(pl.col(c).alias("email")) for c in email_cols]
     nodes_email = pl.concat([emails_from_users] + emails_from_listings).unique().drop_nulls()
 
-    # 5. Phone Nodes
     phone_cols = [
         "lister_phone", "lister_mobile",
         "billing_phone_day", "billing_phone_mobile",
@@ -472,8 +417,6 @@ def create_nodes_and_edges(df_users, df_listings):
     phones_from_listings = [df_listings.select(pl.col(c).alias("phone")) for c in phone_cols]
     nodes_phone = pl.concat(phones_from_listings).unique().drop_nulls()
 
-    # 6. Address Nodes (Granular: Country + Zip + City + Street)
-    # ID: Country_Zip_City_Street
     def create_address_df(df, street_col, zip_col, city_col, country_col, lat_col=None, lon_col=None):
         cols = [
             pl.col(street_col).fill_null("").alias("street"),
@@ -498,72 +441,58 @@ def create_nodes_and_edges(df_users, df_listings):
     
     nodes_address = pl.concat([addr_property, addr_lister, addr_billing]).unique(subset=["address_id"])
 
-    # 7. Person Nodes (Name)
     nodes_person = df_listings.select([
         (pl.col("inquiry_given_name").fill_null("") + " " + pl.col("inquiry_family_name").fill_null("")).str.strip_chars().alias("person_name")
     ]).filter(pl.col("person_name") != "").unique()
 
-    # --- EDGES ---
-    
-    # Helper to create edge DF
     def create_edge_df(src_col, dst_col, src_name="source", dst_name="target"):
         return df_listings.select([
             pl.col(src_col).alias(src_name),
             pl.col(dst_col).alias(dst_name)
         ]).drop_nulls().unique()
 
-    # 1. User -> Posts -> Listing
     edges_user_posts = df_listings.join(user_id_map, on="user_id", how="left").select([
         pl.col("owner_id").alias("source"),
         pl.col("object_reference").alias("target")
     ]).drop_nulls().unique()
     
-    # 2. User -> Uses -> IP
     edges_user_ip = df_listings.join(user_id_map, on="user_id", how="left").select([
         pl.col("owner_id").alias("source"),
         pl.col("user_ip_address").alias("target")
     ]).drop_nulls().unique()
     
-    # 3. User -> Has -> Email
     edges_user_email = df_users.select([
         pl.col("owner_id").alias("source"),
         pl.col("contact_emails").str.split(",").explode().str.strip_chars().alias("target")
     ]).drop_nulls().unique()
 
-    # 4. Listing -> Has -> Email (Typed)
     edges_listing_contact_email = create_edge_df("object_reference", "lister_email")
     edges_listing_billing_email = create_edge_df("object_reference", "billing_email")
     edges_listing_inquiry_email = create_edge_df("object_reference", "contact_inquiry_email")
     
-    # 5. Listing -> Has -> Phone (Typed)
     edges_listing_contact_phone = create_edge_df("object_reference", "lister_phone")
     edges_listing_billing_phone = create_edge_df("object_reference", "billing_phone_day") # Using day phone as primary billing
     
-    # 6. Listing -> Located_At -> Address
     edges_listing_located_at = df_listings.select([
         pl.col("object_reference").alias("source"),
         (pl.col("country").fill_null("") + "_" + pl.col("zip_code").fill_null("") + "_" + pl.col("city").fill_null("") + "_" + pl.col("street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
-    # 7. Listing -> Lister_Address -> Address
     edges_listing_lister_addr = df_listings.select([
         pl.col("object_reference").alias("source"),
         (pl.col("lister_country").fill_null("") + "_" + pl.col("lister_zip").fill_null("") + "_" + pl.col("lister_city").fill_null("") + "_" + pl.col("lister_street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
-    # 8. Listing -> Billing_Address -> Address
     edges_listing_billing_addr = df_listings.select([
         pl.col("object_reference").alias("source"),
         (pl.col("billing_country").fill_null("") + "_" + pl.col("billing_zip").fill_null("") + "_" + pl.col("billing_city").fill_null("") + "_" + pl.col("billing_street").fill_null("")).alias("target")
     ]).drop_nulls().unique()
     
-    # 9. Listing -> Has_Contact_Person -> Person
     edges_listing_person = df_listings.select([
         pl.col("object_reference").alias("source"),
         (pl.col("inquiry_given_name").fill_null("") + " " + pl.col("inquiry_family_name").fill_null("")).str.strip_chars().alias("target")
     ]).filter(pl.col("target") != "").unique()
 
-    # Save Artifacts
     print("Saving Parquet Artifacts...")
     os.makedirs("artifacts", exist_ok=True)
     
@@ -604,23 +533,14 @@ def create_nodes_and_edges(df_users, df_listings):
     )
 
 def main():
-    # Create artifacts directory if not exists
     os.makedirs("artifacts", exist_ok=True)
     
-    # 1. Extract
     df_users, df_insertions = extract_data()
     print(f"Extracted {len(df_users)} users and {len(df_insertions)} insertions.")
     
-    # 2. Process Listings
     df_listings_processed = process_listings(df_insertions)
     
-    # 3. Generate Embeddings
-    # Note: This can be slow. For testing, you might want to sample.
-    # df_listings_processed = df_listings_processed.head(1000) 
-    df_listings_with_embeddings = generate_embeddings(df_listings_processed)
-    
-    # 4. Create Graph Elements and Save
-    create_nodes_and_edges(df_users, df_listings_with_embeddings)
+    create_nodes_and_edges(df_users, df_listings_processed)
     
     print("ETL Complete. Data saved to 'artifacts/' directory.")
 

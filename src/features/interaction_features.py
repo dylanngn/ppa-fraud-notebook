@@ -20,6 +20,7 @@ Features engineered:
 
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import polars as pl
 import numpy as np
@@ -39,12 +40,31 @@ def _ensure_artifact(path: Path) -> bool:
     return True
 
 
-def generate_interaction_features(output_path: Path = OUTPUT_PATH) -> None:
+def generate_interaction_features(
+    output_path: Path = OUTPUT_PATH,
+    cutoff_date: Optional[datetime] = None,
+    graph_features_df: Optional[pl.DataFrame] = None,
+    advanced_features_df: Optional[pl.DataFrame] = None
+) -> None:
     """
     Generate interaction features based on discovered fraud patterns.
     
     These features capture synergistic combinations that are more predictive
     than individual features alone.
+    
+    Args:
+        output_path: Path to save features
+        cutoff_date: If provided, only use graph features computed with data before this date.
+                     This prevents temporal leakage. If None, uses all data.
+        graph_features_df: Optional pre-computed graph features DataFrame.
+                          If provided, uses this instead of loading from parquet.
+                          Must have 'insertion_id' column.
+        advanced_features_df: Optional pre-computed advanced features DataFrame.
+                             If provided, uses this instead of loading from parquet.
+                             Must have 'insertion_id' column.
+    
+    Note: If graph_features_df and advanced_features_df are provided, they should
+    be computed with the same cutoff_date to ensure temporal consistency.
     """
     print("[interaction-features] Loading data...")
     
@@ -70,19 +90,27 @@ def generate_interaction_features(output_path: Path = OUTPUT_PATH) -> None:
         (pl.col("submission_at") - pl.col("account_created_at")).dt.total_days().alias("account_age_days")
     )
     
-    # Load graph features for shared counts and component size
-    graph_features = None
-    if _ensure_artifact(GRAPH_FEATURES):
+    # Load or use provided graph features
+    if graph_features_df is not None:
+        # Use provided DataFrame
+        df = df.join(graph_features_df, on="insertion_id", how="left")
+        print(f"[interaction-features] Joined provided graph features")
+    elif _ensure_artifact(GRAPH_FEATURES):
+        # Load from parquet (backward compatibility)
         graph_features = pl.read_parquet(GRAPH_FEATURES)
         df = df.join(graph_features, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined graph features")
+        print(f"[interaction-features] Joined graph features from parquet")
     
-    # Load advanced features for isolation metrics
-    advanced_features = None
-    if _ensure_artifact(ADVANCED_FEATURES):
+    # Load or use provided advanced features
+    if advanced_features_df is not None:
+        # Use provided DataFrame
+        df = df.join(advanced_features_df, on="insertion_id", how="left")
+        print(f"[interaction-features] Joined provided advanced features")
+    elif _ensure_artifact(ADVANCED_FEATURES):
+        # Load from parquet (backward compatibility)
         advanced_features = pl.read_parquet(ADVANCED_FEATURES)
         df = df.join(advanced_features, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined advanced features")
+        print(f"[interaction-features] Joined advanced features from parquet")
     
     # Fill nulls for graph features
     graph_cols = [

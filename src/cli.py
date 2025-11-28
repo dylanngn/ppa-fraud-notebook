@@ -1,6 +1,5 @@
 import typer
 from rich.console import Console
-from datetime import datetime
 import sys
 import os
 
@@ -14,6 +13,7 @@ from src.utils import evaluate_seon as seon_module
 from src.features import advanced_graph_features as advanced_features_module
 from src.features import time_weighted_features as time_weighted_module
 from src.features import interaction_features as interaction_module
+from src.features import text_features as text_features_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -35,23 +35,21 @@ def build_graph():
     graph_builder.build_graph()
 
 @app.command()
-def train_baseline(
-    include_graph: bool = typer.Option(True, help="Include graph features")
-):
+def train_baseline():
     """
     Train Baseline XGBoost with accumulating window.
     
+    Always includes graph features with temporal filtering to prevent data leakage.
+    
     Automatically:
     - Uses accumulating window (all historical data)
+    - Computes graph features per window with temporal filtering
     - Tracks with MLflow
     - Registers best model to Model Registry
     """
-    console.print(f"[bold green]Training Baseline XGBoost...[/bold green]")
-    baseline_module.run_baseline(include_graph_features=include_graph)
+    console.print(f"[bold green]Training Baseline XGBoost with Graph Features...[/bold green]")
+    baseline_module.run_baseline()
 
-
-
-# train-graph-baseline removed - use: train-baseline --include-graph
 
 @app.command()
 def train_hybrid_sage():
@@ -130,6 +128,28 @@ def interaction_features():
     """
     console.print("[bold green]Generating Interaction Features...[/bold green]")
     interaction_module.generate_interaction_features()
+
+@app.command()
+def text_features():
+    """
+    Generate simple text features for XGBoost.
+    
+    Features include:
+    - description_length: Character count
+    - description_word_count: Word count
+    - description_has_url: Binary indicator for URLs
+    - description_has_email: Binary indicator for email addresses
+    - description_has_phone: Binary indicator for phone numbers
+    - description_caps_ratio: Ratio of uppercase characters
+    - description_exclamation_count: Count of exclamation marks
+    - description_question_count: Count of question marks
+    - description_all_caps_words: Count of all-caps words
+    - description_avg_word_length: Average word length
+    
+    These are lightweight alternatives to embeddings, optimized for tree-based models.
+    """
+    console.print("[bold green]Generating Text Features...[/bold green]")
+    text_features_module.generate_text_features()
 
 
 
@@ -367,54 +387,6 @@ def mlflow_drift_summary(
             console.print(f"  • {reason}")
     else:
         console.print(f"\n[bold green]No significant drift detected[/bold green]")
-
-
-
-
-@app.command()
-def mlflow_compare(
-    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
-    metric: str = typer.Option("mean_auc_pr", help="Metric to compare"),
-    top_n: int = typer.Option(10, help="Number of top runs to show"),
-):
-    """
-    Compare MLflow runs by metric.
-    
-    Shows top N runs sorted by the specified metric.
-    """
-    console.print(f"[bold cyan]Comparing runs in {experiment_name}...[/bold cyan]")
-    
-    import mlflow
-    
-    try:
-        mlflow.set_experiment(experiment_name)
-        
-        # Search runs
-        runs = mlflow.search_runs(
-            order_by=[f"metrics.{metric} DESC"],
-            max_results=top_n,
-        )
-        
-        if runs.empty:
-            console.print("[yellow]No runs found in this experiment.[/yellow]")
-            return
-        
-        # Display results
-        console.print(f"\n[bold]Top {len(runs)} runs by {metric}:[/bold]")
-        console.print("-" * 80)
-        
-        for i, row in runs.iterrows():
-            run_name = row.get('tags.mlflow.runName', row['run_id'][:8])
-            metric_value = row.get(f'metrics.{metric}', 'N/A')
-            model_type = row.get('params.model_type', 'unknown')
-            
-            if isinstance(metric_value, float):
-                console.print(f"  {i+1}. {run_name}: {metric_value:.4f} ({model_type})")
-            else:
-                console.print(f"  {i+1}. {run_name}: {metric_value} ({model_type})")
-        
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
 
 if __name__ == "__main__":
     app()
