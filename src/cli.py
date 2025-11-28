@@ -133,9 +133,6 @@ def interaction_features():
 
 
 
-# Removed deprecated commands:
-# - retrain-production → use train-baseline (same logic)
-
 @app.command()
 def optimize_graph_window():
     """
@@ -374,70 +371,6 @@ def mlflow_drift_summary(
 
 
 
-# --- MLflow Commands ---
-# Note: train-mlflow is deprecated. Use train-baseline or train-hybrid instead.
-# All training commands now use MLflow by default.
-
-
-
-@app.command()
-def mlflow_ui(
-    backend_store_uri: str = typer.Option(None, help="Backend store URI (default: sqlite:///mlflow.db)"),
-    port: int = typer.Option(5000, help="Port for MLflow UI"),
-    host: str = typer.Option("127.0.0.1", help="Host for MLflow UI"),
-):
-    """
-    Start MLflow UI to view experiments and trained models.
-    
-    This works with your current client mode setup! The UI reads from the same
-    SQLite database (mlflow.db) that your training scripts write to.
-    
-    You can:
-    - View all training runs and metrics
-    - Compare models side-by-side
-    - Browse SHAP plots and artifacts
-    - Access the Model Registry
-    - Download models
-    
-    Usage:
-    1. Start training (writes to mlflow.db directly):
-       make train-baseline
-    
-    2. In another terminal, start the UI (reads from same mlflow.db):
-       make mlflow-ui
-       # or
-       python src/cli.py mlflow-ui
-    
-    3. Open http://localhost:5000 in your browser
-    
-    Note: Your training scripts continue using client mode (direct DB connection).
-    You don't need to change MLFLOW_TRACKING_URI - the UI reads from the same
-    database your training scripts write to.
-    """
-    console.print("[bold cyan]Starting MLflow Server...[/bold cyan]")
-    
-    import subprocess
-    from pathlib import Path
-    
-    if backend_store_uri is None:
-        db_path = Path("mlflow.db").absolute()
-        backend_store_uri = f"sqlite:///{db_path}"
-        console.print(f"Using database backend: {backend_store_uri}")
-    else:
-        console.print(f"Using backend store: {backend_store_uri}")
-    
-    console.print(f"MLflow UI will be available at http://{host}:{port}")
-    console.print("Press Ctrl+C to stop the server")
-    console.print("\n[dim]Note: After starting server, set MLFLOW_TRACKING_URI=http://localhost:5000 in your environment[/dim]")
-    
-    subprocess.run([
-        "mlflow", "ui",
-        "--port", str(port),
-        "--host", host,
-        "--backend-store-uri", backend_store_uri
-    ])
-
-
 @app.command()
 def mlflow_compare(
     experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
@@ -479,38 +412,6 @@ def mlflow_compare(
                 console.print(f"  {i+1}. {run_name}: {metric_value:.4f} ({model_type})")
             else:
                 console.print(f"  {i+1}. {run_name}: {metric_value} ({model_type})")
-        
-    except Exception as e:
-        console.print(f"[bold red]Error: {e}[/bold red]")
-
-
-@app.command()
-def mlflow_promote(
-    model_name: str = typer.Option("fraud-detection", help="Registered model name"),
-    version: int = typer.Option(..., help="Model version to promote"),
-    stage: str = typer.Option("Production", help="Target stage: Staging or Production"),
-):
-    """
-    Promote a model version to Staging or Production.
-    
-    Example:
-        python src/cli.py mlflow-promote --version 2 --stage Production
-    """
-    console.print(f"[bold cyan]Promoting model {model_name} v{version} to {stage}...[/bold cyan]")
-    
-    import mlflow
-    from mlflow.tracking import MlflowClient
-    
-    try:
-        client = MlflowClient()
-        client.transition_model_version_stage(
-            name=model_name,
-            version=version,
-            stage=stage,
-            archive_existing_versions=True
-        )
-        
-        console.print(f"[bold green]✓ Model {model_name} v{version} promoted to {stage}[/bold green]")
         
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

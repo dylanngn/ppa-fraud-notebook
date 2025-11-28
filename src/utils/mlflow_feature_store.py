@@ -53,14 +53,14 @@ def log_feature_store_metadata(
                 "time_weighted_features": len(feature_categories.get("time_weighted", [])),
                 "interaction_features": len(feature_categories.get("interaction", [])),
             },
-            artifact_path="feature_store/metadata.json"
+            artifact_file="feature_store/metadata.json"
         )
         
         # 2. Log feature store file metadata
         file_metadata = _get_feature_file_metadata(artifacts_dir)
         mlflow.log_dict(
             file_metadata,
-            artifact_path="feature_store/files.json"
+            artifact_file="feature_store/files.json"
         )
         
         # 3. Log feature store paths as parameters
@@ -79,7 +79,7 @@ def log_feature_store_metadata(
             "feature_store_type": "temporal_validation",
             "temporal_validation_enabled": True,
         }
-        mlflow.log_dict(config, artifact_path="feature_store/config.json")
+        mlflow.log_dict(config, artifact_file="feature_store/config.json")
         
         # 5. Log feature statistics (sample from training data if available)
         # This is optional and can be done separately if needed
@@ -166,7 +166,7 @@ def log_feature_store_statistics(
         }
         mlflow.log_dict(
             availability_dict,
-            artifact_path="feature_store/availability.json"
+            artifact_file="feature_store/availability.json"
         )
         
         print(f"✓ Logged feature store statistics (cold_start_rate={cold_start_rate:.2%})")
@@ -201,7 +201,7 @@ def log_feature_lineage(
             }
         }
         
-        mlflow.log_dict(lineage, artifact_path="feature_store/lineage.json")
+        mlflow.log_dict(lineage, artifact_file="feature_store/lineage.json")
         print("✓ Logged feature lineage")
         
     except Exception as e:

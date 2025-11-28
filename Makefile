@@ -56,26 +56,6 @@ interaction-features:
 # Generate all feature types
 all-features: graph-features advanced-features time-weighted-features interaction-features
 
-# --- Production Continuous Learning ---
-
-retrain-production:
-	@echo "Retraining production model with all historical + production data..."
-	python src/cli.py retrain-production
-
-# --- Baseline Optimization Experiments ---
-
-optimize-window:
-	@echo "Testing graph feature window sizes (Experiment 8)..."
-	python src/cli.py optimize-graph-window
-
-optimize-hyperparams:
-	@echo "Running hyperparameter optimization (Experiment 11)..."
-	python src/cli.py optimize-hyperparams --n-trials 100 --n-windows 5
-
-staged-hyperopt:
-	@echo "Running staged hyperparameter optimization (Experiment 11b)..."
-	python src/cli.py staged-hyperopt --n-windows 5
-
 # --- Seon Evaluation ---
 
 seon:

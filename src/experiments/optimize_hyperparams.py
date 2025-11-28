@@ -21,7 +21,6 @@ import polars as pl
 import xgboost as xgb
 from optuna.samplers import TPESampler
 
-from src.utils.mlflow_init import init_mlflow
 from src.models.train_baseline import (
     ADVANCED_GRAPH_FEATURE_COLUMNS,
     GRAPH_FEATURE_COLUMNS,
@@ -247,7 +246,6 @@ def run_hyperparameter_optimization(
     timeout_seconds = timeout_minutes * 60 if timeout_minutes else None
     
     # Start parent MLflow run for the study
-    init_mlflow()
     mlflow.set_experiment("ppa-fraud-detection")
     with mlflow.start_run(run_name=f"hyperopt_{study_name}", tags={"type": "hyperopt"}):
         mlflow.log_params({
@@ -419,7 +417,6 @@ def validate_best_params(best_params: dict, full_evaluation: bool = True, mlflow
     print(f"Window strategy: Accumulating (initial: {initial_window_days} days)")
     
     # Start MLflow run for validation
-    init_mlflow()
     mlflow.set_experiment("ppa-fraud-detection")
     with mlflow.start_run(run_name="hyperopt_validation", tags={"type": "validation", "experiment": "hyperopt", "window_strategy": "accumulating"}):
         # Load data

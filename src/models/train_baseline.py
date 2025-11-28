@@ -15,7 +15,6 @@ from src.utils.mlflow_feature_store import (
     log_feature_store_statistics,
     log_feature_lineage
 )
-from src.utils.mlflow_init import init_mlflow
 from src.features.store import FeatureStore
 
 GRAPH_FEATURES_PATH = Path("artifacts/listing_graph_features.parquet")
@@ -154,6 +153,13 @@ def feature_engineering(df, include_graph_features: bool = False):
     
     if include_graph_features:
         graph_features = load_graph_features()
+        
+        # Cast UInt32 columns to Int64 to avoid MLflow warnings
+        graph_features = graph_features.select([
+            pl.col(c).cast(pl.Int64) if graph_features[c].dtype == pl.UInt32 else pl.col(c)
+            for c in graph_features.columns
+        ])
+        
         df = df.join(graph_features, on="insertion_id", how="left")
         all_graph_cols = GRAPH_FEATURE_COLUMNS + ADVANCED_GRAPH_FEATURE_COLUMNS + TIME_WEIGHTED_FEATURE_COLUMNS + INTERACTION_FEATURE_COLUMNS
         df = df.with_columns([
@@ -192,7 +198,7 @@ def feature_engineering(df, include_graph_features: bool = False):
         pl.col("bundle_period").fill_null(7) if "bundle_period" in df.columns else pl.lit(7).alias("bundle_period"),
         (
             pl.col("bundle_tier").fill_null("basic").str.to_lowercase()
-            .replace({"basic": 0, "premium": 1, "top": 2}, default=0)
+            .replace_strict({"basic": 0, "premium": 1, "top": 2}, default=0)
             .cast(pl.Int64).alias("bundle_tier_score")
         ) if "bundle_tier" in df.columns else pl.lit(0).alias("bundle_tier_score")
     ])
@@ -322,8 +328,9 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
     
     # MLflow experiment setup
     # Initialize MLflow with database backend (idempotent - safe to call multiple times)
-    # Best practice: Set MLFLOW_TRACKING_URI environment variable instead
-    init_mlflow()
+    # Force SQLite backend to avoid filesystem deprecation warnings
+    
+    print(f"MLflow Tracking URI: {mlflow.get_tracking_uri()}")
     experiment_name = "ppa-fraud-detection"
     mlflow.set_experiment(experiment_name)
     
@@ -366,6 +373,9 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                 
                 # Log feature store statistics (sample from training data)
                 sample_listing_ids = df.head(1000)["insertion_id"].to_list() if "insertion_id" in df.columns else None
+                if sample_listing_ids:
+                    sample_listing_ids = [x for x in sample_listing_ids if x is not None]
+                
                 log_feature_store_statistics(
                     feature_store=feature_store,
                     sample_listing_ids=sample_listing_ids,
@@ -428,8 +438,8 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                 nested=True
             ) as window_run:
                 
-                # Enable autologging
-                mlflow.xgboost.autolog(log_input_examples=True, log_model_signatures=True)
+                # Enable autologging (disable model logging to handle it manually with signature)
+                mlflow.xgboost.autolog(log_input_examples=False, log_model_signatures=False, log_models=False)
                 
                 # Log window info
                 mlflow.log_params({
@@ -460,6 +470,17 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                 
                 model.fit(X_train, y_train)
                 
+                # Manually log model with signature and input example
+                signature = infer_signature(X_train, model.predict(X_train))
+                input_example = X_train[:5]
+                
+                mlflow.xgboost.log_model(
+                    xgb_model=model,
+                    name="model",
+                    signature=signature,
+                    input_example=input_example
+                )
+                
                 # Predict
                 proba = model.predict_proba(X_test)[:, 1]
                 
@@ -478,8 +499,12 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                 # Use mlflow.models.evaluate for SHAP (replaces deprecated mlflow.evaluate)
                 # Note: mlflow.models.evaluate() requires pandas DataFrame, not Polars
                 # This is a small test set conversion, so acceptable performance impact
+                # Use mlflow.models.evaluate for SHAP (replaces deprecated mlflow.evaluate)
+                # Note: mlflow.models.evaluate() requires pandas DataFrame, not Polars
+                # This is a small test set conversion, so acceptable performance impact
                 try:
-                    eval_data = test_data.select(features).to_pandas()
+                    # Convert to pandas and cast to float to avoid integer schema warnings
+                    eval_data = test_data.select(features).to_pandas().astype(float)
                     eval_data["target"] = y_test
                     
                     run_id = mlflow.active_run().info.run_id
@@ -493,7 +518,7 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                         targets="target",
                         model_type="classifier",
                         evaluators=["default"],
-                        evaluator_config={"default": {"log_explainer": True}}
+                        evaluator_config={"default": {"log_explainer": False}}
                     )
                 except Exception as e:
                     print(f"Warning: MLflow evaluate failed: {e}")
@@ -532,7 +557,7 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
             })
             
             # Save results CSV as artifact
-            results_path = f"mlruns/results/{model_name}_accumulating_results.csv"
+            results_path = f"artifacts/results/{model_name}_accumulating_results.csv"
             os.makedirs(os.path.dirname(results_path), exist_ok=True)
             results_df.write_csv(results_path)
             mlflow.log_artifact(results_path, artifact_path="results")

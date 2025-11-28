@@ -17,7 +17,6 @@ import xgboost as xgb
 import networkx as nx
 import mlflow
 
-from src.utils.mlflow_init import init_mlflow
 from src.models.train_baseline import (
     load_data,
     get_base_features,
@@ -130,7 +129,6 @@ def test_window_size(window_days: int, n_folds: int = 5):
     print(f"{'='*60}")
     
     # Start MLflow run for this window test
-    init_mlflow()
     mlflow.set_experiment("ppa-fraud-detection")
     with mlflow.start_run(
         run_name=f"window_optimization_{window_days}d",
@@ -235,8 +233,6 @@ def run_window_optimization():
     print("GRAPH FEATURE WINDOW OPTIMIZATION")
     print("="*60)
     
-    # Start parent MLflow run
-    init_mlflow()
     mlflow.set_experiment("ppa-fraud-detection")
     with mlflow.start_run(
         run_name="window_optimization_study",

@@ -27,8 +27,6 @@ import mlflow
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from src.utils.metrics import calculate_metrics
-from src.utils.mlflow_init import init_mlflow
-
 
 def parse_seon_approval(auto_approval_criteria_col: pl.Series) -> pl.Series:
     """
@@ -472,9 +470,7 @@ def run_seon_evaluation(
     # Log to MLflow if requested
     if log_to_mlflow:
         print("\nLogging to MLflow...")
-        init_mlflow()
-        experiment_name = "ppa-fraud-detection"
-        mlflow.set_experiment(experiment_name)
+        mlflow.set_experiment("ppa-fraud-detection")
         
         with mlflow.start_run(
             run_name=f"seon_baseline_{datetime.now().strftime('%Y%m%d_%H%M')}",
