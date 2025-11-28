@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from src.features.store import FeatureStore, FeatureSnapshot
+from src.features.store import FeatureStore
 
 
 def log_feature_store_metadata(

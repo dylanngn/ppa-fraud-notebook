@@ -284,7 +284,6 @@ def build_graph():
     src_map, dst_map = maps["listing"], maps["email"]
     add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "email", "has_contact_email", time_source_col="source")
     add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "email", "has_billing_email", time_source_col="source")
-    add_edge("edges_listing_inquiry_email.parquet", "source", "target", "listing", "email", "has_inquiry_email", time_source_col="source")
     
     # 5. Listing -> Has -> Phone (All types)
     src_map, dst_map = maps["listing"], maps["phone"]

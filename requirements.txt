@@ -1,6 +1,3 @@
-# Requires Python 3.11+ (SHAP 0.50 dropped Python 3.10 support)
-# Updated: Nov 2025
-
 # Core data processing
 polars>=1.35.0
 python-dotenv>=1.2.0
@@ -15,7 +12,6 @@ sentence-transformers>=5.0.0
 torch_geometric>=2.7.0
 scikit-learn>=1.6.0
 
-# XGBoost + SHAP (0.50 fixes base_score compatibility - github.com/shap/shap/issues/4202)
 xgboost>=3.1.0
 shap>=0.50.0
 
@@ -24,11 +20,6 @@ optuna>=4.0.0
 
 # MLOps
 mlflow>=3.0.0
-
-
-# API
-fastapi>=0.122.0
-uvicorn>=0.38.0
 
 # CLI
 typer>=0.15.0
@@ -39,8 +30,4 @@ matplotlib>=3.10.0
 seaborn>=0.13.0
 
 # Scientific computing
-scipy>=1.14.0
 networkx>=3.4.0
-
-# Development
-jupyter>=1.1.0

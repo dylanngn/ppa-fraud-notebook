@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density data-quality-report debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
 
 install:
 	pip install -r requirements.txt
@@ -34,6 +34,10 @@ train-hgt:
 
 check-density:
 	python src/cli.py check-density
+
+data-quality-report:
+	@echo "Generating data quality report..."
+	python src/cli.py data-quality-report
 
 # Run complete pipeline: ETL → Build Graph → All Features → All Training Scripts
 # Note: Training scripts run sequentially to avoid MLflow conflicts and GPU/memory contention

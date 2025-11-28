@@ -429,13 +429,18 @@ def run_seon_evaluation(
     print("Loading listing data...")
     df = pl.read_parquet("artifacts/nodes_listing.parquet")
     
-    # Check for required columns (seon_approved is already extracted in ETL)
-    required_cols = ["seon_approved", "fraud_flag", "first_published_date", "submission_at", "is_fraud"]
+    # Check for required columns (seon_approved is extracted from flattened data in create_graph_artifacts)
+    required_cols = ["fraud_flag", "first_published_date", "submission_at", "is_fraud"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
         print(f"Error: Missing required columns: {missing_cols}")
         return None
+    
+    # seon_approved may not exist if field is 100% null (will use fallback mode)
+    if "seon_approved" not in df.columns:
+        print("Warning: seon_approved column not found. Will use fallback mode (first_published_date) only.")
+        df = df.with_columns(pl.lit(None).cast(pl.Boolean).alias("seon_approved"))
     
     print(f"Total listings: {len(df)}")
     print(f"Fraud cases: {df['is_fraud'].sum()}")

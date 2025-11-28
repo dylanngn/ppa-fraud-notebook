@@ -224,6 +224,34 @@ def check_density():
     check_window_density.check_density()
 
 @app.command()
+def data_quality_report(
+    data_path: str = typer.Option("artifacts/raw_insertions.parquet", help="Path to flattened & anonymized insertions parquet file"),
+    output: str = typer.Option("artifacts/data_quality_report.txt", help="Path to save the report"),
+    null_threshold_unusable: float = typer.Option(95.0, help="Fields with >= this % null are considered unusable"),
+    null_threshold_high_coverage: float = typer.Option(50.0, help="Fields with < this % null are considered high coverage"),
+):
+    """
+    Generate a comprehensive data quality report.
+    
+    Analyzes the flattened insertions data to generate a report on:
+    - Fields that are mostly null and unusable
+    - Top fields with highest coverage (most present)
+    - Phone, email, and address field coverage specifically
+    - Other useful validations (data types, value distributions, etc.)
+    """
+    console.print("[bold green]Generating Data Quality Report...[/bold green]")
+    from src.utils.data_quality_report import generate_report
+    
+    generate_report(
+        data_path=data_path,
+        output_path=output,
+        null_threshold_unusable=null_threshold_unusable,
+        null_threshold_high_coverage=null_threshold_high_coverage
+    )
+    
+    console.print(f"[bold green]Report saved to: {output}[/bold green]")
+
+@app.command()
 def evaluate_seon(
     evaluation_start_days: int = typer.Option(90, help="Days to skip before starting evaluation"),
     step_days: int = typer.Option(14, help="Step size between evaluation windows"),
