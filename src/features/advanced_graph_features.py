@@ -1,9 +1,8 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 from datetime import datetime
 
 import polars as pl
-import numpy as np
 
 from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
 
@@ -61,6 +60,15 @@ def _calculate_isolation_scores(listing_ids: List[int],
     if email_edges is None and phone_edges is None:
         return None
 
+    # Normalize column names: handle both 'source' and 'listing_id' as the listing column
+    if email_edges is not None:
+        if "source" in email_edges.columns and "listing_id" not in email_edges.columns:
+            email_edges = email_edges.rename({"source": "listing_id"})
+    
+    if phone_edges is not None:
+        if "source" in phone_edges.columns and "listing_id" not in phone_edges.columns:
+            phone_edges = phone_edges.rename({"source": "listing_id"})
+
     # Count degrees
     email_counts = pl.DataFrame({"listing_id": listing_ids})
     if email_edges is not None:
@@ -105,6 +113,15 @@ def _calculate_clustering_coefficient(listing_ids: List[int],
     """
     if email_edges is None and phone_edges is None:
         return None
+    
+    # Normalize column names: handle both 'source' and 'listing_id' as the listing column
+    if email_edges is not None:
+        if "source" in email_edges.columns and "listing_id" not in email_edges.columns:
+            email_edges = email_edges.rename({"source": "listing_id"})
+    
+    if phone_edges is not None:
+        if "source" in phone_edges.columns and "listing_id" not in phone_edges.columns:
+            phone_edges = phone_edges.rename({"source": "listing_id"})
         
     # Combine edges with type
     edges_list = []
@@ -137,16 +154,19 @@ def _calculate_clustering_coefficient(listing_ids: List[int],
 
 
 def generate_advanced_features(
-    output_path: Path = OUTPUT_PATH,
+    output_path: Optional[Path] = OUTPUT_PATH,
     cutoff_date: Optional[datetime] = None
-) -> None:
+) -> Optional[pl.DataFrame]:
     """
     Generate advanced graph features.
     
     Args:
-        output_path: Path to save features
+        output_path: Path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use edges from listings before this date.
                      This prevents temporal leakage. If None, uses all edges.
+    
+    Returns:
+        DataFrame with advanced features, or None if output_path is provided (for backward compatibility)
     """
     print("[advanced-features] Loading data...")
     listings_df = _load_listing_ids()
@@ -192,7 +212,7 @@ def generate_advanced_features(
 
     if len(feature_frames) == 1:
         print("[advanced-features] No advanced features were generated.")
-        return
+        return None
 
     print("[advanced-features] Joining features...")
     features = feature_frames[0]
@@ -205,9 +225,13 @@ def generate_advanced_features(
             pl.col(col).fill_null(0) for col in numerical_cols
         ])
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    features.write_parquet(output_path)
-    print(f"[advanced-features] Saved advanced graph features to {output_path}")
+    # Save to disk if output_path is provided
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        features.write_parquet(output_path)
+        print(f"[advanced-features] Saved advanced graph features to {output_path}")
+    
+    return features
 
 
 if __name__ == "__main__":

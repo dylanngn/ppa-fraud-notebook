@@ -2,13 +2,11 @@
 MLflow Model Loader Utilities
 
 Helper functions to load models from MLflow by window index and model type.
-Replaces the old pickle-based model loading system.
 """
 
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 import mlflow
 from mlflow.tracking import MlflowClient
-import numpy as np
 
 
 def find_window_run(

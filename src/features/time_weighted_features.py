@@ -89,6 +89,10 @@ def _compute_time_weighted_features_chunked(
     if edges is None:
         return None
     
+    # Normalize column name: handle both 'source' and 'listing_id' as the listing column
+    if "source" in edges.columns and "listing_id" not in edges.columns:
+        edges = edges.rename({"source": "listing_id"})
+    
     print(f"[time-weighted] Processing {prefix} features...")
     
     # Join edges with listing timestamps
@@ -369,16 +373,19 @@ def _compute_combined_features(
 
 
 def generate_time_weighted_features(
-    output_path: Path = OUTPUT_PATH,
+    output_path: Optional[Path] = OUTPUT_PATH,
     cutoff_date: Optional[datetime] = None
-) -> None:
+) -> Optional[pl.DataFrame]:
     """
     Generate time-weighted graph features for all listings.
     
     Args:
-        output_path: Path to save features
+        output_path: Path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use edges from listings before this date.
                      This prevents temporal leakage. If None, uses all edges.
+    
+    Returns:
+        DataFrame with time-weighted features, or None if output_path is provided (for backward compatibility)
     """
     print("[time-weighted] Loading listings with timestamps...")
     listings_df = _load_listings_with_timestamps()
@@ -424,7 +431,7 @@ def generate_time_weighted_features(
     
     if combined is None:
         print("[time-weighted] No time-weighted features were generated.")
-        return
+        return None
     
     # Ensure all listings are present (left join with listing IDs)
     all_listings = listings_df.select("insertion_id")
@@ -436,23 +443,27 @@ def generate_time_weighted_features(
         pl.col(col).fill_null(0) for col in numerical_cols
     ])
     
-    # Save
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    combined.write_parquet(output_path)
+    # Save to disk if output_path is provided
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        combined.write_parquet(output_path)
+        print(f"[time-weighted] Saved to {output_path}")
     
     print(f"[time-weighted] Generated {len(numerical_cols)} features for {combined.shape[0]:,} listings")
-    print(f"[time-weighted] Saved to {output_path}")
     
-    # Print feature summary
-    print("\n[time-weighted] Feature Summary:")
-    for col in numerical_cols[:12]:
-        stats = combined.select([
-            pl.col(col).mean().alias("mean"),
-            pl.col(col).std().alias("std"),
-            pl.col(col).max().alias("max"),
-            (pl.col(col) > 0).sum().alias("non_zero")
-        ]).row(0)
-        print(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]}")
+    # Print feature summary (only if saving to disk)
+    if output_path is not None:
+        print("\n[time-weighted] Feature Summary:")
+        for col in numerical_cols[:12]:
+            stats = combined.select([
+                pl.col(col).mean().alias("mean"),
+                pl.col(col).std().alias("std"),
+                pl.col(col).max().alias("max"),
+                (pl.col(col) > 0).sum().alias("non_zero")
+            ]).row(0)
+            print(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]}")
+    
+    return combined
 
 
 if __name__ == "__main__":

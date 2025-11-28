@@ -60,6 +60,11 @@ def _contact_edge_features(edges: Optional[pl.DataFrame], prefix: str) -> Option
     if edges is None:
         return None
 
+    # Normalize column name: handle both 'source' and 'listing_id' as the listing column
+    # filter_edges_by_time returns 'source', but _safe_edges returns 'listing_id'
+    if "source" in edges.columns and "listing_id" not in edges.columns:
+        edges = edges.rename({"source": "listing_id"})
+
     degree_col = f"{prefix}_count"
     shared_sum_col = f"shared_{prefix}_count"
     shared_max_col = f"max_shared_{prefix}"
@@ -120,6 +125,8 @@ def _user_features(cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFr
         # Actually, user_ip edges connect user -> ip, and we get listing through user.
         # So we filter posts first (done above), then filter user_ip by users in filtered posts.
         filtered_user_ids = posts.select("user_id").unique()
+        # Rename user_id to source for the join, since user_ip still has source column
+        filtered_user_ids = filtered_user_ids.rename({"user_id": "source"})
         user_ip = user_ip.join(filtered_user_ids, on="source", how="inner")
     
     user_ip = user_ip.rename({"source": "user_id", "target": "ip"})
@@ -191,6 +198,9 @@ def _component_sizes(listing_ids: List[int],
     def union_from_edges(edges: Optional[pl.DataFrame]) -> None:
         if edges is None:
             return
+        # Normalize column name: handle both 'source' and 'listing_id' as the listing column
+        if "source" in edges.columns and "listing_id" not in edges.columns:
+            edges = edges.rename({"source": "listing_id"})
         grouped = _groupby(edges, "target").agg(pl.col("listing_id"))
         for target_listings in grouped["listing_id"]:
             valid = [index_map[listing] for listing in target_listings if listing in index_map]
@@ -228,7 +238,11 @@ def _pagerank_feature(listing_ids: List[int],
     def add_edges(edges: Optional[pl.DataFrame], prefix: str) -> None:
         if edges is None:
             return
-        for listing, target in edges.iter_rows():
+        # Normalize column name: handle both 'source' and 'listing_id' as the listing column
+        if "source" in edges.columns and "listing_id" not in edges.columns:
+            edges = edges.rename({"source": "listing_id"})
+        # Select columns explicitly to ensure correct order
+        for listing, target in edges.select(["listing_id", "target"]).iter_rows():
             if listing is None or target is None:
                 continue
             listing_node = f"L_{listing}"
@@ -247,20 +261,23 @@ def _pagerank_feature(listing_ids: List[int],
         node = f"L_{listing}"
         data.append((listing, pr.get(node, 0.0)))
 
-    return pl.DataFrame(data, schema=["insertion_id", "listing_pagerank"])
+    return pl.DataFrame(data, schema=["insertion_id", "listing_pagerank"], orient="row")
 
 
 def generate_graph_features(
-    output_path: Path = OUTPUT_PATH,
+    output_path: Optional[Path] = OUTPUT_PATH,
     cutoff_date: Optional[datetime] = None
-) -> None:
+) -> Optional[pl.DataFrame]:
     """
     Generate graph features for listings.
     
     Args:
-        output_path: Path to save features
+        output_path: Path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use edges from listings before this date.
                      This prevents temporal leakage. If None, uses all edges.
+    
+    Returns:
+        DataFrame with graph features, or None if output_path is provided (for backward compatibility)
     """
     listings_df = _load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
@@ -314,7 +331,7 @@ def generate_graph_features(
 
     if len(feature_frames) == 1:
         print("[graph-features] No graph features were generated.")
-        return
+        return None
 
     features = feature_frames[0]
     for frame in feature_frames[1:]:
@@ -326,9 +343,13 @@ def generate_graph_features(
             pl.col(col).fill_null(0) for col in numerical_cols
         ])
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    features.write_parquet(output_path)
-    print(f"[graph-features] Saved listing graph features to {output_path}")
+    # Save to disk if output_path is provided
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        features.write_parquet(output_path)
+        print(f"[graph-features] Saved listing graph features to {output_path}")
+    
+    return features
 
 
 if __name__ == "__main__":

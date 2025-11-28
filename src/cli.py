@@ -7,13 +7,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.data import etl, graph_builder
-from src.features import graph_features as graph_features_module
 from src.models import train_baseline as baseline_module
 from src.utils import evaluate_seon as seon_module
-from src.features import advanced_graph_features as advanced_features_module
-from src.features import time_weighted_features as time_weighted_module
-from src.features import interaction_features as interaction_module
-from src.features import text_features as text_features_module
 
 app = typer.Typer(help="Fraud Detection Pipeline CLI")
 console = Console()
@@ -80,77 +75,6 @@ def train_hybrid_hgt():
     console.print("[bold green]Training HGT Hybrid Model (with RTE)...[/bold green]")
     from src.models import train_hybrid_hgt
     train_hybrid_hgt.main()
-
-
-@app.command()
-def graph_features():
-    """
-    Generate manual graph statistics for listings.
-    """
-    console.print("[bold green]Generating Graph Features...[/bold green]")
-    graph_features_module.generate_graph_features()
-
-@app.command()
-def advanced_graph_features():
-    """
-    Generate advanced graph statistics (isolation, clustering, etc.).
-    """
-    console.print("[bold green]Generating Advanced Graph Features...[/bold green]")
-    advanced_features_module.generate_advanced_features()
-
-
-@app.command()
-def time_weighted_features():
-    """
-    Generate time-weighted graph features (Experiment 9).
-    
-    Features include:
-    - Recency-weighted connection counts (recent connections weighted higher)
-    - Velocity metrics (connections per day)
-    - Acceleration (velocity change)
-    - Burst detection (sudden activity spikes)
-    - Dormant reactivation patterns
-    """
-    console.print("[bold green]Generating Time-Weighted Graph Features...[/bold green]")
-    time_weighted_module.generate_time_weighted_features()
-
-
-@app.command()
-def interaction_features():
-    """
-    Generate interaction features (Experiment 10).
-    
-    Features include:
-    - new_account_high_reuse: New account + high email/phone reuse (13.4x lift)
-    - new_account_invoice_payment: New account without direct payment (28% FR)
-    - new_account_small_listing: New account with small property
-    - suspicious_combo_score: Weighted combination of risk indicators
-    """
-    console.print("[bold green]Generating Interaction Features...[/bold green]")
-    interaction_module.generate_interaction_features()
-
-@app.command()
-def text_features():
-    """
-    Generate simple text features for XGBoost.
-    
-    Features include:
-    - description_length: Character count
-    - description_word_count: Word count
-    - description_has_url: Binary indicator for URLs
-    - description_has_email: Binary indicator for email addresses
-    - description_has_phone: Binary indicator for phone numbers
-    - description_caps_ratio: Ratio of uppercase characters
-    - description_exclamation_count: Count of exclamation marks
-    - description_question_count: Count of question marks
-    - description_all_caps_words: Count of all-caps words
-    - description_avg_word_length: Average word length
-    
-    These are lightweight alternatives to embeddings, optimized for tree-based models.
-    """
-    console.print("[bold green]Generating Text Features...[/bold green]")
-    text_features_module.generate_text_features()
-
 
 
 @app.command()

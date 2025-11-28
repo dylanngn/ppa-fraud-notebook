@@ -19,7 +19,7 @@ def filter_edges_by_time(
     historical data available at the time of prediction.
     
     Args:
-        edges: DataFrame with 'source' and 'target' columns
+        edges: DataFrame with 'source'/'listing_id' and 'target' columns
         listings_df: DataFrame with 'insertion_id' and 'submission_at' columns
         cutoff_date: Only include listings with submission_at < cutoff_date
         edge_type: Type of edge:
@@ -32,6 +32,11 @@ def filter_edges_by_time(
     """
     if edges.is_empty():
         return edges
+    
+    # Normalize column names: handle both 'source' and 'listing_id' as the listing column
+    # _safe_edges renames 'source' to 'listing_id', so we need to handle both
+    if "listing_id" in edges.columns and "source" not in edges.columns:
+        edges = edges.rename({"listing_id": "source"})
     
     # Get listing timestamps
     listing_times = listings_df.select(["insertion_id", "submission_at"])

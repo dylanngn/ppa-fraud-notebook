@@ -23,7 +23,6 @@ from typing import Optional
 from datetime import datetime
 
 import polars as pl
-import numpy as np
 
 ARTIFACTS_DIR = Path("artifacts")
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
@@ -41,11 +40,11 @@ def _ensure_artifact(path: Path) -> bool:
 
 
 def generate_interaction_features(
-    output_path: Path = OUTPUT_PATH,
+    output_path: Optional[Path] = OUTPUT_PATH,
     cutoff_date: Optional[datetime] = None,
     graph_features_df: Optional[pl.DataFrame] = None,
     advanced_features_df: Optional[pl.DataFrame] = None
-) -> None:
+) -> Optional[pl.DataFrame]:
     """
     Generate interaction features based on discovered fraud patterns.
     
@@ -53,7 +52,7 @@ def generate_interaction_features(
     than individual features alone.
     
     Args:
-        output_path: Path to save features
+        output_path: Path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use graph features computed with data before this date.
                      This prevents temporal leakage. If None, uses all data.
         graph_features_df: Optional pre-computed graph features DataFrame.
@@ -62,6 +61,9 @@ def generate_interaction_features(
         advanced_features_df: Optional pre-computed advanced features DataFrame.
                              If provided, uses this instead of loading from parquet.
                              Must have 'insertion_id' column.
+    
+    Returns:
+        DataFrame with interaction features, or None if output_path is provided (for backward compatibility)
     
     Note: If graph_features_df and advanced_features_df are provided, they should
     be computed with the same cutoff_date to ensure temporal consistency.
@@ -316,13 +318,16 @@ def generate_interaction_features(
         if col != "insertion_id":
             result = result.with_columns(pl.col(col).fill_null(0))
     
-    # Save
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.write_parquet(output_path)
+    # Save to disk if output_path is provided
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result.write_parquet(output_path)
+        print(f"[interaction-features] Saved to {output_path}")
     
     feature_count = len(existing_cols) - 1  # Exclude insertion_id
     print(f"[interaction-features] Generated {feature_count} interaction features")
-    print(f"[interaction-features] Saved to {output_path}")
+    
+    return result
     
     # Print feature summary
     print("\n[interaction-features] Feature Summary:")

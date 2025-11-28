@@ -1,4 +1,4 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid graph-features advanced-features time-weighted-features interaction-features all-features check-timestamps check-graph check-density data-quality-report debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
+.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid check-timestamps check-graph check-density data-quality-report debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
 
 install:
 	pip install -r requirements.txt
@@ -14,9 +14,6 @@ etl:
 
 build-graph:
 	python src/cli.py build-graph
-
-graph-features:
-	python src/cli.py graph-features
 
 train-baseline:
 	python src/cli.py train-baseline
@@ -39,30 +36,8 @@ data-quality-report:
 	@echo "Generating data quality report..."
 	python src/cli.py data-quality-report
 
-# Run complete pipeline: ETL → Build Graph → All Features → All Training Scripts
-# Note: Training scripts run sequentially to avoid MLflow conflicts and GPU/memory contention
-all: etl build-graph all-features train-baseline train-sage train-hgt
-
-# --- Advanced Features ---
-
-advanced-features:
-	@echo "Generating advanced graph features..."
-	python src/cli.py advanced-graph-features
-
-time-weighted-features:
-	@echo "Generating time-weighted graph features (Experiment 9)..."
-	python src/cli.py time-weighted-features
-
-interaction-features:
-	@echo "Generating interaction features (Experiment 10)..."
-	python src/cli.py interaction-features
-
-text-features:
-	@echo "Generating text features for XGBoost..."
-	python src/cli.py text-features
-
-# Generate all feature types
-all-features: graph-features advanced-features time-weighted-features interaction-features text-features
+# Run complete pipeline: ETL → Build Graph → All Training Scripts
+all: etl build-graph train-baseline train-sage train-hgt
 
 # --- Seon Evaluation ---
 
@@ -85,14 +60,6 @@ mlflow-deployment-recommendation:
 mlflow-drift-summary:
 	@echo "Analyze model drift from Model Registry..."
 	python src/cli.py mlflow-drift-summary
-
-# --- MLflow ---
-# Note: All training commands (train-baseline, train-sage, train-hgt) 
-# automatically use MLflow tracking and register models to the Model Registry.
-
-mlflow-ui:
-	@echo "Starting MLflow UI at http://localhost:5000..."
-	python src/cli.py mlflow-ui
 
 mlflow-compare:
 	@echo "Comparing MLflow runs..."

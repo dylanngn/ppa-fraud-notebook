@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import mlflow
+from mlflow.models import infer_signature
 from torch_geometric.nn import SAGEConv, Linear, to_hetero
 
 from src.models.train_baseline import train_accumulating_window
@@ -121,6 +122,7 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     """
     print("Training SAGE Embeddings...")
     
+    mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
     mlflow.set_experiment("ppa-fraud-detection")
     mlflow.pytorch.autolog()
     
@@ -265,10 +267,63 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         # Register GNN model to Model Registry
         try:
             print("\nRegistering SAGE GNN model to Model Registry...")
+            
+            # Create input example and signature for better model documentation
+            # Use a small sample from the training data
+            model.eval()
+            with torch.no_grad():
+                # Create sample input (using first few nodes)
+                sample_x_dict = {k: v[:5] if v.numel() > 0 else v for k, v in train_data.x_dict.items()}
+                sample_edge_index_dict = {}
+                for edge_type, edge_index in train_data.edge_index_dict.items():
+                    if edge_index.numel() > 0:
+                        # Take first few edges
+                        sample_edge_index_dict[edge_type] = edge_index[:, :min(10, edge_index.size(1))]
+                    else:
+                        sample_edge_index_dict[edge_type] = edge_index
+                
+                # Get sample output
+                sample_output = model(sample_x_dict, sample_edge_index_dict)
+                if isinstance(sample_output, dict):
+                    sample_output = sample_output['listing']
+                
+                # Infer signature from sample input/output
+                # Convert to numpy for signature inference
+                input_example = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v 
+                                for k, v in sample_x_dict.items()}
+                output_example = sample_output.cpu().numpy() if isinstance(sample_output, torch.Tensor) else sample_output
+                
+                try:
+                    signature = infer_signature(input_example, output_example)
+                except Exception as sig_error:
+                    print(f"Warning: Could not infer signature: {sig_error}")
+                    signature = None
+                    input_example = None
+            
             model_uri = mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name="gnn_model",
-                registered_model_name="fraud-detection-gnn-sage"
+                registered_model_name="fraud-detection-gnn-sage",
+                signature=signature,
+                input_example=input_example,
+                metadata={
+                    "model_type": "GraphSAGE (SAGE)",
+                    "task": "fraud_detection",
+                    "framework": "pytorch",
+                    "graph_type": "heterogeneous",
+                    "hidden_channels": 64,
+                    "out_channels": 64,
+                    "num_layers": 2,
+                    "training_epochs": epochs,
+                },
+                params={
+                    "hidden_channels": 64,
+                    "out_channels": 64,
+                    "num_layers": 2,
+                    "learning_rate": 0.001,
+                    "epochs": epochs,
+                    "split_percent": split_percent,
+                }
             )
             print(f"✓ SAGE GNN model registered successfully: {model_uri}")
         except Exception as e:

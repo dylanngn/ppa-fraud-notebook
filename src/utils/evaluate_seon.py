@@ -18,7 +18,6 @@ to evaluate Seon on different time periods to match our model evaluation approac
 import json
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -475,6 +474,7 @@ def run_seon_evaluation(
     # Log to MLflow if requested
     if log_to_mlflow:
         print("\nLogging to MLflow...")
+        mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
         mlflow.set_experiment("ppa-fraud-detection")
         
         with mlflow.start_run(

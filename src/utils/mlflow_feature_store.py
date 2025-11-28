@@ -123,14 +123,23 @@ def log_feature_store_statistics(
         confidence_scores = []
         feature_availability = {}
         
+        # Ensure we have valid sample listing IDs
+        if not sample_listing_ids:
+            print("[feature-store] No sample listing IDs provided, skipping statistics")
+            return
+        
+        valid_samples = 0
         for listing_id in sample_listing_ids[:100]:  # Limit to 100 for performance
             try:
                 snapshot = feature_store.get_features(listing_id, as_of_time=as_of_time)
+                valid_samples += 1
                 
                 if snapshot.is_cold_start:
                     cold_start_count += 1
                 
-                confidence_scores.append(snapshot.confidence)
+                # Only append if confidence is not None
+                if snapshot.confidence is not None:
+                    confidence_scores.append(float(snapshot.confidence))
                 
                 # Track feature availability
                 for feat_name in snapshot.features.keys():
@@ -140,18 +149,18 @@ def log_feature_store_statistics(
                     if snapshot.features[feat_name] != 0.0:  # Non-zero indicates available
                         feature_availability[feat_name]["available"] += 1
                         
-            except (ValueError, KeyError):
+            except (ValueError, KeyError, TypeError):
                 continue
         
-        # Compute statistics
-        n_samples = len(sample_listing_ids[:100])
-        cold_start_rate = cold_start_count / n_samples if n_samples > 0 else 0.0
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+        # Compute statistics - ensure all values are valid numbers
+        n_samples = max(valid_samples, 1)  # Avoid division by zero
+        cold_start_rate = float(cold_start_count) / float(n_samples) if n_samples > 0 else 0.0
+        avg_confidence = float(sum(confidence_scores)) / float(len(confidence_scores)) if confidence_scores else 0.0
         
-        # Log statistics
+        # Log statistics - ensure all values are numeric
         mlflow.log_metrics({
-            "feature_store.cold_start_rate": cold_start_rate,
-            "feature_store.avg_confidence": avg_confidence,
+            "feature_store.cold_start_rate": float(cold_start_rate),
+            "feature_store.avg_confidence": float(avg_confidence),
             "feature_store.samples_analyzed": float(n_samples),
         })
         

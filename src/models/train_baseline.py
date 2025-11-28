@@ -92,7 +92,6 @@ INTERACTION_FEATURE_COLUMNS = [
     "suspicious_combo_score",
 ]
 
-TEXT_FEATURES_PATH = Path("artifacts/listing_text_features.parquet")
 TEXT_FEATURE_COLUMNS = [
     "description_length",
     "description_word_count",
@@ -105,6 +104,85 @@ TEXT_FEATURE_COLUMNS = [
     "description_all_caps_words",
     "description_avg_word_length",
 ]
+
+
+def compute_text_features(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Compute text features from listing descriptions.
+    
+    These are per-listing properties that don't need temporal filtering.
+    
+    Args:
+        df: DataFrame with listings, must have 'insertion_id' and 'description_text' columns
+        
+    Returns:
+        DataFrame with text features
+    """
+    if "description_text" not in df.columns:
+        # If description_text is not available, return empty features with zeros
+        print("[text-features] Warning: description_text not found. Using empty descriptions.")
+        text_features = df.select("insertion_id").with_columns([
+            pl.lit(0).alias(col) for col in TEXT_FEATURE_COLUMNS
+        ])
+        return text_features
+    
+    text_features = df.select([
+        "insertion_id",
+        pl.col("description_text").fill_null("")
+    ]).with_columns([
+        # Character count
+        pl.col("description_text").str.len_chars().alias("description_length"),
+        
+        # Word count (split by whitespace)
+        pl.col("description_text").str.split(" ").list.len().alias("description_word_count"),
+        
+        # URL detection (simple pattern: http:// or https://)
+        pl.col("description_text").str.contains(r"(?i)https?://").cast(pl.Int8).alias("description_has_url"),
+        
+        # Email detection (simple pattern: @)
+        pl.col("description_text").str.contains(r"@").cast(pl.Int8).alias("description_has_email"),
+        
+        # Phone detection (simple pattern: digits with separators)
+        pl.col("description_text").str.contains(r"\+?\d[\d\s\-\(\)]{7,}").cast(pl.Int8).alias("description_has_phone"),
+        
+        # Uppercase ratio
+        (
+            pl.col("description_text").str.count_matches(r"[A-Z]") / 
+            pl.max_horizontal([
+                pl.col("description_text").str.len_chars(),
+                pl.lit(1)  # Avoid division by zero
+            ])
+        ).alias("description_caps_ratio"),
+        
+        # Exclamation count
+        pl.col("description_text").str.count_matches(r"!").alias("description_exclamation_count"),
+        
+        # Question mark count
+        pl.col("description_text").str.count_matches(r"\?").alias("description_question_count"),
+        
+        # All caps words count (words that are entirely uppercase)
+        pl.col("description_text").str.count_matches(r"\b[A-Z]{2,}\b").alias("description_all_caps_words"),
+        
+        # Average word length
+        (
+            pl.col("description_text").str.len_chars() / 
+            pl.max_horizontal([
+                pl.col("description_text").str.split(" ").list.len(),
+                pl.lit(1)
+            ])
+        ).alias("description_avg_word_length"),
+    ]).select([
+        "insertion_id",
+        *TEXT_FEATURE_COLUMNS
+    ])
+    
+    # Fill any nulls with 0
+    numerical_cols = [col for col in text_features.columns if col != "insertion_id"]
+    text_features = text_features.with_columns([
+        pl.col(col).fill_null(0) for col in numerical_cols
+    ])
+    
+    return text_features
 
 
 def compute_graph_features_for_window(cutoff_date) -> pl.DataFrame:
@@ -124,129 +202,48 @@ def compute_graph_features_for_window(cutoff_date) -> pl.DataFrame:
         graph_features,
         advanced_graph_features,
         time_weighted_features,
-        interaction_features,
-        text_features
+        interaction_features
     )
-    from pathlib import Path
-    import tempfile
-    import os
     
-    # Use temporary files to avoid overwriting the main feature files
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        
-        # Compute each feature type with temporal filtering
-        df = None
-        
-        # Graph features
-        graph_path = tmp_path / "graph_features.parquet"
-        graph_features.generate_graph_features(
-            output_path=graph_path,
-            cutoff_date=cutoff_date
-        )
-        if graph_path.exists():
-            graph_df = pl.read_parquet(graph_path)
-            df = graph_df if df is None else df.join(graph_df, on="insertion_id", how="outer")
-        
-        # Advanced graph features
-        advanced_path = tmp_path / "advanced_features.parquet"
-        advanced_graph_features.generate_advanced_features(
-            output_path=advanced_path,
-            cutoff_date=cutoff_date
-        )
-        if advanced_path.exists():
-            advanced_df = pl.read_parquet(advanced_path)
-            df = advanced_df if df is None else df.join(advanced_df, on="insertion_id", how="outer")
-        
-        # Time-weighted features
-        time_weighted_path = tmp_path / "time_weighted_features.parquet"
-        time_weighted_features.generate_time_weighted_features(
-            output_path=time_weighted_path,
-            cutoff_date=cutoff_date
-        )
-        if time_weighted_path.exists():
-            time_df = pl.read_parquet(time_weighted_path)
-            df = time_df if df is None else df.join(time_df, on="insertion_id", how="outer")
-        
-        # Interaction features (depends on graph features)
-        # Pass the computed graph_features and advanced_features DataFrames directly
-        interaction_path = tmp_path / "interaction_features.parquet"
-        
-        # Extract graph_features and advanced_features from the combined df if they exist
-        graph_features_for_interaction = None
-        advanced_features_for_interaction = None
-        
-        if graph_path.exists():
-            graph_features_for_interaction = pl.read_parquet(graph_path)
-        
-        if advanced_path.exists():
-            advanced_features_for_interaction = pl.read_parquet(advanced_path)
-        
-        # Compute interaction features using the temporally-filtered graph features
-        interaction_features.generate_interaction_features(
-            output_path=interaction_path,
-            cutoff_date=cutoff_date,
-            graph_features_df=graph_features_for_interaction,
-            advanced_features_df=advanced_features_for_interaction
-        )
-        if interaction_path.exists():
-            interaction_df = pl.read_parquet(interaction_path)
-            df = interaction_df if df is None else df.join(interaction_df, on="insertion_id", how="outer")
-        
-        # Text features (no temporal filtering needed - they're per-listing)
-        if TEXT_FEATURES_PATH.exists():
-            text_df = pl.read_parquet(TEXT_FEATURES_PATH)
-            df = text_df if df is None else df.join(text_df, on="insertion_id", how="outer")
-        
-        if df is None:
-            raise ValueError("No graph features were computed")
-        
-        return df
-
-
-def load_graph_features() -> pl.DataFrame:
-    df = None
-    if GRAPH_FEATURES_PATH.exists():
-        print("Loading graph-derived features...")
-        df = pl.read_parquet(GRAPH_FEATURES_PATH)
+    # Start with all listing IDs as the base DataFrame
+    # This ensures we have a consistent base for all joins
+    df = graph_features._load_listing_ids()
     
-    if ADVANCED_GRAPH_FEATURES_PATH.exists():
-        print("Loading advanced graph features...")
-        advanced = pl.read_parquet(ADVANCED_GRAPH_FEATURES_PATH)
-        if df is not None:
-            df = df.join(advanced, on="insertion_id", how="left")
-        else:
-            df = advanced
+    # Graph features - compute in memory (no disk I/O)
+    graph_df = graph_features.generate_graph_features(
+        output_path=None,  # Don't save to disk
+        cutoff_date=cutoff_date
+    )
+    if graph_df is not None:
+        df = df.join(graph_df, on="insertion_id", how="left")
     
-    if TIME_WEIGHTED_FEATURES_PATH.exists():
-        print("Loading time-weighted graph features...")
-        time_weighted = pl.read_parquet(TIME_WEIGHTED_FEATURES_PATH)
-        if df is not None:
-            df = df.join(time_weighted, on="insertion_id", how="left")
-        else:
-            df = time_weighted
+    # Advanced graph features - compute in memory
+    advanced_df = advanced_graph_features.generate_advanced_features(
+        output_path=None,  # Don't save to disk
+        cutoff_date=cutoff_date
+    )
+    if advanced_df is not None:
+        df = df.join(advanced_df, on="insertion_id", how="left")
     
-    if INTERACTION_FEATURES_PATH.exists():
-        print("Loading interaction features...")
-        interactions = pl.read_parquet(INTERACTION_FEATURES_PATH)
-        if df is not None:
-            df = df.join(interactions, on="insertion_id", how="left")
-        else:
-            df = interactions
+    # Time-weighted features - compute in memory
+    time_df = time_weighted_features.generate_time_weighted_features(
+        output_path=None,  # Don't save to disk
+        cutoff_date=cutoff_date
+    )
+    if time_df is not None:
+        df = df.join(time_df, on="insertion_id", how="left")
     
-    if TEXT_FEATURES_PATH.exists():
-        print("Loading text features...")
-        text_features = pl.read_parquet(TEXT_FEATURES_PATH)
-        if df is not None:
-            df = df.join(text_features, on="insertion_id", how="left")
-        else:
-            df = text_features
-            
-    if df is None:
-        raise FileNotFoundError(
-            f"Graph features not found. "
-            "Run `make graph-features` and `python src/cli.py advanced-graph-features` to generate them."
-        )
+    # Interaction features (depends on graph features)
+    # Pass the computed graph_features and advanced_features DataFrames directly
+    interaction_df = interaction_features.generate_interaction_features(
+        output_path=None,  # Don't save to disk
+        cutoff_date=cutoff_date,
+        graph_features_df=graph_df,
+        advanced_features_df=advanced_df
+    )
+    if interaction_df is not None:
+        df = df.join(interaction_df, on="insertion_id", how="left")
+    
     return df
 
 
@@ -328,27 +325,26 @@ def _add_base_tabular_features(df):
     return df
 
 
-def feature_engineering(df, cutoff_date=None):
+def feature_engineering(df, cutoff_date):
     """
     Creates tabular features for XGBoost.
     
     Always includes graph features with temporal filtering to prevent data leakage.
+    Text features are computed on-the-fly from listing descriptions.
     
     Args:
         df: DataFrame with listings
-        cutoff_date: If provided, compute graph features with temporal filtering.
-                     If None, load pre-computed features (for backward compatibility).
+        cutoff_date: Compute graph features using only data before this date to prevent temporal leakage.
     """
     print("Engineering features...")
     
-    if cutoff_date is not None:
-        # Compute features per window with temporal filtering
-        print(f"Computing graph features with cutoff_date: {cutoff_date}")
-        graph_features = compute_graph_features_for_window(cutoff_date)
-    else:
-        # Load pre-computed features (backward compatibility)
-        print("Loading pre-computed graph features...")
-        graph_features = load_graph_features()
+    # Compute graph features per window with temporal filtering
+    print(f"Computing graph features with cutoff_date: {cutoff_date}")
+    graph_features = compute_graph_features_for_window(cutoff_date)
+    
+    # Compute text features on-the-fly (no temporal filtering needed)
+    print("Computing text features...")
+    text_features = compute_text_features(df)
     
     # Cast UInt32 columns to Int64 to avoid MLflow warnings
     graph_features = graph_features.select([
@@ -356,8 +352,12 @@ def feature_engineering(df, cutoff_date=None):
         for c in graph_features.columns
     ])
     
+    # Join all features
     df = df.join(graph_features, on="insertion_id", how="left")
-    all_graph_cols = (
+    df = df.join(text_features, on="insertion_id", how="left")
+    
+    # Fill nulls with 0 for all feature columns
+    all_feature_cols = (
         GRAPH_FEATURE_COLUMNS + 
         ADVANCED_GRAPH_FEATURE_COLUMNS + 
         TIME_WEIGHTED_FEATURE_COLUMNS + 
@@ -365,7 +365,7 @@ def feature_engineering(df, cutoff_date=None):
         TEXT_FEATURE_COLUMNS
     )
     df = df.with_columns([
-        pl.col(col).fill_null(0) for col in all_graph_cols if col in df.columns
+        pl.col(col).fill_null(0) for col in all_feature_cols if col in df.columns
     ])
     
     return df
@@ -482,6 +482,7 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
     # MLflow experiment setup
     # Initialize MLflow with database backend (idempotent - safe to call multiple times)
     # Force SQLite backend to avoid filesystem deprecation warnings
+    mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
     
     print(f"MLflow Tracking URI: {mlflow.get_tracking_uri()}")
     experiment_name = "ppa-fraud-detection"
@@ -534,8 +535,6 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                     sample_listing_ids=sample_listing_ids,
                     as_of_time=end_date  # Use end of data range as reference
                 )
-            except Exception as e:
-                print(f"Warning: Feature store metadata logging failed: {e}")
             except Exception as e:
                 print(f"Warning: Feature store metadata logging failed: {e}")
         
@@ -669,7 +668,25 @@ def train_accumulating_window(df, initial_window_days=180, step_days=7, extra_fe
                     xgb_model=model,
                     name="model",
                     signature=signature,
-                    input_example=input_example
+                    input_example=input_example,
+                    metadata={
+                        "model_type": "XGBoost Classifier",
+                        "task": "fraud_detection",
+                        "window_index": window_idx,
+                        "training_mode": "accumulating_window",
+                        "feature_count": len(features),
+                        "train_size": len(train_data),
+                        "test_size": len(test_data),
+                    },
+                    params={
+                        "objective": "binary:logistic",
+                        "eval_metric": "aucpr",
+                        "n_estimators": 100,
+                        "max_depth": 6,
+                        "learning_rate": 0.1,
+                        "scale_pos_weight": float(scale_pos_weight),
+                        "random_state": 42,
+                    }
                 )
                 
                 # Predict

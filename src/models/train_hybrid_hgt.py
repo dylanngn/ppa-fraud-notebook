@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import mlflow
+from mlflow.models import infer_signature
 from torch_geometric.nn import HGTConv, Linear
 
 from src.models.train_baseline import train_accumulating_window
@@ -181,6 +182,7 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
     """
     print("Training HGT Embeddings (with RTE)...")
     
+    mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
     mlflow.set_experiment("ppa-fraud-detection")
     mlflow.pytorch.autolog()
     
@@ -354,10 +356,73 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
         # Register GNN model to Model Registry
         try:
             print("\nRegistering HGT GNN model to Model Registry...")
+            
+            # Create input example and signature for better model documentation
+            # Use a small sample from the training data
+            model.eval()
+            with torch.no_grad():
+                # Create sample input (using first few nodes)
+                sample_x_dict = {k: v[:5] if v.numel() > 0 else v for k, v in train_data.x_dict.items()}
+                sample_edge_index_dict = {}
+                sample_edge_times = {}
+                for edge_type, edge_index in train_data.edge_index_dict.items():
+                    if edge_index.numel() > 0:
+                        # Take first few edges
+                        sample_edge_index_dict[edge_type] = edge_index[:, :min(10, edge_index.size(1))]
+                        if edge_type in train_edge_times_device and train_edge_times_device[edge_type] is not None:
+                            sample_edge_times[edge_type] = train_edge_times_device[edge_type][:min(10, train_edge_times_device[edge_type].size(0))]
+                        else:
+                            sample_edge_times[edge_type] = None
+                    else:
+                        sample_edge_index_dict[edge_type] = edge_index
+                        sample_edge_times[edge_type] = None
+                
+                # Get sample output
+                sample_output = model(sample_x_dict, sample_edge_index_dict, sample_edge_times)
+                if isinstance(sample_output, dict):
+                    sample_output = sample_output['listing']
+                
+                # Infer signature from sample input/output
+                # Convert to numpy for signature inference
+                input_example = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v 
+                                for k, v in sample_x_dict.items()}
+                output_example = sample_output.cpu().numpy() if isinstance(sample_output, torch.Tensor) else sample_output
+                
+                try:
+                    signature = infer_signature(input_example, output_example)
+                except Exception as sig_error:
+                    print(f"Warning: Could not infer signature: {sig_error}")
+                    signature = None
+                    input_example = None
+            
             model_uri = mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name="gnn_model",
-                registered_model_name="fraud-detection-gnn-hgt"
+                registered_model_name="fraud-detection-gnn-hgt",
+                signature=signature,
+                input_example=input_example,
+                metadata={
+                    "model_type": "HGT (Heterogeneous Graph Transformer)",
+                    "task": "fraud_detection",
+                    "framework": "pytorch",
+                    "graph_type": "heterogeneous",
+                    "temporal_encoding": "RTE (Relative Temporal Encoding)",
+                    "hidden_channels": 64,
+                    "out_channels": 64,
+                    "num_layers": 2,
+                    "num_heads": 4,
+                    "training_epochs": epochs,
+                },
+                params={
+                    "hidden_channels": 64,
+                    "out_channels": 64,
+                    "num_layers": 2,
+                    "num_heads": 4,
+                    "learning_rate": 0.001,
+                    "epochs": epochs,
+                    "split_percent": split_percent,
+                    "rte_enabled": True,
+                }
             )
             print(f"✓ HGT GNN model registered successfully: {model_uri}")
         except Exception as e:
