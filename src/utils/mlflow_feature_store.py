@@ -52,6 +52,7 @@ def log_feature_store_metadata(
                 "advanced_features": len(feature_categories.get("advanced", [])),
                 "time_weighted_features": len(feature_categories.get("time_weighted", [])),
                 "interaction_features": len(feature_categories.get("interaction", [])),
+                "text_features": len(feature_categories.get("text", [])),
             },
             artifact_file="feature_store/metadata.json"
         )
@@ -221,45 +222,39 @@ def _categorize_features(
     feature_names: List[str],
     feature_store: FeatureStore
 ) -> Dict[str, List[str]]:
-    """Categorize features into base, graph, advanced, etc."""
+    """
+    Categorize features into base, graph, advanced, etc.
+    
+    Uses constants from src.models.constants for accurate categorization.
+    """
+    from src.models.constants import (
+        BASE_FEATURES,
+        GRAPH_FEATURE_COLUMNS,
+        ADVANCED_GRAPH_FEATURE_COLUMNS,
+        TIME_WEIGHTED_FEATURE_COLUMNS,
+        INTERACTION_FEATURE_COLUMNS,
+        TEXT_FEATURE_COLUMNS,
+    )
+    
     categories = {
         "base": [],
         "graph": [],
         "advanced": [],
         "time_weighted": [],
         "interaction": [],
+        "text": [],
         "other": []
     }
     
-    # Base features
-    base_features = feature_store.get_feature_names()
-    base_set = set(base_features[:14])  # First 14 are base tabular features
+    # Create sets for efficient lookup
+    base_set = set(BASE_FEATURES)
+    graph_set = set(GRAPH_FEATURE_COLUMNS)
+    advanced_set = set(ADVANCED_GRAPH_FEATURE_COLUMNS)
+    time_weighted_set = set(TIME_WEIGHTED_FEATURE_COLUMNS)
+    interaction_set = set(INTERACTION_FEATURE_COLUMNS)
+    text_set = set(TEXT_FEATURE_COLUMNS)
     
-    # Graph features
-    graph_features = [
-        "contact_email_count", "shared_contact_email_count", "max_shared_contact_email",
-        "contact_phone_count", "shared_contact_phone_count", "max_shared_contact_phone",
-        "user_listing_count", "user_unique_ip_count", "shared_ip_user_count",
-        "max_shared_ip_users", "listing_component_size", "listing_pagerank"
-    ]
-    graph_set = set(graph_features)
-    
-    # Advanced features
-    advanced_features = [
-        "degree_total", "is_isolated", "unique_identifier_count",
-        "neighbor_overlap_score", "avg_neighbor_degree"
-    ]
-    advanced_set = set(advanced_features)
-    
-    # Time-weighted features (common patterns)
-    time_weighted_patterns = ["_7d", "_30d", "_velocity", "_acceleration", "_burst", "_recency", "_historical"]
-    time_weighted_set = {f for f in feature_names if any(pattern in f for pattern in time_weighted_patterns)}
-    
-    # Interaction features (common patterns)
-    interaction_patterns = ["_reuse", "_combo", "_risk_score", "new_account_", "in_large_component"]
-    interaction_set = {f for f in feature_names if any(pattern in f for pattern in interaction_patterns)}
-    
-    # Categorize
+    # Categorize features
     for feat in feature_names:
         if feat in base_set:
             categories["base"].append(feat)
@@ -271,6 +266,8 @@ def _categorize_features(
             categories["time_weighted"].append(feat)
         elif feat in interaction_set:
             categories["interaction"].append(feat)
+        elif feat in text_set:
+            categories["text"].append(feat)
         else:
             categories["other"].append(feat)
     
@@ -308,17 +305,34 @@ def _get_feature_file_metadata(artifacts_dir: Path) -> Dict[str, Any]:
 
 
 def _infer_category(feature_name: str) -> str:
-    """Infer feature category from name."""
-    if any(x in feature_name for x in ["email", "phone", "ip", "component", "pagerank"]):
+    """
+    Infer feature category from name.
+    
+    Uses constants for accurate categorization.
+    """
+    from src.models.constants import (
+        BASE_FEATURES,
+        GRAPH_FEATURE_COLUMNS,
+        ADVANCED_GRAPH_FEATURE_COLUMNS,
+        TIME_WEIGHTED_FEATURE_COLUMNS,
+        INTERACTION_FEATURE_COLUMNS,
+        TEXT_FEATURE_COLUMNS,
+    )
+    
+    if feature_name in BASE_FEATURES:
+        return "base"
+    elif feature_name in GRAPH_FEATURE_COLUMNS:
         return "graph"
-    elif any(x in feature_name for x in ["_7d", "_30d", "velocity", "acceleration", "burst"]):
-        return "time_weighted"
-    elif any(x in feature_name for x in ["reuse", "combo", "risk_score", "interaction"]):
-        return "interaction"
-    elif feature_name in ["degree_total", "is_isolated", "unique_identifier_count", "neighbor_overlap_score", "avg_neighbor_degree"]:
+    elif feature_name in ADVANCED_GRAPH_FEATURE_COLUMNS:
         return "advanced"
+    elif feature_name in TIME_WEIGHTED_FEATURE_COLUMNS:
+        return "time_weighted"
+    elif feature_name in INTERACTION_FEATURE_COLUMNS:
+        return "interaction"
+    elif feature_name in TEXT_FEATURE_COLUMNS:
+        return "text"
     else:
-        return "tabular"
+        return "unknown"
 
 
 def get_feature_store_from_mlflow_run(run_id: str) -> Optional[Dict[str, Any]]:

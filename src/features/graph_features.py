@@ -4,11 +4,16 @@ from datetime import datetime
 
 import polars as pl
 
-from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
+from src.features.utils import (
+    _groupby,
+    ensure_artifact,
+    load_listing_ids,
+    safe_load_edges,
+    filter_edges_by_time,
+    load_listings_with_timestamps,
+    ARTIFACTS_DIR,
+)
 
-
-ARTIFACTS_DIR = Path("artifacts")
-LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
 EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parquet"
 EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
 EDGE_USER_POSTS_LISTING = ARTIFACTS_DIR / "edges_user_posts_listing.parquet"
@@ -16,44 +21,9 @@ EDGE_USER_IP = ARTIFACTS_DIR / "edges_user_uses_ip.parquet"
 OUTPUT_PATH = ARTIFACTS_DIR / "listing_graph_features.parquet"
 
 
-def _groupby(df: pl.DataFrame, *args, **kwargs):
-    method = getattr(df, "groupby", None)
-    if method is None:
-        method = getattr(df, "group_by", None)
-    if method is None:
-        raise AttributeError("DataFrame has no groupby/group_by method. Please update Polars.")
-    return method(*args, **kwargs)
-
-
 def _clip_zero(expr: pl.Expr) -> pl.Expr:
     """Clamp expression to zero without relying on version-specific APIs."""
     return pl.when(expr > 0).then(expr).otherwise(pl.lit(0))
-
-
-def _ensure_artifact(path: Path) -> bool:
-    if not path.exists():
-        print(f"[graph-features] Skipping missing artifact: {path}")
-        return False
-    return True
-
-
-def _load_listing_ids() -> pl.DataFrame:
-    if not _ensure_artifact(LISTING_NODES):
-        raise FileNotFoundError(f"Listing nodes file missing: {LISTING_NODES}")
-    df = pl.read_parquet(LISTING_NODES).select("insertion_id")
-    return df
-
-
-def _safe_edges(path: Path) -> Optional[pl.DataFrame]:
-    if not _ensure_artifact(path):
-        return None
-    df = pl.read_parquet(path)
-    if "source" not in df.columns or "target" not in df.columns:
-        return None
-    df = df.drop_nulls(["source", "target"])
-    if df.is_empty():
-        return None
-    return df.select([pl.col("source").alias("listing_id"), pl.col("target")])
 
 
 def _contact_edge_features(edges: Optional[pl.DataFrame], prefix: str) -> Optional[pl.DataFrame]:
@@ -61,7 +31,6 @@ def _contact_edge_features(edges: Optional[pl.DataFrame], prefix: str) -> Option
         return None
 
     # Normalize column name: handle both 'source' and 'listing_id' as the listing column
-    # filter_edges_by_time returns 'source', but _safe_edges returns 'listing_id'
     if "source" in edges.columns and "listing_id" not in edges.columns:
         edges = edges.rename({"source": "listing_id"})
 
@@ -89,7 +58,7 @@ def _contact_edge_features(edges: Optional[pl.DataFrame], prefix: str) -> Option
 
 
 def _user_features(cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
-    if not (_ensure_artifact(EDGE_USER_POSTS_LISTING) and _ensure_artifact(EDGE_USER_IP)):
+    if not (ensure_artifact(EDGE_USER_POSTS_LISTING) and ensure_artifact(EDGE_USER_IP)):
         return None
 
     posts = pl.read_parquet(EDGE_USER_POSTS_LISTING).drop_nulls(["source", "target"])
@@ -120,12 +89,7 @@ def _user_features(cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFr
     
     # Apply temporal filtering to user_ip edges if cutoff_date is provided
     if cutoff_date is not None:
-        # For user_ip edges, we need to filter by the listing's submission_at
-        # But user_ip edges don't directly have listing_id. We need to join through posts.
-        # Actually, user_ip edges connect user -> ip, and we get listing through user.
-        # So we filter posts first (done above), then filter user_ip by users in filtered posts.
         filtered_user_ids = posts.select("user_id").unique()
-        # Rename user_id to source for the join, since user_ip still has source column
         filtered_user_ids = filtered_user_ids.rename({"user_id": "source"})
         user_ip = user_ip.join(filtered_user_ids, on="source", how="inner")
     
@@ -227,8 +191,7 @@ def _pagerank_feature(listing_ids: List[int],
     try:
         import networkx as nx
     except ImportError:
-        print("[graph-features] networkx not installed; skipping PageRank feature.")
-        return None
+        raise ImportError("networkx is required for PageRank feature. Install with: pip install networkx")
 
     if email_edges is None and phone_edges is None:
         return None
@@ -265,26 +228,30 @@ def _pagerank_feature(listing_ids: List[int],
 
 
 def generate_graph_features(
-    output_path: Optional[Path] = OUTPUT_PATH,
+    output_path: Optional[Path] = None,
     cutoff_date: Optional[datetime] = None
-) -> Optional[pl.DataFrame]:
+) -> pl.DataFrame:
     """
     Generate graph features for listings.
     
     Args:
-        output_path: Path to save features. If None, returns DataFrame without saving.
+        output_path: Optional path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use edges from listings before this date.
                      This prevents temporal leakage. If None, uses all edges.
     
     Returns:
-        DataFrame with graph features, or None if output_path is provided (for backward compatibility)
+        DataFrame with graph features
+        
+    Raises:
+        FileNotFoundError: If required artifact files are missing
+        ValueError: If no features can be generated
     """
-    listings_df = _load_listing_ids()
+    listings_df = load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
 
     # Load edges
-    contact_email_edges = _safe_edges(EDGE_LISTING_CONTACT_EMAIL)
-    contact_phone_edges = _safe_edges(EDGE_LISTING_CONTACT_PHONE)
+    contact_email_edges = safe_load_edges(EDGE_LISTING_CONTACT_EMAIL)
+    contact_phone_edges = safe_load_edges(EDGE_LISTING_CONTACT_PHONE)
     
     # Apply temporal filtering if cutoff_date is provided
     if cutoff_date is not None:
@@ -330,8 +297,7 @@ def generate_graph_features(
         feature_frames.append(pagerank_feature)
 
     if len(feature_frames) == 1:
-        print("[graph-features] No graph features were generated.")
-        return None
+        raise ValueError("No graph features were generated. Check that edge files exist and contain data.")
 
     features = feature_frames[0]
     for frame in feature_frames[1:]:

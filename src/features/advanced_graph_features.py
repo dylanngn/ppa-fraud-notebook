@@ -4,48 +4,19 @@ from datetime import datetime
 
 import polars as pl
 
-from src.features.utils import filter_edges_by_time, load_listings_with_timestamps
+from src.features.utils import (
+    _groupby,
+    ensure_artifact,
+    load_listing_ids,
+    safe_load_edges,
+    filter_edges_by_time,
+    load_listings_with_timestamps,
+    ARTIFACTS_DIR,
+)
 
-ARTIFACTS_DIR = Path("artifacts")
-LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
 EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parquet"
 EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
 OUTPUT_PATH = ARTIFACTS_DIR / "listing_advanced_features.parquet"
-
-
-def _groupby(df: pl.DataFrame, *args, **kwargs):
-    method = getattr(df, "groupby", None)
-    if method is None:
-        method = getattr(df, "group_by", None)
-    if method is None:
-        raise AttributeError("DataFrame has no groupby/group_by method. Please update Polars.")
-    return method(*args, **kwargs)
-
-
-def _ensure_artifact(path: Path) -> bool:
-    if not path.exists():
-        print(f"[advanced-features] Skipping missing artifact: {path}")
-        return False
-    return True
-
-
-def _load_listing_ids() -> pl.DataFrame:
-    if not _ensure_artifact(LISTING_NODES):
-        raise FileNotFoundError(f"Listing nodes file missing: {LISTING_NODES}")
-    df = pl.read_parquet(LISTING_NODES).select("insertion_id")
-    return df
-
-
-def _safe_edges(path: Path) -> Optional[pl.DataFrame]:
-    if not _ensure_artifact(path):
-        return None
-    df = pl.read_parquet(path)
-    if "source" not in df.columns or "target" not in df.columns:
-        return None
-    df = df.drop_nulls(["source", "target"])
-    if df.is_empty():
-        return None
-    return df.select([pl.col("source").alias("listing_id"), pl.col("target")])
 
 
 def _calculate_isolation_scores(listing_ids: List[int], 
@@ -154,26 +125,30 @@ def _calculate_clustering_coefficient(listing_ids: List[int],
 
 
 def generate_advanced_features(
-    output_path: Optional[Path] = OUTPUT_PATH,
+    output_path: Optional[Path] = None,
     cutoff_date: Optional[datetime] = None
-) -> Optional[pl.DataFrame]:
+) -> pl.DataFrame:
     """
     Generate advanced graph features.
     
     Args:
-        output_path: Path to save features. If None, returns DataFrame without saving.
+        output_path: Optional path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use edges from listings before this date.
                      This prevents temporal leakage. If None, uses all edges.
     
     Returns:
-        DataFrame with advanced features, or None if output_path is provided (for backward compatibility)
+        DataFrame with advanced features
+        
+    Raises:
+        FileNotFoundError: If required artifact files are missing
+        ValueError: If no features can be generated
     """
     print("[advanced-features] Loading data...")
-    listings_df = _load_listing_ids()
+    listings_df = load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
 
-    contact_email_edges = _safe_edges(EDGE_LISTING_CONTACT_EMAIL)
-    contact_phone_edges = _safe_edges(EDGE_LISTING_CONTACT_PHONE)
+    contact_email_edges = safe_load_edges(EDGE_LISTING_CONTACT_EMAIL)
+    contact_phone_edges = safe_load_edges(EDGE_LISTING_CONTACT_PHONE)
     
     # Apply temporal filtering if cutoff_date is provided
     if cutoff_date is not None:
@@ -211,8 +186,7 @@ def generate_advanced_features(
         feature_frames.append(clustering)
 
     if len(feature_frames) == 1:
-        print("[advanced-features] No advanced features were generated.")
-        return None
+        raise ValueError("No advanced features were generated. Check that edge files exist and contain data.")
 
     print("[advanced-features] Joining features...")
     features = feature_frames[0]

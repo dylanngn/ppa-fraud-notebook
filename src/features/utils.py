@@ -1,9 +1,101 @@
 """
-Utility functions for temporal filtering of graph edges.
+Utility functions for feature engineering and temporal filtering.
 """
-
+from pathlib import Path
 from datetime import datetime
+from typing import Optional
 import polars as pl
+
+ARTIFACTS_DIR = Path("artifacts")
+LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
+
+
+def _groupby(df: pl.DataFrame, *args, **kwargs):
+    """
+    Polars version compatibility shim for groupby/group_by.
+    
+    Args:
+        df: Polars DataFrame
+        *args, **kwargs: Arguments passed to groupby/group_by
+        
+    Returns:
+        Grouped DataFrame
+    """
+    method = getattr(df, "groupby", None)
+    if method is None:
+        method = getattr(df, "group_by", None)
+    if method is None:
+        raise AttributeError("DataFrame has no groupby/group_by method. Please update Polars.")
+    return method(*args, **kwargs)
+
+
+def ensure_artifact(path: Path) -> bool:
+    """
+    Check if an artifact file exists.
+    
+    Args:
+        path: Path to artifact file
+        
+    Returns:
+        True if file exists, False otherwise
+    """
+    if not path.exists():
+        return False
+    return True
+
+
+def load_listing_ids() -> pl.DataFrame:
+    """
+    Load all listing IDs from nodes_listing.parquet.
+    
+    Returns:
+        DataFrame with 'insertion_id' column
+        
+    Raises:
+        FileNotFoundError: If listing nodes file doesn't exist
+    """
+    if not ensure_artifact(LISTING_NODES):
+        raise FileNotFoundError(f"Listing nodes file missing: {LISTING_NODES}")
+    return pl.read_parquet(LISTING_NODES).select("insertion_id")
+
+
+def load_listings_with_timestamps() -> pl.DataFrame:
+    """
+    Load listings with their submission timestamps.
+    
+    Returns:
+        DataFrame with 'insertion_id' and 'submission_at' columns
+        
+    Raises:
+        FileNotFoundError: If listing nodes file doesn't exist
+    """
+    if not ensure_artifact(LISTING_NODES):
+        raise FileNotFoundError(f"Listing nodes not found: {LISTING_NODES}")
+    return pl.read_parquet(LISTING_NODES).select(["insertion_id", "submission_at"])
+
+
+def safe_load_edges(path: Path) -> Optional[pl.DataFrame]:
+    """
+    Safely load edge file with validation.
+    
+    Args:
+        path: Path to edge parquet file
+        
+    Returns:
+        DataFrame with 'listing_id' and 'target' columns, or None if file doesn't exist or is invalid
+    """
+    if not ensure_artifact(path):
+        return None
+    
+    df = pl.read_parquet(path)
+    if "source" not in df.columns or "target" not in df.columns:
+        return None
+    
+    df = df.drop_nulls(["source", "target"])
+    if df.is_empty():
+        return None
+    
+    return df.select([pl.col("source").alias("listing_id"), pl.col("target")])
 
 
 def filter_edges_by_time(
@@ -34,7 +126,6 @@ def filter_edges_by_time(
         return edges
     
     # Normalize column names: handle both 'source' and 'listing_id' as the listing column
-    # _safe_edges renames 'source' to 'listing_id', so we need to handle both
     if "listing_id" in edges.columns and "source" not in edges.columns:
         edges = edges.rename({"listing_id": "source"})
     
@@ -49,7 +140,6 @@ def filter_edges_by_time(
             right_on="insertion_id",
             how="left"
         )
-        # Filter by cutoff_date
         filtered = edges_with_time.filter(
             pl.col("submission_at") < cutoff_date
         ).select(["source", "target"])
@@ -62,7 +152,6 @@ def filter_edges_by_time(
             right_on="insertion_id",
             how="left"
         )
-        # Filter by cutoff_date
         filtered = edges_with_time.filter(
             pl.col("submission_at") < cutoff_date
         ).select(["source", "target"])
@@ -83,7 +172,6 @@ def filter_edges_by_time(
             how="left"
         ).rename({"submission_at": "target_time"})
         
-        # Filter: both source and target must be before cutoff_date
         filtered = edges_with_both_times.filter(
             (pl.col("source_time") < cutoff_date) &
             (pl.col("target_time") < cutoff_date)
@@ -92,21 +180,4 @@ def filter_edges_by_time(
         raise ValueError(f"Unknown edge_type: {edge_type}")
     
     return filtered
-
-
-def load_listings_with_timestamps() -> pl.DataFrame:
-    """
-    Load listings with their submission timestamps.
-    
-    Returns:
-        DataFrame with 'insertion_id' and 'submission_at' columns
-    """
-    from pathlib import Path
-    LISTING_NODES = Path("artifacts/nodes_listing.parquet")
-    
-    if not LISTING_NODES.exists():
-        raise FileNotFoundError(f"Listing nodes not found: {LISTING_NODES}")
-    
-    df = pl.read_parquet(LISTING_NODES).select(["insertion_id", "submission_at"])
-    return df
 

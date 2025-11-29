@@ -19,16 +19,10 @@ from pathlib import Path
 
 import polars as pl
 
-ARTIFACTS_DIR = Path("artifacts")
+from src.features.utils import ensure_artifact, ARTIFACTS_DIR
+
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
 OUTPUT_PATH = ARTIFACTS_DIR / "listing_text_features.parquet"
-
-
-def _ensure_artifact(path: Path) -> bool:
-    if not path.exists():
-        print(f"[text-features] Skipping missing artifact: {path}")
-        return False
-    return True
 
 
 def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
@@ -40,31 +34,14 @@ def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
     """
     print("[text-features] Loading listings...")
     
-    if not _ensure_artifact(LISTING_NODES):
+    if not ensure_artifact(LISTING_NODES):
         raise FileNotFoundError(f"Listing nodes missing: {LISTING_NODES}")
     
-    # Load listings - we need description_text which should be in the processed data
-    # But it might not be in nodes_listing.parquet. Let's check what we have.
-    # Actually, description_text is extracted in process_listings() but might not
-    # be saved to nodes_listing.parquet. We need to check the raw data or
-    # add description_text to nodes_listing.
-    
-    # For now, let's try to load from nodes_listing and see if description_text exists
-    # If not, we'll need to load from raw insertions or add it to ETL
-    
-    # Check if we have description_text in nodes_listing
+    # Load listings - description_text must be in nodes_listing.parquet
     df_listings = pl.read_parquet(LISTING_NODES)
     
-    # If description_text is not in nodes_listing, we need to get it from raw data
-    # For now, let's assume we'll add description_text to nodes_listing in ETL
-    # But as a fallback, we can compute features on empty strings
-    
     if "description_text" not in df_listings.columns:
-        print("[text-features] Warning: description_text not found in nodes_listing.parquet")
-        print("[text-features] Using empty descriptions. Consider adding description_text to ETL.")
-        df_listings = df_listings.with_columns(
-            pl.lit("").alias("description_text")
-        )
+        raise ValueError("description_text column not found in nodes_listing.parquet. Ensure ETL includes description_text extraction.")
     
     print(f"[text-features] Processing {len(df_listings):,} listings...")
     

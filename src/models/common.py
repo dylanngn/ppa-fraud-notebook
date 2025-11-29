@@ -1,0 +1,78 @@
+"""
+Common utilities shared across model training scripts.
+"""
+import torch
+import mlflow
+from torch_geometric.data import HeteroData
+
+
+def get_device():
+    """
+    Select the best available device for PyTorch operations.
+    Prioritizes MPS (Mac GPU) > CUDA > CPU.
+    
+    Returns:
+        torch.device: The selected device
+    """
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    elif torch.cuda.is_available():
+        return torch.device('cuda')
+    else:
+        return torch.device('cpu')
+
+
+def setup_mlflow(experiment_name: str = "ppa-fraud-detection"):
+    """
+    Initialize MLflow tracking with SQLite backend.
+    
+    Args:
+        experiment_name: Name of the MLflow experiment
+    """
+    mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
+    mlflow.set_experiment(experiment_name)
+
+
+def filter_graph_by_time(data, max_time_ns, return_edge_times=False):
+    """
+    Returns a subgraph containing only edges and nodes visible at max_time_ns.
+    
+    Args:
+        data: HeteroData graph object
+        max_time_ns: Maximum timestamp in nanoseconds
+        return_edge_times: If True, also return edge_time_dict for temporal encoding
+        
+    Returns:
+        Filtered HeteroData graph, and optionally edge_time_dict
+    """
+    new_data = HeteroData()
+    edge_time_dict = {}
+    
+    # Copy node features
+    for node_type, x in data.x_dict.items():
+        new_data[node_type].x = x
+        new_data[node_type].num_nodes = data[node_type].num_nodes
+    
+    # Copy listing labels & timestamps
+    new_data['listing'].y = data['listing'].y
+    new_data['listing'].timestamp = data['listing'].timestamp
+    
+    # Filter edges by timestamp
+    for edge_type, edge_index in data.edge_index_dict.items():
+        if 'timestamp' in data[edge_type]:
+            edge_times = data[edge_type].timestamp
+            mask = edge_times <= max_time_ns
+            new_data[edge_type].edge_index = edge_index[:, mask]
+            new_data[edge_type].timestamp = edge_times[mask]
+            if return_edge_times:
+                edge_time_dict[edge_type] = edge_times[mask]
+        else:
+            # Static edges (keep all)
+            new_data[edge_type].edge_index = edge_index
+            if return_edge_times:
+                edge_time_dict[edge_type] = None
+    
+    if return_edge_times:
+        return new_data, edge_time_dict
+    return new_data
+

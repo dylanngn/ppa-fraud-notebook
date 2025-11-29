@@ -154,12 +154,12 @@ class FeatureStore:
         # Bundle
         features["bundle_period"] = listing.get("bundle_period", 7)
         bundle_tier = listing.get("bundle_tier", "basic")
-        tier_map = {"basic": 0, "premium": 1, "top": 2}
-        features["bundle_tier_score"] = tier_map.get(bundle_tier.lower() if bundle_tier else "basic", 0)
+        # Bundle tier - keep as categorical string
+        features["bundle_tier"] = bundle_tier.lower() if bundle_tier else "basic"
         
-        # Payment/Offer type
-        features["is_direct_payment"] = int(listing.get("payment_type") == "DIRECT")
-        features["is_buy"] = int(listing.get("offer_type") == "BUY")
+        # Payment/Offer type - keep as categorical strings
+        features["payment_type"] = listing.get("payment_type", "INVOICE").upper()
+        features["offer_type"] = listing.get("offer_type", "RENT").upper()
         
         # Location
         features["latitude"] = listing.get("latitude", 0.0) or 0.0
@@ -199,8 +199,8 @@ class FeatureStore:
         base_features = [
             "account_age_days", "log_price", "living_space", "rooms",
             "is_new", "has_balcony", "has_elevator", "has_parking",
-            "bundle_period", "bundle_tier_score",
-            "is_direct_payment", "is_buy",
+            "bundle_period", "bundle_tier",
+            "payment_type", "offer_type",
             "latitude", "longitude"
         ]
         

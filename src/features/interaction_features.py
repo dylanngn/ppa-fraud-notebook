@@ -24,7 +24,8 @@ from datetime import datetime
 
 import polars as pl
 
-ARTIFACTS_DIR = Path("artifacts")
+from src.features.utils import ensure_artifact, ARTIFACTS_DIR
+
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
 USER_NODES = ARTIFACTS_DIR / "nodes_user.parquet"
 GRAPH_FEATURES = ARTIFACTS_DIR / "listing_graph_features.parquet"
@@ -32,19 +33,12 @@ ADVANCED_FEATURES = ARTIFACTS_DIR / "listing_advanced_features.parquet"
 OUTPUT_PATH = ARTIFACTS_DIR / "listing_interaction_features.parquet"
 
 
-def _ensure_artifact(path: Path) -> bool:
-    if not path.exists():
-        print(f"[interaction-features] Skipping missing artifact: {path}")
-        return False
-    return True
-
-
 def generate_interaction_features(
-    output_path: Optional[Path] = OUTPUT_PATH,
+    output_path: Optional[Path] = None,
     cutoff_date: Optional[datetime] = None,
     graph_features_df: Optional[pl.DataFrame] = None,
     advanced_features_df: Optional[pl.DataFrame] = None
-) -> Optional[pl.DataFrame]:
+) -> pl.DataFrame:
     """
     Generate interaction features based on discovered fraud patterns.
     
@@ -52,32 +46,31 @@ def generate_interaction_features(
     than individual features alone.
     
     Args:
-        output_path: Path to save features. If None, returns DataFrame without saving.
+        output_path: Optional path to save features. If None, returns DataFrame without saving.
         cutoff_date: If provided, only use graph features computed with data before this date.
                      This prevents temporal leakage. If None, uses all data.
-        graph_features_df: Optional pre-computed graph features DataFrame.
-                          If provided, uses this instead of loading from parquet.
+        graph_features_df: Pre-computed graph features DataFrame.
                           Must have 'insertion_id' column.
-        advanced_features_df: Optional pre-computed advanced features DataFrame.
-                             If provided, uses this instead of loading from parquet.
+        advanced_features_df: Pre-computed advanced features DataFrame.
                              Must have 'insertion_id' column.
     
     Returns:
-        DataFrame with interaction features, or None if output_path is provided (for backward compatibility)
-    
-    Note: If graph_features_df and advanced_features_df are provided, they should
-    be computed with the same cutoff_date to ensure temporal consistency.
+        DataFrame with interaction features
+        
+    Raises:
+        FileNotFoundError: If required artifact files are missing
+        ValueError: If graph_features_df or advanced_features_df are not provided
     """
     print("[interaction-features] Loading data...")
     
     # Load listing nodes
-    if not _ensure_artifact(LISTING_NODES):
+    if not ensure_artifact(LISTING_NODES):
         raise FileNotFoundError(f"Listing nodes missing: {LISTING_NODES}")
     
     listings = pl.read_parquet(LISTING_NODES)
     
     # Load user nodes for account age
-    if not _ensure_artifact(USER_NODES):
+    if not ensure_artifact(USER_NODES):
         raise FileNotFoundError(f"User nodes missing: {USER_NODES}")
     
     users = pl.read_parquet(USER_NODES)
@@ -92,27 +85,23 @@ def generate_interaction_features(
         (pl.col("submission_at") - pl.col("account_created_at")).dt.total_days().alias("account_age_days")
     )
     
-    # Load or use provided graph features
-    if graph_features_df is not None:
-        # Use provided DataFrame
-        df = df.join(graph_features_df, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined provided graph features")
-    elif _ensure_artifact(GRAPH_FEATURES):
-        # Load from parquet (backward compatibility)
-        graph_features = pl.read_parquet(GRAPH_FEATURES)
-        df = df.join(graph_features, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined graph features from parquet")
+    # Require graph features to be provided
+    if graph_features_df is None:
+        raise ValueError("graph_features_df is required. Interaction features depend on graph features.")
+    if "insertion_id" not in graph_features_df.columns:
+        raise ValueError("graph_features_df must contain 'insertion_id' column")
     
-    # Load or use provided advanced features
-    if advanced_features_df is not None:
-        # Use provided DataFrame
-        df = df.join(advanced_features_df, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined provided advanced features")
-    elif _ensure_artifact(ADVANCED_FEATURES):
-        # Load from parquet (backward compatibility)
-        advanced_features = pl.read_parquet(ADVANCED_FEATURES)
-        df = df.join(advanced_features, on="insertion_id", how="left")
-        print(f"[interaction-features] Joined advanced features from parquet")
+    df = df.join(graph_features_df, on="insertion_id", how="left")
+    print(f"[interaction-features] Joined graph features")
+    
+    # Require advanced features to be provided
+    if advanced_features_df is None:
+        raise ValueError("advanced_features_df is required. Interaction features depend on advanced features.")
+    if "insertion_id" not in advanced_features_df.columns:
+        raise ValueError("advanced_features_df must contain 'insertion_id' column")
+    
+    df = df.join(advanced_features_df, on="insertion_id", how="left")
+    print(f"[interaction-features] Joined advanced features")
     
     # Fill nulls for graph features
     graph_cols = [

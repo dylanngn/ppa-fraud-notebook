@@ -1,5 +1,38 @@
-.PHONY: install etl build-graph train-baseline train-graph-baseline train-gnn train-gnn-rte train-hybrid check-timestamps check-graph check-density data-quality-report debug all seon compare-all api-start api-demo api-test retrain-production optimize-window optimize-hyperparams staged-hyperopt mlflow-ui mlflow-compare mlflow-compare-models mlflow-deployment-recommendation mlflow-drift-summary
+.PHONY: install env etl build-graph train-baseline train-sage train-hgt \
+	optimize-xgboost optimize-pytorch check-timestamps check-density \
+	data-quality-report evaluate-seon mlflow-compare-models \
+	mlflow-deployment-recommendation mlflow-drift-summary help
 
+# Default target
+help:
+	@echo "Fraud Detection Pipeline - Available Commands:"
+	@echo ""
+	@echo "Data Pipeline:"
+	@echo "  make install          - Install dependencies"
+	@echo "  make env              - Create virtual environment"
+	@echo "  make etl              - Run ETL pipeline"
+	@echo "  make build-graph       - Build PyTorch Geometric graph"
+	@echo ""
+	@echo "Model Training:"
+	@echo "  make train-baseline   - Train baseline XGBoost model"
+	@echo "  make train-sage       - Train SAGE hybrid model"
+	@echo "  make train-hgt        - Train HGT hybrid model"
+	@echo ""
+	@echo "Hyperparameter Optimization:"
+	@echo "  make optimize-xgboost - Optimize XGBoost hyperparameters"
+	@echo "  make optimize-pytorch - Optimize PyTorch GNN hyperparameters"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  make check-density    - Check fraud density in time windows"
+	@echo "  make data-quality-report - Generate data quality report"
+	@echo "  make evaluate-seon    - Evaluate Seon baseline"
+	@echo ""
+	@echo "MLflow Management:"
+	@echo "  make mlflow-compare-models - Compare two MLflow runs"
+	@echo "  make mlflow-deployment-recommendation - Get deployment recommendation"
+	@echo "  make mlflow-drift-summary - Analyze model drift"
+
+# Installation
 install:
 	pip install -r requirements.txt
 
@@ -9,17 +42,16 @@ env:
 	@echo "  source .venv/bin/activate"
 	.venv/bin/pip install -r requirements.txt
 
+# Data Pipeline
 etl:
 	python src/cli.py extract-data
 
 build-graph:
 	python src/cli.py build-graph
 
+# Model Training
 train-baseline:
 	python src/cli.py train-baseline
-
-train-graph-baseline:
-	python src/cli.py train-graph-baseline
 
 train-sage:
 	python src/cli.py train-hybrid-sage
@@ -27,40 +59,24 @@ train-sage:
 train-hgt:
 	python src/cli.py train-hybrid-hgt
 
-# -------------------
+# Hyperparameter Optimization
+optimize-xgboost:
+	python src/cli.py optimize-xgboost
 
+optimize-pytorch:
+	@echo "Usage: make optimize-pytorch MODEL_TYPE=hgt|sage"
+	@if [ -z "$(MODEL_TYPE)" ]; then \
+		echo "Error: MODEL_TYPE is required (hgt or sage)"; \
+		exit 1; \
+	fi
+	python src/cli.py optimize-pytorch --model-type $(MODEL_TYPE)
+
+# Utilities
 check-density:
 	python src/cli.py check-density
 
 data-quality-report:
-	@echo "Generating data quality report..."
 	python src/cli.py data-quality-report
 
-# Run complete pipeline: ETL → Build Graph → All Training Scripts
-all: etl build-graph train-baseline train-sage train-hgt
-
-# --- Seon Evaluation ---
-
-seon:
-	@echo "Evaluating Seon (production baseline)..."
-	python src/cli.py evaluate-seon --evaluation-start-days 90 --step-days 14
-
-# --- MLflow Model Management ---
-
-mlflow-compare-models:
-	@echo "Compare two MLflow runs..."
-	@echo "Usage: make mlflow-compare-models PROD_RUN=<id> CAND_RUN=<id>"
-	python src/cli.py mlflow-compare-models --production-run-id $(PROD_RUN) --candidate-run-id $(CAND_RUN)
-
-mlflow-deployment-recommendation:
-	@echo "Get deployment recommendation from Model Registry..."
-	@echo "Usage: make mlflow-deployment-recommendation CAND_RUN=<id>"
-	python src/cli.py mlflow-deployment-recommendation --candidate-run-id $(CAND_RUN)
-
-mlflow-drift-summary:
-	@echo "Analyze model drift from Model Registry..."
-	python src/cli.py mlflow-drift-summary
-
-mlflow-compare:
-	@echo "Comparing MLflow runs..."
-	python src/cli.py mlflow-compare --top-n 10
+evaluate-seon:
+	python src/cli.py evaluate-seon

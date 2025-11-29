@@ -16,8 +16,16 @@ import mlflow
 from mlflow.models import infer_signature
 from torch_geometric.nn import SAGEConv, Linear, to_hetero
 
-from src.models.train_baseline import train_accumulating_window
+from src.models.training_window import train_accumulating_window
+from src.models.feature_engineering import load_data, add_base_tabular_features
+from src.models.common import get_device, setup_mlflow, filter_graph_by_time
+from src.models.mlflow_helpers import (
+    create_gnn_signature,
+    create_input_example_for_gnn,
+    get_model_dependencies
+)
 from src.utils.metrics import calculate_metrics
+
 
 class GraphSAGE(nn.Module):
     """GraphSAGE model for heterogeneous graphs."""
@@ -82,35 +90,6 @@ class SAGEWrapper(nn.Module):
         return self.classifier(z)
 
 
-def filter_graph_by_time(data, max_time_ns):
-    """Returns a subgraph containing only edges and nodes visible at max_time_ns."""
-    from torch_geometric.data import HeteroData
-    
-    new_data = HeteroData()
-    
-    # Copy node features
-    for node_type, x in data.x_dict.items():
-        new_data[node_type].x = x
-        new_data[node_type].num_nodes = data[node_type].num_nodes
-    
-    # Copy listing labels & timestamps
-    new_data['listing'].y = data['listing'].y
-    new_data['listing'].timestamp = data['listing'].timestamp
-    
-    # Filter edges by timestamp
-    for edge_type, edge_index in data.edge_index_dict.items():
-        if 'timestamp' in data[edge_type]:
-            edge_times = data[edge_type].timestamp
-            mask = edge_times <= max_time_ns
-            new_data[edge_type].edge_index = edge_index[:, mask]
-            new_data[edge_type].timestamp = edge_times[mask]
-        else:
-            # Static edges (keep all)
-            new_data[edge_type].edge_index = edge_index
-            
-    return new_data
-
-
 def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_days=14):
     """
     Train SAGE embeddings with optimized parameters.
@@ -119,26 +98,18 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     - 25 epochs (more than default for better convergence)
     - Learning rate: 0.001 (standard for GNNs)
     - 2 layers, 64 hidden channels (optimal for this graph size)
-    """
-    print("Training SAGE Embeddings...")
     
-    mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
-    mlflow.set_experiment("ppa-fraud-detection")
+    Returns:
+        str: Model URI of the logged GNN model (e.g., "runs:/run_id/gnn_model")
+    """
+    setup_mlflow()
     mlflow.pytorch.autolog()
     
     if not os.path.exists("artifacts/graph.pt"):
-        print("Graph not found. Run graph_builder.py first.")
-        return
+        raise FileNotFoundError("Graph not found. Run graph_builder.py first.")
     
     data = torch.load("artifacts/graph.pt", weights_only=False)
-    # Device selection: Prioritize MPS (Mac GPU) > CUDA > CPU
-    if torch.backends.mps.is_available():
-        device = torch.device('mps')
-    elif torch.cuda.is_available():
-        device = torch.device('cuda')
-    else:
-        device = torch.device('cpu')
-    print(f"Using device: {device} (MacBook Pro compatible)")
+    device = get_device()
 
     # Temporal split
     timestamps = data['listing'].timestamp.numpy()
@@ -147,17 +118,14 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     valid_timestamps = timestamps[valid_mask]
     
     if len(valid_timestamps) == 0:
-        print("Warning: No valid timestamps found >= 2023. Using all data.")
         valid_timestamps = timestamps
         
     min_time = valid_timestamps.min()
     max_time = valid_timestamps.max()
     split_time = np.percentile(valid_timestamps, split_percent * 100)
     split_date = datetime.fromtimestamp(split_time / 1e9)
-    print(f"Splitting at: {split_date}")
 
     # Create training subgraph
-    print("Creating Training Subgraph...")
     train_data = filter_graph_by_time(data, split_time)
     train_data = train_data.to(device)
 
@@ -173,6 +141,7 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     
     # MLflow tracking
     mlflow.start_run(run_name="gnn_sage", tags={"model_type": "gnn", "gnn_variant": "sage"})
+    gnn_model_uri = None
     try:
         mlflow.log_params({
             "epochs": epochs,
@@ -202,9 +171,6 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
             loss.backward()
             optimizer.step()
             
-            if epoch % 5 == 0:
-                print(f"Epoch {epoch:03d}, Loss: {loss:.4f}")
-            
             if loss < best_loss:
                 best_loss = loss
                 torch.save(model.state_dict(), "artifacts/model_sage_best.pt")
@@ -214,7 +180,6 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         model.load_state_dict(torch.load("artifacts/model_sage_best.pt", weights_only=False))
         
         # Evaluate on test split (before loading full graph to save memory)
-        print("\nEvaluating SAGE on test split...")
         test_mask = ((data['listing'].timestamp > split_time) & 
                     (data['listing'].timestamp >= start_threshold))
         
@@ -239,17 +204,10 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
                 "gnn_test_lift_at_100": metrics["lift@100"],
                 "gnn_test_fraud_count": metrics["fraud_count"],
             })
-            
-            print(f"Test Metrics - AUC-PR: {metrics['auc_pr']:.4f}, "
-                  f"AUC-ROC: {metrics['auc_roc']:.4f}, "
-                  f"P@100: {metrics['p@100']:.4f}, "
-                  f"Lift@100: {metrics['lift@100']:.2f}")
         else:
-            print("Warning: No test samples found for evaluation")
             full_data = data.to(device)
         
         # Generate embeddings for all nodes (reuse full_data from evaluation)
-        print("\nGenerating Full Graph Embeddings...")
         model.eval()
         with torch.no_grad():
             z_listing = model(full_data.x_dict, full_data.edge_index_dict)
@@ -261,15 +219,10 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         # Save embeddings
         save_path = "artifacts/embeddings_sage.pt"
         torch.save(z_listing, save_path)
-        print(f"Saved embeddings to {save_path}")
         mlflow.log_artifact(save_path)
         
         # Register GNN model to Model Registry
         try:
-            print("\nRegistering SAGE GNN model to Model Registry...")
-            
-            # Create input example and signature for better model documentation
-            # Use a small sample from the training data
             model.eval()
             with torch.no_grad():
                 # Create sample input (using first few nodes)
@@ -287,25 +240,29 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
                 if isinstance(sample_output, dict):
                     sample_output = sample_output['listing']
                 
-                # Infer signature from sample input/output
-                # Convert to numpy for signature inference
-                input_example = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v 
-                                for k, v in sample_x_dict.items()}
+                # Create input example using helper (properly serializable)
+                input_example = create_input_example_for_gnn(
+                    sample_x_dict, 
+                    sample_edge_index_dict, 
+                    edge_time_dict=None,  # SAGE doesn't use edge times
+                    max_nodes=5,
+                    max_edges=10
+                )
                 output_example = sample_output.cpu().numpy() if isinstance(sample_output, torch.Tensor) else sample_output
                 
-                try:
-                    signature = infer_signature(input_example, output_example)
-                except Exception as sig_error:
-                    print(f"Warning: Could not infer signature: {sig_error}")
-                    signature = None
-                    input_example = None
+                # Create signature using helper (handles complex GNN inputs)
+                signature = create_gnn_signature(input_example, output_example)
             
-            model_uri = mlflow.pytorch.log_model(
+            # Get explicit dependencies
+            deps = get_model_dependencies()
+            
+            gnn_model_uri = mlflow.pytorch.log_model(
                 pytorch_model=model,
-                name="gnn_model",
+                artifact_path="gnn_model",
                 registered_model_name="fraud-detection-gnn-sage",
                 signature=signature,
                 input_example=input_example,
+                **deps,  # Add explicit dependencies
                 metadata={
                     "model_type": "GraphSAGE (SAGE)",
                     "task": "fraud_detection",
@@ -325,50 +282,24 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
                     "split_percent": split_percent,
                 }
             )
-            print(f"✓ SAGE GNN model registered successfully: {model_uri}")
-        except Exception as e:
-            print(f"Warning: GNN model registration failed: {e}")
+        except Exception:
             # Try alternative: register from autologged model
             try:
                 run_id = mlflow.active_run().info.run_id
-                model_uri = f"runs:/{run_id}/model"
-                registered_model = mlflow.register_model(
-                    model_uri=model_uri,
+                gnn_model_uri = f"runs:/{run_id}/gnn_model"
+                mlflow.register_model(
+                    model_uri=gnn_model_uri,
                     name="fraud-detection-gnn-sage"
                 )
-                print(f"✓ SAGE GNN model registered via autolog: {registered_model.name} v{registered_model.version}")
-            except Exception as e2:
-                print(f"Warning: Alternative registration also failed: {e2}")
+            except Exception:
+                # Fallback: use run ID directly
+                run_id = mlflow.active_run().info.run_id
+                gnn_model_uri = f"runs:/{run_id}/gnn_model"
         
     finally:
         mlflow.end_run()
-
-
-def load_sage_embeddings():
-    """Load SAGE embeddings and merge with DataFrame."""
-    embedding_path = "artifacts/embeddings_sage.pt"
-    print(f"Loading SAGE Embeddings from {embedding_path}...")
     
-    if not os.path.exists(embedding_path):
-        raise FileNotFoundError(
-            f"Embeddings not found at {embedding_path}. "
-            "Run train_sage_embeddings() first."
-        )
-        
-    embeddings = torch.load(embedding_path).numpy()
-    df_listing = pl.read_parquet("artifacts/nodes_listing.parquet")
-    
-    embed_cols = [f"embed_{i}" for i in range(embeddings.shape[1])]
-    df_embed = pl.DataFrame(embeddings, schema=embed_cols)
-    
-    if len(df_listing) != len(df_embed):
-        raise ValueError(f"Mismatch: Listings {len(df_listing)} vs Embeddings {len(df_embed)}")
-        
-    df_listing = df_listing.hstack(df_embed)
-    df_users = pl.read_parquet("artifacts/nodes_user.parquet")
-    df = df_listing.join(df_users, on="user_id", how="left")
-    
-    return df, embed_cols
+    return gnn_model_uri
 
 
 def create_sage_embedding_generator():
@@ -392,14 +323,7 @@ def create_sage_embedding_generator():
     
     # Load model and graph
     data = torch.load("artifacts/graph.pt", weights_only=False)
-    
-    # Device selection
-    if torch.backends.mps.is_available():
-        device = torch.device('mps')
-    elif torch.cuda.is_available():
-        device = torch.device('cuda')
-    else:
-        device = torch.device('cpu')
+    device = get_device()
     
     # Initialize model
     model = SAGEWrapper(
@@ -490,7 +414,12 @@ def create_sage_embedding_generator():
     return generate_embeddings_for_window
 
 
-def main():
+def main(
+    experiment_name: str = "ppa-fraud-detection",
+    initial_window_days: int = 180,
+    step_days: int = 7,
+    epochs: int = 25
+):
     """
     Train SAGE hybrid model: embeddings + XGBoost.
     
@@ -498,46 +427,67 @@ def main():
     1. Train SAGE model on graph (temporal split)
     2. Create embedding generator for per-window embedding generation
     3. Train hybrid XGBoost model with accumulating window (embeddings generated per window with temporal filtering)
+    
+    Args:
+        experiment_name: MLflow experiment name
+        initial_window_days: Initial training window size in days
+        step_days: Step size between evaluation windows in days
+        epochs: Number of GNN training epochs
     """
     if not os.path.exists("artifacts/nodes_listing.parquet"):
-        print("Artifacts not found. Please run ETL.py first.")
-        return
+        raise FileNotFoundError("Artifacts not found. Please run ETL.py first.")
     
     # Step 1: Train SAGE model (once, on training split)
-    print("="*70)
-    print("STEP 1: Training SAGE Model")
-    print("="*70)
-    train_sage_embeddings()
+    gnn_model_uri = train_sage_embeddings(epochs=epochs)
     
     # Step 2: Create embedding generator (will generate embeddings per window)
-    print("\n" + "="*70)
-    print("STEP 2: Creating Per-Window Embedding Generator")
-    print("="*70)
     embedding_generator = create_sage_embedding_generator()
     
     # Step 3: Load base data (without embeddings - they'll be generated per window)
-    print("\n" + "="*70)
-    print("STEP 3: Loading Base Data")
-    print("="*70)
-    df_listing = pl.read_parquet("artifacts/nodes_listing.parquet")
-    df_users = pl.read_parquet("artifacts/nodes_user.parquet")
-    df = df_listing.join(df_users, on="user_id", how="left")
+    df = load_data()
     
     # Step 4: Add base tabular features (graph features will be added per window)
-    from src.models.train_baseline import _add_base_tabular_features
-    df = _add_base_tabular_features(df)
+    df = add_base_tabular_features(df)
     
-    # Step 5: Train hybrid model with per-window embeddings
-    print("\n" + "="*70)
-    print("STEP 4: Training Hybrid Model with Per-Window Embeddings")
-    print("="*70)
-    print("Note: Embeddings will be generated per window with temporal filtering")
-    print("      This ensures fair comparison with baseline (no data leakage)")
+    # Step 5: Create config and train hybrid model with per-window embeddings
+    from src.models.experiment_config import ExperimentConfig
+    
+    config = ExperimentConfig(
+        experiment_name=experiment_name,
+        initial_window_days=initial_window_days,
+        step_days=step_days
+    )
+    
     result = train_accumulating_window(
         df,
         embedding_generator=embedding_generator,
-        model_name="hybrid_sage"
+        model_name="hybrid_sage",
+        config=config
     )
+    
+    # Step 6: Log hybrid model using "models from code" pattern (pyfunc)
+    if gnn_model_uri and result.get("best_run_id"):
+        try:
+            from src.models.hybrid_model_pyfunc import log_hybrid_model_as_pyfunc
+            
+            xgb_model_uri = f"runs:/{result['best_run_id']}/model"
+            
+            # Log hybrid model in the parent run
+            with mlflow.start_run(run_id=result["run_id"]):
+                hybrid_model_uri = log_hybrid_model_as_pyfunc(
+                    gnn_model_uri=gnn_model_uri,
+                    xgb_model_uri=xgb_model_uri,
+                    graph_path="artifacts/graph.pt",
+                    registered_model_name="fraud-detection-hybrid-sage"
+                )
+                
+                mlflow.log_param("hybrid_model_uri", hybrid_model_uri)
+                mlflow.log_param("gnn_model_uri", gnn_model_uri)
+                mlflow.log_param("xgb_model_uri", xgb_model_uri)
+                
+                print(f"✓ Logged hybrid model as pyfunc: {hybrid_model_uri}")
+        except Exception as e:
+            print(f"Warning: Could not log hybrid pyfunc model: {e}")
     
     return result
 
@@ -545,4 +495,3 @@ def main():
 if __name__ == "__main__":
     import typer
     typer.run(lambda: main())
-
