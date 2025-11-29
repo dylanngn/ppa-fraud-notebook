@@ -8,7 +8,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional, List
 import polars as pl
-import pickle
 from dataclasses import dataclass
 
 
@@ -155,11 +154,19 @@ class FeatureStore:
         features["bundle_period"] = listing.get("bundle_period", 7)
         bundle_tier = listing.get("bundle_tier", "basic")
         # Bundle tier - keep as categorical string
-        features["bundle_tier"] = bundle_tier.lower() if bundle_tier else "basic"
+        # Convert to string first to handle any Polars expression objects
+        bundle_tier_str = str(bundle_tier) if bundle_tier is not None else "basic"
+        features["bundle_tier"] = bundle_tier_str.lower()
         
         # Payment/Offer type - keep as categorical strings
-        features["payment_type"] = listing.get("payment_type", "INVOICE").upper()
-        features["offer_type"] = listing.get("offer_type", "RENT").upper()
+        # Convert to string first to handle any Polars expression objects
+        payment_type_val = listing.get("payment_type", "INVOICE")
+        payment_type_str = str(payment_type_val) if payment_type_val is not None else "INVOICE"
+        features["payment_type"] = payment_type_str.upper()
+        
+        offer_type_val = listing.get("offer_type", "RENT")
+        offer_type_str = str(offer_type_val) if offer_type_val is not None else "RENT"
+        features["offer_type"] = offer_type_str.upper()
         
         # Location
         features["latitude"] = listing.get("latitude", 0.0) or 0.0

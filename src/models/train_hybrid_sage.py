@@ -69,15 +69,24 @@ class SAGEWrapper(nn.Module):
 
     def forward(self, x_dict, edge_index_dict):
         # Project inputs
+        # Filter out any node types that don't exist in lin_dict (e.g., 'person' nodes)
         x_dict_proj = {}
         for node_type, x in x_dict.items():
-            x_dict_proj[node_type] = self.lin_dict[node_type](x).relu()
+            if node_type in self.lin_dict:
+                x_dict_proj[node_type] = self.lin_dict[node_type](x).relu()
+        
+        # Filter edge_index_dict to remove edges involving person nodes
+        edge_index_dict_filtered = {
+            edge_type: edge_index 
+            for edge_type, edge_index in edge_index_dict.items()
+            if edge_type[0] != 'person' and edge_type[2] != 'person'
+        }
         
         # Cache listing self-representation before message passing
         listing_self = x_dict_proj['listing']
         
         # Apply SAGE
-        x_dict_out = self.gnn(x_dict_proj, edge_index_dict)
+        x_dict_out = self.gnn(x_dict_proj, edge_index_dict_filtered)
         
         # Concatenate self features with aggregated message
         listing_out = x_dict_out['listing']
@@ -127,11 +136,28 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
 
     # Create training subgraph
     train_data = filter_graph_by_time(data, split_time)
+    
+    # Filter out person nodes from data and metadata (they have no incoming edges and aren't used in prediction)
+    # This prevents the "Cannot generate a graph node 'relu' for type 'person'" error
+    if 'person' in train_data.node_types:
+        del train_data['person']
+    # Remove edges involving person nodes
+    edge_types_to_remove = [et for et in train_data.edge_types if 'person' in et]
+    for et in edge_types_to_remove:
+        del train_data[et]
+    
     train_data = train_data.to(device)
-
+    
+    # Get filtered metadata explicitly (metadata() might still include person after deletion)
+    # Filter node types and edge types to exclude person
+    full_metadata = train_data.metadata()
+    filtered_node_types = [nt for nt in full_metadata[0] if nt != 'person']
+    filtered_edge_types = [et for et in full_metadata[1] if et[0] != 'person' and et[2] != 'person']
+    filtered_metadata = (filtered_node_types, filtered_edge_types)
+    
     # Initialize model with optimized parameters
     model = SAGEWrapper(
-        metadata=train_data.metadata(),
+        metadata=filtered_metadata,
         hidden_channels=64,
         out_channels=64,
         num_layers=2,
@@ -325,9 +351,16 @@ def create_sage_embedding_generator():
     data = torch.load("artifacts/graph.pt", weights_only=False)
     device = get_device()
     
+    # Filter out person nodes from metadata (they have no incoming edges and aren't used in prediction)
+    # This prevents the "Cannot generate a graph node 'relu' for type 'person'" error
+    full_metadata = data.metadata()
+    filtered_node_types = [nt for nt in full_metadata[0] if nt != 'person']
+    filtered_edge_types = [et for et in full_metadata[1] if et[0] != 'person' and et[2] != 'person']
+    filtered_metadata = (filtered_node_types, filtered_edge_types)
+    
     # Initialize model
     model = SAGEWrapper(
-        metadata=data.metadata(),
+        metadata=filtered_metadata,
         hidden_channels=64,
         out_channels=64,
         num_layers=2,
@@ -358,6 +391,14 @@ def create_sage_embedding_generator():
         
         # Filter graph to only include edges/nodes before train_end
         filtered_data = filter_graph_by_time(data, train_end_ns)
+        
+        # Remove person nodes and edges (model doesn't support them)
+        if 'person' in filtered_data.node_types:
+            del filtered_data['person']
+        edge_types_to_remove = [et for et in filtered_data.edge_types if 'person' in et]
+        for et in edge_types_to_remove:
+            del filtered_data[et]
+        
         filtered_data = filtered_data.to(device)
         
         # Generate embeddings on filtered graph

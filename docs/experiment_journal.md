@@ -869,6 +869,558 @@ This completes the MLOps infrastructure for:
 
 ---
 
+---
+
+## Codebase Status & Obsolete Components
+
+### ✅ Current Active Components:
+- **Training Scripts**: `train_baseline.py`, `train_hybrid_hgt.py`, `train_hybrid_sage.py` (all use expanding windows)
+- **Feature Engineering**: `graph_features.py`, `advanced_graph_features.py`, `time_weighted_features.py`, `interaction_features.py`
+- **Hyperparameter Optimization**: `hyperopt_xgboost.py`, `hyperopt_pytorch.py`
+- **MLflow Integration**: Automatic tracking, model registry, SHAP logging
+
+### ❌ Obsolete/Removed Components (per Experiment 1-2):
+- ~~`train_finetuned_hgt.py`~~ - Removed (fine-tuning didn't improve performance)
+- ~~Separated node graph builder~~ - Removed (unified graph performs better)
+- ~~Clean graph ablation helper~~ - Removed (billing edges are noise but don't hurt)
+- ~~90-day sliding window training~~ - Replaced with expanding window (Experiment 7)
+
+### ⚠️ Notes on Current Implementation:
+- **Window Strategy**: All models now use **expanding/accumulating windows** (not sliding)
+- **Graph Features**: Computed with temporal filtering to prevent data leakage
+- **SHAP Integration**: Automatic via MLflow `evaluate()`, but could be more strategic (see Experiment 13 plan)
+
+---
+
+## Experiment 13: Strategic Direction Decision & Optimization Roadmap
+
+**Date**: 2025-11-26  
+**Goal**: Determine optimal research direction (Baseline vs Hybrid) and create detailed experimentation plan  
+**Status**: 📋 PLANNING
+
+### Experiment Configuration:
+- **Experiment Name**: `exp13-baseline-vs-hybrid-365d`
+- **Initial Window**: 365 days (gives GNNs more historical data advantage)
+- **Step Size**: 42 days (balanced speed and statistical validity, ~16 evaluation windows)
+- **Feature Categories**: `base,graph,advanced_graph,time_weighted`
+
+### Current Performance Summary (Previous Results - 180d window, 7d step):
+
+| Model Type | AUC-PR | P@100 | Training Time | Infrastructure |
+|------------|--------|-------|---------------|----------------|
+| **Baseline (Optimized)** | **0.7031** | 0.7760 | ~15 min | XGBoost only |
+| HGT Hybrid | 0.6375 | ~0.75 | ~2-3 hours | GNN + XGBoost |
+| GAT Hybrid | 0.6390 | ~0.75 | ~2-3 hours | GNN + XGBoost |
+| SAGE Hybrid | 0.6321 | ~0.75 | ~2-3 hours | GNN + XGBoost |
+
+**Key Finding**: Baseline leads by **~9-10% AUC-PR** with **10x faster training** and simpler infrastructure.
+
+**Note**: New experiment uses **365-day initial window** (gives GNNs more historical data) and **14-day step** (faster training, ~50% fewer windows). Results may differ from above.
+
+---
+
+## Question 1: Which Direction Should I Follow? (Baseline vs Hybrid)
+
+### Decision Framework: Performance vs Training Cost
+
+#### Option A: **Baseline XGBoost** (Recommended for Production)
+
+**Performance Profile:**
+- ✅ **Best AUC-PR**: 0.7031 (current state-of-the-art)
+- ✅ **High Precision**: 0.7760 P@100 (77.6% of top-100 are fraud)
+- ✅ **Interpretable**: Feature importance + SHAP explainability
+- ✅ **Fast Training**: ~15 minutes per run
+- ✅ **Simple Infrastructure**: No GPU required, standard ML stack
+
+**Cost Analysis:**
+- **Training Cost**: ~$0.10 per run (CPU-only)
+- **Inference Cost**: ~$0.001 per prediction (CPU)
+- **Maintenance**: Low (standard XGBoost deployment)
+- **Total Cost of Ownership**: **LOW**
+
+**Limitations:**
+- ⚠️ **Performance ceiling**: May be approaching diminishing returns
+- ⚠️ **Feature engineering dependency**: Requires manual feature crafting
+
+**Recommendation**: **Pursue Baseline** if:
+- Production deployment is priority
+- Budget/resources are constrained
+- Interpretability is critical
+- You want fastest iteration cycles
+
+---
+
+#### Option B: **Hybrid GNN + XGBoost** (Research/Exploration)
+
+**Performance Profile:**
+- ⚠️ **Lower AUC-PR**: 0.63-0.64 (9-10% behind baseline)
+- ✅ **Competitive**: Still beats Seon by 2-3x
+- ⚠️ **Complex**: Requires GNN infrastructure
+- ⚠️ **Slow Training**: 2-3 hours per run (GPU required)
+
+**Cost Analysis:**
+- **Training Cost**: ~$5-10 per run (GPU: AWS p3.2xlarge ~$3/hr)
+- **Inference Cost**: ~$0.01 per prediction (GPU inference)
+- **Maintenance**: High (GNN model serving, GPU infrastructure)
+- **Total Cost of Ownership**: **HIGH** (10-100x baseline)
+
+**Potential Upside:**
+- 🔬 **Research Value**: Understanding GNN limitations is publishable
+- 🔬 **Future-Proof**: If graph data quality improves, GNNs may catch up
+- 🔬 **Complex Patterns**: May capture non-linear interactions baseline misses
+
+**Recommendation**: **Pursue Hybrid** if:
+- Research/publication is priority
+- You have GPU resources available
+- You want to explore GNN capabilities
+- You're willing to accept lower performance for research insights
+
+---
+
+### **Strategic Recommendation: Dual-Track Approach**
+
+**Primary Track: Baseline Optimization** (80% effort)
+- Focus on feature engineering, hyperparameter tuning, SHAP-driven improvements
+- Target: Push baseline to **0.72-0.75 AUC-PR**
+- Timeline: 2-4 weeks
+
+**Secondary Track: Hybrid Research** (20% effort)
+- Periodic experiments to understand GNN limitations
+- Document findings for academic contribution
+- Timeline: Ongoing, low-priority
+
+**Rationale:**
+1. **Baseline is production-ready** and outperforms hybrid by significant margin
+2. **ROI is higher** for baseline improvements (faster iteration, lower cost)
+3. **Hybrid research** can run in parallel without blocking production work
+4. **Best of both worlds**: Production model + research insights
+
+---
+
+## Question 2: How Can I Experiment/Tune for the Chosen Direction?
+
+### Track A: Baseline XGBoost Optimization Experiments
+
+#### **Experiment 13A.1: Feature Ablation Study**
+**Goal**: Identify which feature categories contribute most to performance
+
+**Methodology**:
+```bash
+# Test each feature category independently
+python src/cli.py train-baseline --feature-categories base
+python src/cli.py train-baseline --feature-categories base,graph
+python src/cli.py train-baseline --feature-categories base,graph,advanced_graph
+python src/cli.py train-baseline --feature-categories base,graph,advanced_graph,time_weighted
+# ... etc
+```
+
+**Metrics to Track**:
+- AUC-PR per feature category combination
+- Feature importance distribution
+- Training time per configuration
+
+**Expected Outcome**: Identify redundant features or missing feature combinations
+
+**Timeline**: 1-2 days
+
+---
+
+#### **Experiment 13A.2: Advanced Hyperparameter Search**
+**Goal**: Push beyond current optimized params (0.7031 AUC-PR)
+
+**Current Best Params** (from Experiment 11):
+```python
+{
+    "n_estimators": 500,
+    "max_depth": 7,
+    "learning_rate": 0.03,
+    "min_child_weight": 5,
+    "subsample": 0.8,
+    "colsample_bytree": 0.7,
+    "gamma": 0.4,
+    "reg_alpha": 1.0,
+    "reg_lambda": 5.0,
+}
+```
+
+**Extended Search Space**:
+```python
+# Expand search ranges
+{
+    "n_estimators": [500, 1000, 1500],  # More trees
+    "max_depth": [6, 7, 8, 9],          # Deeper trees
+    "learning_rate": [0.01, 0.02, 0.03, 0.04],  # Finer LR grid
+    "reg_lambda": [3.0, 5.0, 7.0, 10.0],  # Stronger regularization
+    "scale_pos_weight": [1.0, 1.5, 2.0],  # Handle class imbalance
+}
+```
+
+**Methodology**:
+```bash
+# Run extended optimization (200+ trials)
+python src/cli.py optimize-xgboost --n-trials 200 --n-windows 5
+```
+
+**Success Criteria**: Achieve **0.72+ AUC-PR** (2-3% improvement)
+
+**Timeline**: 2-3 days (compute-intensive)
+
+---
+
+#### **Experiment 13A.3: Ensemble Methods**
+**Goal**: Combine multiple XGBoost models for improved performance
+
+**Approach**:
+1. Train 3-5 models with different hyperparameter configurations
+2. Ensemble via voting or weighted averaging
+3. Compare against single best model
+
+**Implementation**:
+- Create `src/models/ensemble.py` with stacking/voting logic
+- Train multiple models with diverse hyperparameters
+- Evaluate ensemble on test set
+
+**Expected Improvement**: +1-2% AUC-PR (typical for ensembles)
+
+**Timeline**: 3-4 days
+
+---
+
+#### **Experiment 13A.4: Cost-Sensitive Learning**
+**Goal**: Optimize for production cost (false positive reduction)
+
+**Current Objective**: Maximize AUC-PR (balanced)
+**Production Objective**: Minimize false positives (manual review cost)
+
+**Methodology**:
+```python
+# Adjust XGBoost objective to penalize false positives
+xgb_params = {
+    # ... existing params ...
+    "scale_pos_weight": 2.0,  # Penalize false negatives more
+    # Or use custom objective function
+    "objective": "binary:logistic",
+    "eval_metric": "aucpr",
+}
+
+# Alternative: Post-processing threshold tuning
+# Find optimal threshold that maximizes precision@100
+```
+
+**Metrics to Track**:
+- Precision@100 (target: >0.80)
+- False positive rate
+- Review workload (listings flagged per day)
+
+**Timeline**: 2-3 days
+
+---
+
+### Track B: Hybrid GNN Optimization Experiments
+
+#### **Experiment 13B.1: GNN Architecture Search**
+**Goal**: Find optimal GNN architecture for fraud detection
+
+**Search Space**:
+```python
+# HGT-specific
+{
+    "hidden_channels": [64, 128, 256],
+    "out_channels": [32, 64, 128],
+    "num_layers": [2, 3, 4],
+    "num_heads": [4, 8, 16],
+    "dropout": [0.1, 0.3, 0.5],
+}
+
+# SAGE-specific
+{
+    "hidden_channels": [64, 128, 256],
+    "num_layers": [2, 3, 4],
+    "aggregation": ["mean", "max", "lstm"],
+}
+```
+
+**Methodology**:
+```bash
+# Run Optuna optimization for each GNN type
+python src/cli.py optimize-pytorch --model-type hgt --n-trials 100
+python src/cli.py optimize-pytorch --model-type sage --n-trials 100
+```
+
+**Success Criteria**: Close gap to baseline (target: **0.68+ AUC-PR**)
+
+**Timeline**: 1-2 weeks (GPU-intensive)
+
+---
+
+#### **Experiment 13B.2: Embedding Dimension Analysis**
+**Goal**: Find optimal embedding size (balance performance vs overfitting)
+
+**Hypothesis**: Current 64-dim embeddings may be too large for sparse graph
+
+**Methodology**:
+- Train GNNs with embedding sizes: [16, 32, 64, 128]
+- Compare hybrid performance
+- Analyze embedding quality (t-SNE visualization)
+
+**Expected Outcome**: Smaller embeddings (32-dim) may perform better
+
+**Timeline**: 3-4 days
+
+---
+
+#### **Experiment 13B.3: Multi-Task Learning**
+**Goal**: Improve GNN by adding auxiliary tasks
+
+**Approach**:
+- Primary task: Fraud detection (binary classification)
+- Auxiliary tasks:
+  - Account age prediction (regression)
+  - Payment type prediction (multi-class)
+  - Graph structure prediction (link prediction)
+
+**Rationale**: Auxiliary tasks provide additional supervision signal
+
+**Timeline**: 1-2 weeks
+
+---
+
+## Question 3: How Can I Leverage SHAP to Improve Features?
+
+### Current SHAP Integration Status
+
+**✅ What's Already Working:**
+- Automatic SHAP summary plots logged to MLflow
+- Feature importance tracking per run
+- SHAP values computed via `mlflow.models.evaluate()`
+
+**⚠️ What's Missing:**
+- Strategic SHAP analysis for feature engineering
+- SHAP interaction values (feature interactions)
+- SHAP-based feature selection
+- SHAP waterfall plots for individual predictions
+
+---
+
+### **Experiment 13C.1: SHAP-Driven Feature Discovery**
+
+**Goal**: Use SHAP to identify missing features and feature interactions
+
+**Methodology**:
+
+#### Step 1: Comprehensive SHAP Analysis
+```python
+# Create src/utils/shap_analysis.py
+import shap
+import mlflow
+
+def analyze_shap_values(model, X_test, y_test):
+    """
+    Comprehensive SHAP analysis for feature engineering.
+    """
+    # 1. Summary plot (already done via MLflow)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+    
+    # 2. Feature importance ranking
+    feature_importance = pd.DataFrame({
+        'feature': X_test.columns,
+        'mean_abs_shap': np.abs(shap_values).mean(axis=0)
+    }).sort_values('mean_abs_shap', ascending=False)
+    
+    # 3. SHAP interaction values (NEW!)
+    shap_interaction_values = explainer.shap_interaction_values(X_test)
+    
+    # 4. Feature interactions matrix
+    interaction_matrix = np.abs(shap_interaction_values).mean(axis=0)
+    
+    return {
+        'shap_values': shap_values,
+        'feature_importance': feature_importance,
+        'interaction_matrix': interaction_matrix,
+        'interaction_values': shap_interaction_values
+    }
+```
+
+#### Step 2: Identify High-Impact Feature Pairs
+```python
+# Find features with strong interactions
+def find_strong_interactions(interaction_matrix, threshold=0.01):
+    """
+    Identify feature pairs with strong SHAP interactions.
+    """
+    interactions = []
+    for i in range(len(interaction_matrix)):
+        for j in range(i+1, len(interaction_matrix)):
+            if interaction_matrix[i, j] > threshold:
+                interactions.append({
+                    'feature_i': features[i],
+                    'feature_j': features[j],
+                    'interaction_strength': interaction_matrix[i, j]
+                })
+    return sorted(interactions, key=lambda x: x['interaction_strength'], reverse=True)
+```
+
+#### Step 3: Engineer Missing Features
+Based on SHAP interaction analysis, create new features:
+- **High-interaction pairs**: Create ratio/multiplicative features
+- **Missing patterns**: Identify features with high SHAP variance (inconsistent importance)
+
+**CLI Command**:
+```bash
+python src/cli.py shap-analysis --model-run-id <run_id> --output-dir artifacts/shap_analysis/
+```
+
+**Expected Outcome**: 5-10 new high-value features
+
+**Timeline**: 3-5 days
+
+---
+
+### **Experiment 13C.2: SHAP-Based Feature Selection**
+
+**Goal**: Remove redundant/low-value features to reduce overfitting
+
+**Methodology**:
+1. Compute SHAP values for all features
+2. Identify features with:
+   - Low mean absolute SHAP (< 0.001)
+   - High variance (inconsistent importance across samples)
+3. Remove features and retrain model
+4. Compare performance (target: maintain or improve AUC-PR)
+
+**Implementation**:
+```python
+def select_features_by_shap(shap_values, feature_names, threshold=0.001):
+    """
+    Select features based on SHAP importance threshold.
+    """
+    mean_abs_shap = np.abs(shap_values).mean(axis=0)
+    selected_features = [
+        feature_names[i] 
+        for i in range(len(feature_names)) 
+        if mean_abs_shap[i] > threshold
+    ]
+    return selected_features
+```
+
+**Success Criteria**: Reduce feature count by 20-30% without performance loss
+
+**Timeline**: 2-3 days
+
+---
+
+### **Experiment 13C.3: SHAP Waterfall Analysis for Error Cases**
+
+**Goal**: Understand why model fails on specific fraud cases
+
+**Methodology**:
+1. Identify high-confidence false negatives (fraud cases with low prediction)
+2. Generate SHAP waterfall plots for these cases
+3. Identify common patterns in misclassified cases
+4. Engineer features to capture these patterns
+
+**Implementation**:
+```python
+def analyze_false_negatives(model, X_test, y_test, y_pred):
+    """
+    Analyze false negatives using SHAP waterfall plots.
+    """
+    false_negatives = (y_test == 1) & (y_pred < 0.5)
+    fn_indices = np.where(false_negatives)[0]
+    
+    explainer = shap.TreeExplainer(model)
+    
+    for idx in fn_indices[:10]:  # Analyze top 10 FNs
+        shap_values = explainer.shap_values(X_test.iloc[idx:idx+1])
+        
+        # Generate waterfall plot
+        shap.waterfall_plot(
+            shap.Explanation(
+                values=shap_values[0],
+                base_values=explainer.expected_value,
+                data=X_test.iloc[idx:idx+1].values[0],
+                feature_names=X_test.columns
+            )
+        )
+        
+        # Identify top contributing features
+        top_features = pd.DataFrame({
+            'feature': X_test.columns,
+            'shap_value': shap_values[0]
+        }).sort_values('shap_value', ascending=False).head(5)
+        
+        print(f"False Negative #{idx}:")
+        print(top_features)
+```
+
+**Expected Outcome**: Identify 2-3 missing feature patterns
+
+**Timeline**: 2-3 days
+
+---
+
+### **Experiment 13C.4: SHAP Interaction Features (Advanced)**
+
+**Goal**: Create features based on SHAP interaction values
+
+**Methodology**:
+1. Compute SHAP interaction values for all feature pairs
+2. Identify top 20 feature pairs with strongest interactions
+3. Create interaction features:
+   - Ratio: `feature_a / (feature_b + epsilon)`
+   - Product: `feature_a * feature_b`
+   - Difference: `abs(feature_a - feature_b)`
+   - Conditional: `feature_a if feature_b > threshold else 0`
+
+**Implementation**:
+```python
+def create_shap_interaction_features(df, interaction_pairs):
+    """
+    Create features based on SHAP interaction analysis.
+    """
+    new_features = {}
+    
+    for feat_a, feat_b, strength in interaction_pairs:
+        # Ratio feature
+        new_features[f"{feat_a}_div_{feat_b}"] = df[feat_a] / (df[feat_b] + 1e-6)
+        
+        # Product feature
+        new_features[f"{feat_a}_mul_{feat_b}"] = df[feat_a] * df[feat_b]
+        
+        # Difference feature
+        new_features[f"{feat_a}_diff_{feat_b}"] = (df[feat_a] - df[feat_b]).abs()
+    
+    return pd.DataFrame(new_features)
+```
+
+**Success Criteria**: +0.5-1% AUC-PR improvement
+
+**Timeline**: 4-5 days
+
+---
+
+## Implementation Roadmap
+
+### Phase 1: Baseline Optimization (Weeks 1-2)
+- [ ] **Week 1**: Experiment 13A.1 (Feature Ablation) + 13C.1 (SHAP Analysis)
+- [ ] **Week 2**: Experiment 13A.2 (Advanced Hyperparams) + 13C.2 (Feature Selection)
+
+### Phase 2: Feature Engineering (Weeks 3-4)
+- [ ] **Week 3**: Experiment 13C.3 (Error Analysis) + 13C.4 (Interaction Features)
+- [ ] **Week 4**: Experiment 13A.3 (Ensemble) + 13A.4 (Cost-Sensitive)
+
+### Phase 3: Hybrid Research (Ongoing, Low Priority)
+- [ ] Experiment 13B.1 (Architecture Search) - Run in background
+- [ ] Experiment 13B.2 (Embedding Dimensions) - Run in background
+
+### Success Metrics:
+- **Baseline Target**: 0.72-0.75 AUC-PR (from 0.7031)
+- **Feature Count**: Reduce by 20-30% via SHAP selection
+- **Training Time**: Maintain <20 minutes per run
+
+---
+
 ## Future Research Directions
 
 ### Short-Term (If resources available):

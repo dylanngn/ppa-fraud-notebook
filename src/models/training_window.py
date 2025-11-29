@@ -130,8 +130,10 @@ def build_feature_interaction_constraints(features: list) -> list:
         features: List of feature names
         
     Returns:
-        List of feature index groups (each group is a list of feature indices)
+        List of feature name groups (each group is a list of feature names as strings)
         Empty list means no constraints (all features can interact)
+        
+    Note: For XGBoost 3.1.0+ with pandas DataFrames, constraints must use feature names, not indices.
     
     DOMAIN KNOWLEDGE TO FILL IN:
     Based on your fraud detection domain knowledge, define which features should
@@ -151,12 +153,9 @@ def build_feature_interaction_constraints(features: list) -> list:
     """
     constraints = []
     
-    # Helper function to safely get feature index
-    def get_idx(feat_name: str) -> Optional[int]:
-        try:
-            return features.index(feat_name)
-        except ValueError:
-            return None
+    # Helper function to check if feature exists
+    def has_feat(feat_name: str) -> bool:
+        return feat_name in features
     
     # ============================================
     # FILL IN YOUR DOMAIN KNOWLEDGE BELOW
@@ -165,8 +164,8 @@ def build_feature_interaction_constraints(features: list) -> list:
     # GROUP 1: Account Age + Graph Features
     # Hypothesis: New accounts with high graph connectivity (shared emails/phones, large components) are more suspicious
     group1 = []
-    if get_idx("account_age_days") is not None:
-        group1.append(get_idx("account_age_days"))
+    if has_feat("account_age_days"):
+        group1.append("account_age_days")
     
     # Add graph features that should interact with account age
     graph_features_to_interact = [
@@ -177,9 +176,8 @@ def build_feature_interaction_constraints(features: list) -> list:
         "max_shared_contact_phone",
     ]
     for feat in graph_features_to_interact:
-        idx = get_idx(feat)
-        if idx is not None:
-            group1.append(idx)
+        if has_feat(feat):
+            group1.append(feat)
     
     if len(group1) > 1:  # Only add if we have at least 2 features
         constraints.append(group1)
@@ -189,9 +187,8 @@ def build_feature_interaction_constraints(features: list) -> list:
     group2 = []
     payment_bundle_features = ["payment_type", "bundle_tier"]
     for feat in payment_bundle_features:
-        idx = get_idx(feat)
-        if idx is not None:
-            group2.append(idx)
+        if has_feat(feat):
+            group2.append(feat)
     
     if len(group2) > 1:
         constraints.append(group2)
@@ -207,16 +204,14 @@ def build_feature_interaction_constraints(features: list) -> list:
         "combined_velocity_7d",
     ]
     for feat in time_weighted_features:
-        idx = get_idx(feat)
-        if idx is not None:
-            group3.append(idx)
+        if has_feat(feat):
+            group3.append(feat)
     
     # Add related graph features
     graph_velocity_features = ["shared_contact_email_count", "shared_contact_phone_count"]
     for feat in graph_velocity_features:
-        idx = get_idx(feat)
-        if idx is not None and idx not in group3:
-            group3.append(idx)
+        if has_feat(feat) and feat not in group3:
+            group3.append(feat)
     
     if len(group3) > 1:
         constraints.append(group3)
@@ -232,14 +227,12 @@ def build_feature_interaction_constraints(features: list) -> list:
         "account_age_risk_score",
     ]
     for feat in interaction_features:
-        idx = get_idx(feat)
-        if idx is not None:
-            group4.append(idx)
+        if has_feat(feat):
+            group4.append(feat)
     
     # Add account_age if not already in another group
-    account_age_idx = get_idx("account_age_days")
-    if account_age_idx is not None and account_age_idx not in [idx for group in constraints for idx in group]:
-        group4.append(account_age_idx)
+    if has_feat("account_age_days") and "account_age_days" not in [feat for group in constraints for feat in group]:
+        group4.append("account_age_days")
     
     if len(group4) > 1:
         constraints.append(group4)
@@ -265,16 +258,18 @@ def build_monotonic_constraints(features: list) -> dict:
         features: List of feature names
         
     Returns:
-        Dictionary mapping feature index to constraint (-1, 0, or 1)
+        Dictionary mapping feature name (string) to constraint (-1, 0, or 1)
         -1: Decreasing (fraud decreases as feature increases)
          0: No constraint
          1: Increasing (fraud increases as feature increases)
+        
+    Note: For XGBoost 3.1.0+ with pandas DataFrames, constraints must use feature names, not indices.
     """
     constraints = {}
     
     # Account age: fraud decreases as account age increases
     if "account_age_days" in features:
-        constraints[features.index("account_age_days")] = -1
+        constraints["account_age_days"] = -1
     
     # Note: account_age_risk_score is inversely related to account_age_days
     # (higher risk for newer accounts), so we don't constrain it separately
@@ -500,10 +495,11 @@ def train_accumulating_window(
                     train_df[cat_feat] = pd.Categorical(train_df[cat_feat], categories=unique_vals)
                     test_df[cat_feat] = pd.Categorical(test_df[cat_feat], categories=unique_vals)
             
-            # Convert to numpy for XGBoost (categoricals will be handled by XGBoost)
-            X_train = train_df.values
+            # For XGBoost 3.1.0+ with enable_categorical=True, pass pandas DataFrames directly
+            # This preserves categorical dtypes which XGBoost can handle natively
+            X_train = train_df
             y_train = train_data.select(target).to_numpy().flatten()
-            X_test = test_df.values
+            X_test = test_df
             y_test = test_data.select(target).to_numpy().flatten()
             
             if sum(y_test) == 0:
@@ -563,10 +559,10 @@ def train_accumulating_window(
                                 train_split_df[cat_feat] = pd.Categorical(train_split_df[cat_feat], categories=unique_vals)
                                 val_df[cat_feat] = pd.Categorical(val_df[cat_feat], categories=unique_vals)
                         
-                        # Convert to numpy arrays
-                        X_train_split = train_split_df.values
+                        # For XGBoost 3.1.0+ with enable_categorical=True, pass pandas DataFrames directly
+                        X_train_split = train_split_df
                         y_train_split = train_data_split.select(target).to_numpy().flatten()
-                        X_val = val_df.values
+                        X_val = val_df
                         y_val = val_data.select(target).to_numpy().flatten()
                         
                         eval_set = [(X_val, y_val)]
@@ -629,9 +625,10 @@ def train_accumulating_window(
                 
                 # Log constraints info
                 if monotonic_constraints:
+                    # monotonic_constraints now uses feature names as keys, not indices
                     constraint_info = {
-                        f"monotonic_constraint_{features[idx]}": constraint
-                        for idx, constraint in monotonic_constraints.items()
+                        f"monotonic_constraint_{feat_name}": constraint
+                        for feat_name, constraint in monotonic_constraints.items()
                     }
                     mlflow.log_params(constraint_info)
                     mlflow.log_param("num_monotonic_constraints", len(monotonic_constraints))
@@ -642,7 +639,8 @@ def train_accumulating_window(
                 if interaction_constraints:
                     mlflow.log_param("num_interaction_constraint_groups", len(interaction_constraints))
                     for i, group in enumerate(interaction_constraints):
-                        group_features = [features[idx] for idx in group]
+                        # group already contains feature names (strings), not indices
+                        group_features = group
                         mlflow.log_param(f"interaction_group_{i}", ",".join(group_features))
                 else:
                     mlflow.log_param("num_interaction_constraint_groups", 0)
@@ -651,11 +649,16 @@ def train_accumulating_window(
                 # Log tree method
                 mlflow.log_param("tree_method_used", optimal_tree_method)
                 
+                # Set early_stopping_rounds in constructor if we have eval_set
+                constructor_params = default_params.copy()
+                if eval_set is not None and early_stopping_rounds is not None:
+                    constructor_params["early_stopping_rounds"] = early_stopping_rounds
+                
                 model = xgb.XGBClassifier(
                     scale_pos_weight=scale_pos_weight,
                     monotone_constraints=monotonic_constraints if monotonic_constraints else None,
                     interaction_constraints=interaction_constraints if interaction_constraints else None,
-                    **default_params
+                    **constructor_params
                 )
                 
                 # Fit with early stopping if validation set is available
@@ -663,7 +666,6 @@ def train_accumulating_window(
                     model.fit(
                         X_train_split, y_train_split,
                         eval_set=eval_set,
-                        early_stopping_rounds=early_stopping_rounds,
                         verbose=False
                     )
                     # Log early stopping info
@@ -677,13 +679,17 @@ def train_accumulating_window(
                 # Infer signature from pandas DataFrame (before numpy conversion) to preserve categorical types
                 # This ensures signature correctly reflects categorical features
                 train_df_for_signature = train_data.select(features).to_pandas()
-                # Convert categorical columns for signature inference
+                # Convert categorical columns for signature inference and input example
+                # Ensure they're properly typed as category (not object) for MLflow validation
                 for cat_feat in categorical_features:
                     if cat_feat in train_df_for_signature.columns:
                         unique_vals = train_df_for_signature[cat_feat].dropna().unique()
+                        # Sort to ensure consistent category ordering
+                        unique_vals = sorted(unique_vals)
                         train_df_for_signature[cat_feat] = pd.Categorical(
                             train_df_for_signature[cat_feat], 
-                            categories=unique_vals
+                            categories=unique_vals,
+                            ordered=False
                         )
                 
                 # Infer signature from pandas DataFrame (preserves categorical types)
@@ -692,7 +698,18 @@ def train_accumulating_window(
                     model.predict(X_train[:100])  # Match predictions to sample
                 )
                 # Use pandas DataFrame for input example (preserves categorical types)
-                input_example = train_df_for_signature.head(5)
+                # MLflow validation accepts category dtype, but columns must be category, not object
+                input_example = train_df_for_signature.head(5).copy()
+                # Ensure categorical dtypes are preserved (they should be from the conversion above)
+                for cat_feat in categorical_features:
+                    if cat_feat in input_example.columns and input_example[cat_feat].dtype.name != 'category':
+                        # Re-convert if somehow lost
+                        unique_vals = sorted(input_example[cat_feat].dropna().unique())
+                        input_example[cat_feat] = pd.Categorical(
+                            input_example[cat_feat],
+                            categories=unique_vals,
+                            ordered=False
+                        )
                 
                 # Get explicit dependencies
                 deps = get_model_dependencies()

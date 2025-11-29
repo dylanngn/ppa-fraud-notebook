@@ -231,7 +231,7 @@ def add_base_tabular_features(df: pl.DataFrame) -> pl.DataFrame:
     # 5. Payment Type - Keep as categorical string for XGBoost native categorical support
     if "payment_type" in df.columns:
         df = df.with_columns([
-            pl.col("payment_type").fill_null("INVOICE").str.upper().alias("payment_type"),
+            pl.col("payment_type").fill_null("INVOICE").str.to_uppercase().alias("payment_type"),
         ])
     else:
         df = df.with_columns([
@@ -241,7 +241,7 @@ def add_base_tabular_features(df: pl.DataFrame) -> pl.DataFrame:
     # 6. Offer Type - Keep as categorical string for XGBoost native categorical support
     if "offer_type" in df.columns:
         df = df.with_columns([
-            pl.col("offer_type").fill_null("RENT").str.upper().alias("offer_type"),
+            pl.col("offer_type").fill_null("RENT").str.to_uppercase().alias("offer_type"),
         ])
     else:
         df = df.with_columns([

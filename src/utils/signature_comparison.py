@@ -8,6 +8,14 @@ Accounts for:
 - Shared training pipeline (training_window.py)
 - Model-specific embeddings (baseline has none, hybrid models have 64)
 """
+import sys
+from pathlib import Path
+
+# Add project root to path for imports when running as script
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from typing import List
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -15,6 +23,9 @@ from src.models.experiment_config import ExperimentConfig
 from src.models.signature_validation import create_experiment_signature_report
 from src.models.constants import BASE_FEATURES, ALL_GRAPH_FEATURE_COLUMNS
 import json
+
+# Set MLflow tracking URI to use SQLite database
+mlflow.set_tracking_uri("sqlite:///fraud-detection-mlflow.db")
 
 
 def compare_all_models(
@@ -146,8 +157,30 @@ def compare_all_models(
 
 
 if __name__ == "__main__":
+    import argparse
     import sys
     
-    experiment_name = sys.argv[1] if len(sys.argv) > 1 else "ppa-fraud-detection"
-    compare_all_models(experiment_name=experiment_name)
+    parser = argparse.ArgumentParser(description="Compare model signatures for fair comparison")
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="ppa-fraud-detection",
+        help="MLflow experiment name"
+    )
+    parser.add_argument(
+        "--model-types",
+        type=str,
+        nargs="+",
+        default=["baseline_graph", "hybrid_hgt", "hybrid_sage"],
+        help="Model types to compare"
+    )
+    
+    # Support legacy positional argument for backward compatibility
+    if len(sys.argv) == 2 and not sys.argv[1].startswith("--"):
+        # Legacy: python script.py experiment_name
+        experiment_name = sys.argv[1]
+        compare_all_models(experiment_name=experiment_name)
+    else:
+        args = parser.parse_args()
+        compare_all_models(experiment_name=args.experiment_name, model_types=args.model_types)
 

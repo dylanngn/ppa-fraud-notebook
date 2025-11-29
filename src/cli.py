@@ -44,7 +44,7 @@ def train_baseline(
     experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
     initial_window_days: int = typer.Option(180, help="Initial training window size in days"),
     step_days: int = typer.Option(7, help="Step size between evaluation windows in days"),
-    feature_categories: Optional[List[str]] = typer.Option(
+    feature_categories: Optional[str] = typer.Option(
         None,
         help="Comma-separated feature categories: base,graph,advanced_graph,time_weighted,interaction,text"
     ),
