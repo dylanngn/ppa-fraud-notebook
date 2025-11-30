@@ -12,6 +12,7 @@ Follows MLflow best practices for model lifecycle management.
 from typing import Dict, List, Optional, Tuple
 import mlflow
 from mlflow.tracking import MlflowClient
+import typer
 
 
 def compare_models(
@@ -323,4 +324,66 @@ def recommend_deployment(
         "reason": reason,
         "comparison": comparison,
     }
+
+
+app = typer.Typer(help="MLflow Model Comparison and Drift Detection CLI")
+
+
+@app.command()
+def compare(
+    model_name: str = typer.Option(..., help="Registered model name"),
+    candidate_run_id: str = typer.Option(..., help="Candidate run ID"),
+    primary_metric: str = typer.Option("auc_pr", help="Primary metric to compare"),
+    improvement_threshold: float = typer.Option(0.01, help="Minimum improvement threshold"),
+):
+    """Compare a candidate model with production."""
+    result = compare_with_production(
+        model_name=model_name,
+        candidate_run_id=candidate_run_id,
+        primary_metric=primary_metric,
+        improvement_threshold=improvement_threshold
+    )
+    
+    import json
+    typer.echo(json.dumps(result, indent=2, default=str))
+
+
+@app.command()
+def drift(
+    model_name: str = typer.Option(..., help="Registered model name"),
+    n_versions: int = typer.Option(5, help="Number of recent versions to analyze"),
+):
+    """Analyze model drift across recent versions."""
+    result = get_model_drift_summary(
+        model_name=model_name,
+        n_recent_versions=n_versions
+    )
+    
+    import json
+    typer.echo(json.dumps(result, indent=2, default=str))
+
+
+@app.command()
+def recommend(
+    model_name: str = typer.Option(..., help="Registered model name"),
+    candidate_run_id: str = typer.Option(..., help="Candidate run ID"),
+    primary_metric: str = typer.Option("auc_pr", help="Primary metric to compare"),
+    improvement_threshold: float = typer.Option(0.01, help="Minimum improvement threshold"),
+    min_improvement_pct: float = typer.Option(1.0, help="Minimum percentage improvement"),
+):
+    """Get deployment recommendation."""
+    result = recommend_deployment(
+        model_name=model_name,
+        candidate_run_id=candidate_run_id,
+        primary_metric=primary_metric,
+        improvement_threshold=improvement_threshold,
+        min_improvement_pct=min_improvement_pct
+    )
+    
+    import json
+    typer.echo(json.dumps(result, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    app()
 

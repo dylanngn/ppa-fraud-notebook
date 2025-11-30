@@ -1,0 +1,15 @@
+# Feature configuration
+defaults:
+  - _self_
+
+# Feature categories to include
+# Note: interaction features are temporarily disabled due to dependency issues
+categories:
+  - base
+  - graph
+  - advanced_graph
+  - time_weighted
+  - text
+
+# Specific feature columns can be excluded here if needed
+exclude: []

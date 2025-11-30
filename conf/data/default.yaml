@@ -1,0 +1,20 @@
+# Data configuration
+defaults:
+  - _self_
+
+# Database settings (loaded from env vars usually, but defaults here)
+db_uri: ${oc.env:DB_URI}
+db_schema: ${oc.env:DB_SCHEMA}
+
+# Extraction settings
+extract:
+  start_date: "2023-01-01"
+  end_date: "2025-11-02"
+  days_per_chunk: 7
+  force_refresh: false
+
+# Paths
+paths:
+  artifacts_dir: "artifacts"
+  raw_insertions: "artifacts/raw_insertions.parquet"
+  temp_chunks: "artifacts/temp_raw_insertions"

@@ -1,4 +1,3 @@
-artifacts
 mlruns
 .venv
 .env
@@ -13,5 +12,8 @@ __pycache__/
 # System
 .DS_Store
 
-mlruns
+outputs/
+mlruns/
+artifacts/
+**.db
 

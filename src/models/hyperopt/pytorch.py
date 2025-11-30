@@ -7,11 +7,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import mlflow
+import typer
 from typing import Dict, Any, Callable, Optional
 from datetime import datetime
 
-from src.models.common import get_device, setup_mlflow, filter_graph_by_time
-from src.models.experiment_config import ExperimentConfig
+from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
+from src.models.config.experiment_config import ExperimentConfig
 from src.utils.metrics import calculate_metrics
 
 
@@ -274,9 +275,48 @@ def optimize_pytorch_hyperparameters(
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
         mlflow.log_metric("best_composite_score", -study.best_value)
         
-        return {
+    return {
             "best_params": study.best_params,
             "best_score": -study.best_value,
             "n_trials": len(study.trials),
         }
+
+
+def main(
+    model_type: str = typer.Option(..., help="Model type: 'hgt' or 'sage'"),
+    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
+    n_trials: int = typer.Option(50, help="Number of Optuna trials"),
+    epochs: int = typer.Option(25, help="Number of training epochs per trial"),
+    timeout_minutes: Optional[int] = typer.Option(None, help="Optional timeout in minutes"),
+):
+    """
+    Hyperparameter optimization for PyTorch GNN models using Optuna.
+    
+    Tunes GNN hyperparameters to maximize: 0.7 * AUC-PR + 0.3 * P@100
+    """
+    from src.models.gnn.hgt import HGTWrapper
+    from src.models.gnn.sage import SAGEWrapper
+    from src.models.config.experiment_config import ExperimentConfig
+    
+    model_class = HGTWrapper if model_type.lower() == "hgt" else SAGEWrapper
+    
+    config = ExperimentConfig(experiment_name=experiment_name)
+    
+    result = optimize_pytorch_hyperparameters(
+        model_class=model_class,
+        config=config,
+        n_trials=n_trials,
+        epochs=epochs,
+        timeout_minutes=timeout_minutes
+    )
+    
+    typer.echo(f"Best parameters: {result['best_params']}")
+    typer.echo(f"Best score: {result['best_score']:.4f}")
+    
+    return result
+
+
+if __name__ == "__main__":
+    import typer
+    typer.run(main)
 

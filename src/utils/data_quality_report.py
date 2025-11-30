@@ -1,11 +1,13 @@
 """
 Data Quality Report Generator
 
-Analyzes the flattened insertions data to generate a comprehensive report on:
+Analyzes the flattened insertions data to generate CSV reports for:
 - Fields that are mostly null and unusable
 - Top fields with highest coverage (most present)
 - Phone, email, and address field coverage specifically
 - Other useful validations (data types, value distributions, etc.)
+
+All outputs are sorted by positive metrics (coverage, non-null percentage, etc.)
 """
 
 import polars as pl
@@ -13,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
+import typer
 
 
 def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
@@ -33,7 +36,6 @@ def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
     df_display = df.head(max_rows) if max_rows else df
     
     # Use Polars' built-in string representation which produces nice table output
-    # This avoids pandas dependency entirely
     return str(df_display)
 
 
@@ -54,7 +56,10 @@ def load_flattened_data(data_path: str = "artifacts/raw_insertions.parquet") -> 
 
 
 def calculate_null_stats(df: pl.DataFrame) -> pl.DataFrame:
-    """Calculate null percentage and counts for all columns using Polars expressions."""
+    """Calculate null percentage and counts for all columns using Polars expressions.
+    
+    Returns DataFrame sorted by non_null_pct (highest coverage first).
+    """
     n_rows = len(df)
     
     if n_rows == 0:
@@ -85,7 +90,7 @@ def calculate_null_stats(df: pl.DataFrame) -> pl.DataFrame:
             "dtype": str(col_dtype)
         })
     
-    return pl.DataFrame(stats).sort("null_pct", descending=True)
+    return pl.DataFrame(stats).sort("non_null_pct", descending=True)
 
 
 def identify_unusable_fields(null_stats: pl.DataFrame, threshold: float = 95.0) -> pl.DataFrame:
@@ -97,9 +102,13 @@ def identify_unusable_fields(null_stats: pl.DataFrame, threshold: float = 95.0) 
         threshold: Percentage threshold (default 95% null = unusable)
     
     Returns:
-        DataFrame of unusable fields
+        DataFrame of unusable fields, sorted by non_null_pct ascending (worst coverage first)
     """
-    return null_stats.filter(pl.col("null_pct") >= threshold)
+    return (
+        null_stats
+        .filter(pl.col("null_pct") >= threshold)
+        .sort("non_null_pct", descending=False)  # Worst coverage first
+    )
 
 
 def identify_high_coverage_fields(null_stats: pl.DataFrame, threshold: float = 50.0) -> pl.DataFrame:
@@ -292,50 +301,29 @@ def analyze_categorical_fields(df: pl.DataFrame, null_stats: pl.DataFrame, top_n
     return categorical_stats
 
 
-def check_data_consistency(df: pl.DataFrame) -> Dict[str, any]:
+def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
     """
     Check for data consistency issues.
     
     Works with dot-notation field names (e.g., listing.id, listing.meta.createdAt).
     
-    Returns dictionary of consistency checks.
+    Returns DataFrame of consistency checks, sorted by positive metrics (coverage, etc.)
     """
-    checks = {}
+    checks = []
     
     # Check for duplicate object_reference
     if "object_reference" in df.columns:
         total = len(df)
         unique = df.select("object_reference").n_unique()
-        checks["duplicate_object_reference"] = {
+        checks.append({
+            "check_name": "duplicate_object_reference",
+            "metric": "unique_pct",
+            "value": (unique / total * 100) if total > 0 else 0,
             "total": total,
             "unique": unique,
             "duplicates": total - unique,
             "issue": total != unique
-        }
-    
-    # Check date consistency (works with both base columns and dot-notation)
-    # Look for date/datetime fields
-    date_cols = [
-        c for c in df.columns 
-        if ("date" in c.lower() or "at" in c.lower()) 
-        and c not in ["object_reference"]  # Exclude non-date fields
-    ]
-    date_checks = {}
-    for col in date_cols[:10]:  # Limit to first 10 date columns
-        if col in df.columns:
-            try:
-                # Check if it's actually a date/datetime column
-                dtype = str(df[col].dtype)
-                if "date" in dtype.lower() or "datetime" in dtype.lower():
-                    min_date = df.select(pl.col(col).min()).item()
-                    max_date = df.select(pl.col(col).max()).item()
-                    date_checks[col] = {
-                        "min": str(min_date) if min_date else None,
-                        "max": str(max_date) if max_date else None
-                    }
-            except:
-                pass
-    checks["date_ranges"] = date_checks
+        })
     
     # Check for flattened JSON structure consistency
     # Count how many rows have flattened listing fields
@@ -344,77 +332,108 @@ def check_data_consistency(df: pl.DataFrame) -> Dict[str, any]:
         listing_id_col = listing_id_cols[0]
         total = len(df)
         has_listing_id = df.filter(pl.col(listing_id_col).is_not_null()).height
-        checks["flattened_listing_coverage"] = {
+        coverage_pct = (has_listing_id / total * 100) if total > 0 else 0
+        checks.append({
+            "check_name": "flattened_listing_coverage",
+            "metric": "coverage_pct",
+            "value": coverage_pct,
             "total": total,
             "with_listing_id": has_listing_id,
-            "coverage_pct": (has_listing_id / total * 100) if total > 0 else 0,
             "issue": has_listing_id < total * 0.9  # Flag if <90% have listing data
-        }
+        })
     
     # Check for empty strings vs nulls in key fields
     if "object_reference" in df.columns:
+        total = len(df)
         empty_refs = df.filter(pl.col("object_reference").is_null() | (pl.col("object_reference") == "")).height
-        checks["empty_object_reference"] = {
-            "count": empty_refs,
+        valid_pct = ((total - empty_refs) / total * 100) if total > 0 else 0
+        checks.append({
+            "check_name": "empty_object_reference",
+            "metric": "valid_pct",
+            "value": valid_pct,
+            "total": total,
+            "empty_count": empty_refs,
+            "valid_count": total - empty_refs,
             "issue": empty_refs > 0
-        }
+        })
     
-    return checks
+    # Check date consistency (works with both base columns and dot-notation)
+    # Look for date/datetime fields
+    date_cols = [
+        c for c in df.columns 
+        if ("date" in c.lower() or "at" in c.lower()) 
+        and c not in ["object_reference"]  # Exclude non-date fields
+    ]
+    for col in date_cols[:20]:  # Limit to first 20 date columns
+        if col in df.columns:
+            try:
+                # Check if it's actually a date/datetime column
+                dtype = str(df[col].dtype)
+                if "date" in dtype.lower() or "datetime" in dtype.lower():
+                    min_date = df.select(pl.col(col).min()).item()
+                    max_date = df.select(pl.col(col).max()).item()
+                    if min_date and max_date:
+                        checks.append({
+                            "check_name": f"date_range_{col}",
+                            "metric": "date_range",
+                            "value": None,  # No single numeric metric
+                            "min_date": str(min_date),
+                            "max_date": str(max_date),
+                            "issue": False
+                        })
+            except:
+                pass
+    
+    if not checks:
+        return pl.DataFrame({
+            "check_name": [],
+            "metric": [],
+            "value": [],
+            "issue": []
+        })
+    
+    result_df = pl.DataFrame(checks)
+    # Sort by value (positive metric) descending, with None values last
+    return result_df.sort(
+        by="value",
+        descending=True,
+        nulls_last=True
+    )
 
 
-def generate_report(
-    data_path: str = "artifacts/raw_insertions.parquet",
-    output_path: str = "artifacts/data_quality_report.txt",
-    null_threshold_unusable: float = 95.0,
-    null_threshold_high_coverage: float = 50.0
+def generate_text_report(
+    df: pl.DataFrame,
+    null_stats: pl.DataFrame,
+    unusable: pl.DataFrame,
+    high_coverage: pl.DataFrame,
+    contact_analysis: Dict[str, pl.DataFrame],
+    type_analysis: pl.DataFrame,
+    numeric_analysis: pl.DataFrame,
+    categorical_analysis: Dict[str, pl.DataFrame],
+    consistency_checks: pl.DataFrame,
+    data_path: str,
+    output_path: Path,
+    null_threshold_unusable: float,
+    null_threshold_high_coverage: float
 ) -> None:
     """
-    Generate comprehensive data quality report.
+    Generate comprehensive text report with all details.
     
     Args:
-        data_path: Path to flattened insertions parquet file
-        output_path: Path to save the report
-        null_threshold_unusable: Fields with >this % null are considered unusable
-        null_threshold_high_coverage: Fields with <this % null are considered high coverage
+        df: Original DataFrame
+        null_stats: Null statistics for all fields
+        unusable: Unusable fields DataFrame
+        high_coverage: High coverage fields DataFrame (ALL fields, not limited)
+        contact_analysis: Dictionary with phone, email, address analyses
+        type_analysis: Data type distribution
+        numeric_analysis: Numeric field statistics
+        categorical_analysis: Categorical field value distributions
+        consistency_checks: Consistency check results
+        data_path: Path to source data
+        output_path: Path to save text report
+        null_threshold_unusable: Threshold for unusable fields
+        null_threshold_high_coverage: Threshold for high coverage fields
     """
-    print("=" * 80)
-    print("DATA QUALITY REPORT GENERATOR")
-    print("=" * 80)
-    
-    # Load data
-    df = load_flattened_data(data_path)
-    print(f"\nLoaded {len(df):,} rows with {len(df.columns)} columns")
-    
-    # Calculate null statistics
-    print("\nCalculating null statistics...")
-    null_stats = calculate_null_stats(df)
-    
-    # Identify unusable fields
-    unusable = identify_unusable_fields(null_stats, threshold=null_threshold_unusable)
-    
-    # Identify high coverage fields
-    high_coverage = identify_high_coverage_fields(null_stats, threshold=null_threshold_high_coverage)
-    
-    # Analyze contact fields
-    print("Analyzing contact fields (phones, emails, addresses)...")
-    contact_analysis = analyze_contact_fields(df)
-    
-    # Analyze data types
-    type_analysis = analyze_data_types(df)
-    
-    # Analyze numeric fields
-    print("Analyzing numeric fields...")
-    numeric_analysis = analyze_numeric_fields(df, null_stats)
-    
-    # Analyze categorical fields (limited to avoid too much output)
-    print("Analyzing categorical fields...")
-    categorical_analysis = analyze_categorical_fields(df, null_stats, top_n=5)
-    
-    # Check data consistency
-    print("Checking data consistency...")
-    consistency_checks = check_data_consistency(df)
-    
-    # Generate report
     report_lines = []
     report_lines.append("=" * 80)
     report_lines.append("DATA QUALITY REPORT")
@@ -438,21 +457,17 @@ def generate_report(
     report_lines.append("=" * 80)
     if len(unusable) > 0:
         report_lines.append(f"\nFound {len(unusable)} fields that are mostly null:")
-        # Format using Polars
-        report_lines.append(format_dataframe_table(unusable.head(50)))
-        if len(unusable) > 50:
-            report_lines.append(f"\n... and {len(unusable) - 50} more fields")
+        report_lines.append(format_dataframe_table(unusable))
     else:
         report_lines.append("\nNo fields found above the unusable threshold.")
     
-    # High coverage fields
+    # High coverage fields - LIST ALL, NOT JUST TOP ONES
     report_lines.append("\n" + "=" * 80)
     report_lines.append(f"HIGH COVERAGE FIELDS (<{null_threshold_high_coverage}% NULL)")
     report_lines.append("=" * 80)
     if len(high_coverage) > 0:
-        report_lines.append(f"\nTop {min(30, len(high_coverage))} fields with highest coverage:")
-        # Format using Polars
-        report_lines.append(format_dataframe_table(high_coverage.head(30)))
+        report_lines.append(f"\nAll {len(high_coverage)} fields with high coverage (sorted by coverage, highest first):")
+        report_lines.append(format_dataframe_table(high_coverage))  # No limit - show all
     else:
         report_lines.append("\nNo high coverage fields found.")
     
@@ -462,7 +477,6 @@ def generate_report(
     report_lines.append("=" * 80)
     if len(contact_analysis["phones"]) > 0:
         report_lines.append(f"\nFound {len(contact_analysis['phones'])} phone fields:")
-        # Format using Polars
         report_lines.append(format_dataframe_table(contact_analysis["phones"]))
     else:
         report_lines.append("\nNo phone fields found.")
@@ -473,7 +487,6 @@ def generate_report(
     report_lines.append("=" * 80)
     if len(contact_analysis["emails"]) > 0:
         report_lines.append(f"\nFound {len(contact_analysis['emails'])} email fields:")
-        # Format using Polars
         report_lines.append(format_dataframe_table(contact_analysis["emails"]))
     else:
         report_lines.append("\nNo email fields found.")
@@ -484,7 +497,6 @@ def generate_report(
     report_lines.append("=" * 80)
     if len(contact_analysis["addresses"]) > 0:
         report_lines.append(f"\nFound {len(contact_analysis['addresses'])} address fields:")
-        # Format using Polars
         report_lines.append(format_dataframe_table(contact_analysis["addresses"]))
     else:
         report_lines.append("\nNo address fields found.")
@@ -493,105 +505,223 @@ def generate_report(
     report_lines.append("\n" + "=" * 80)
     report_lines.append("DATA TYPE DISTRIBUTION")
     report_lines.append("=" * 80)
-    # Format using Polars
     report_lines.append(format_dataframe_table(type_analysis))
     
     # Numeric fields summary
     if len(numeric_analysis) > 0:
         report_lines.append("\n" + "=" * 80)
-        report_lines.append("NUMERIC FIELDS SUMMARY (Top 20 by Coverage)")
+        report_lines.append("NUMERIC FIELDS SUMMARY (Sorted by Coverage)")
         report_lines.append("=" * 80)
-        # Format using Polars
-        report_lines.append(format_dataframe_table(numeric_analysis.head(20)))
+        report_lines.append(format_dataframe_table(numeric_analysis))  # Show all numeric fields
     
     # Categorical fields summary (top values)
     if categorical_analysis:
         report_lines.append("\n" + "=" * 80)
         report_lines.append("CATEGORICAL FIELDS - TOP VALUES")
         report_lines.append("=" * 80)
-        for col, value_counts in list(categorical_analysis.items())[:10]:
+        for col, value_counts in categorical_analysis.items():
             report_lines.append(f"\n{col}:")
-            # Format using Polars
             report_lines.append(format_dataframe_table(value_counts))
     
     # Data consistency checks
     report_lines.append("\n" + "=" * 80)
     report_lines.append("DATA CONSISTENCY CHECKS")
     report_lines.append("=" * 80)
-    for check_name, check_result in consistency_checks.items():
-        report_lines.append(f"\n{check_name}:")
-        if isinstance(check_result, dict):
-            for key, value in check_result.items():
-                report_lines.append(f"  {key}: {value}")
-        else:
-            report_lines.append(f"  {check_result}")
+    if len(consistency_checks) > 0:
+        report_lines.append(format_dataframe_table(consistency_checks))
+    else:
+        report_lines.append("\nNo consistency checks performed.")
     
     # Write report
     report_text = "\n".join(report_lines)
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         f.write(report_text)
+
+
+def generate_report(
+    data_path: str = "artifacts/raw_insertions.parquet",
+    output_dir: str = "artifacts/data_quality_reports",
+    null_threshold_unusable: float = 95.0,
+    null_threshold_high_coverage: float = 50.0
+) -> None:
+    """
+    Generate comprehensive data quality reports as CSV files.
     
-    print(f"\n{'=' * 80}")
-    print(f"Report saved to: {output_path}")
-    print(f"{'=' * 80}")
+    Args:
+        data_path: Path to flattened insertions parquet file
+        output_dir: Directory to save CSV reports
+        null_threshold_unusable: Fields with >=this % null are considered unusable
+        null_threshold_high_coverage: Fields with <this % null are considered high coverage
+    """
+    print("=" * 80)
+    print("DATA QUALITY REPORT GENERATOR")
+    print("=" * 80)
+    
+    # Create output directory
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Load data
+    df = load_flattened_data(data_path)
+    print(f"\nLoaded {len(df):,} rows with {len(df.columns)} columns")
+    
+    # Calculate null statistics
+    print("\nCalculating null statistics...")
+    null_stats = calculate_null_stats(df)
+    
+    # Save all null statistics (sorted by coverage)
+    null_stats_path = output_path / "01_all_fields_null_stats.csv"
+    null_stats.write_csv(null_stats_path)
+    print(f"  ✓ Saved: {null_stats_path} ({len(null_stats)} fields)")
+    
+    # Identify unusable fields
+    unusable = identify_unusable_fields(null_stats, threshold=null_threshold_unusable)
+    if len(unusable) > 0:
+        unusable_path = output_path / "02_unusable_fields.csv"
+        unusable.write_csv(unusable_path)
+        print(f"  ✓ Saved: {unusable_path} ({len(unusable)} fields)")
+    else:
+        print(f"  - No unusable fields found (threshold: {null_threshold_unusable}% null)")
+    
+    # Identify high coverage fields
+    high_coverage = identify_high_coverage_fields(null_stats, threshold=null_threshold_high_coverage)
+    if len(high_coverage) > 0:
+        high_coverage_path = output_path / "03_high_coverage_fields.csv"
+        high_coverage.write_csv(high_coverage_path)
+        print(f"  ✓ Saved: {high_coverage_path} ({len(high_coverage)} fields)")
+    else:
+        print(f"  - No high coverage fields found (threshold: <{null_threshold_high_coverage}% null)")
+    
+    # Analyze contact fields
+    print("\nAnalyzing contact fields (phones, emails, addresses)...")
+    contact_analysis = analyze_contact_fields(df)
+    
+    if len(contact_analysis["phones"]) > 0:
+        phones_path = output_path / "04_phone_fields.csv"
+        contact_analysis["phones"].write_csv(phones_path)
+        print(f"  ✓ Saved: {phones_path} ({len(contact_analysis['phones'])} fields)")
+    
+    if len(contact_analysis["emails"]) > 0:
+        emails_path = output_path / "05_email_fields.csv"
+        contact_analysis["emails"].write_csv(emails_path)
+        print(f"  ✓ Saved: {emails_path} ({len(contact_analysis['emails'])} fields)")
+    
+    if len(contact_analysis["addresses"]) > 0:
+        addresses_path = output_path / "06_address_fields.csv"
+        contact_analysis["addresses"].write_csv(addresses_path)
+        print(f"  ✓ Saved: {addresses_path} ({len(contact_analysis['addresses'])} fields)")
+    
+    # Analyze data types
+    print("\nAnalyzing data types...")
+    type_analysis = analyze_data_types(df)
+    type_path = output_path / "07_data_type_distribution.csv"
+    type_analysis.write_csv(type_path)
+    print(f"  ✓ Saved: {type_path} ({len(type_analysis)} types)")
+    
+    # Analyze numeric fields
+    print("\nAnalyzing numeric fields...")
+    numeric_analysis = analyze_numeric_fields(df, null_stats)
+    if len(numeric_analysis) > 0:
+        numeric_path = output_path / "08_numeric_fields.csv"
+        numeric_analysis.write_csv(numeric_path)
+        print(f"  ✓ Saved: {numeric_path} ({len(numeric_analysis)} fields)")
+    else:
+        print(f"  - No numeric fields found")
+    
+    # Analyze categorical fields
+    print("\nAnalyzing categorical fields...")
+    categorical_analysis = analyze_categorical_fields(df, null_stats, top_n=10)
+    if categorical_analysis:
+        categorical_dir = output_path / "09_categorical_fields"
+        categorical_dir.mkdir(exist_ok=True)
+        for col, value_counts in categorical_analysis.items():
+            # Sanitize column name for filename
+            safe_col_name = col.replace("/", "_").replace("\\", "_").replace(".", "_")
+            cat_path = categorical_dir / f"{safe_col_name}_top_values.csv"
+            value_counts.write_csv(cat_path)
+        print(f"  ✓ Saved: {len(categorical_analysis)} categorical field analyses to {categorical_dir}/")
+    else:
+        print(f"  - No categorical fields analyzed")
+    
+    # Check data consistency
+    print("\nChecking data consistency...")
+    consistency_checks = check_data_consistency(df)
+    if len(consistency_checks) > 0:
+        consistency_path = output_path / "10_data_consistency_checks.csv"
+        consistency_checks.write_csv(consistency_path)
+        print(f"  ✓ Saved: {consistency_path} ({len(consistency_checks)} checks)")
+    else:
+        print(f"  - No consistency checks performed")
+    
+    # Generate comprehensive text report
+    print("\nGenerating text report...")
+    text_report_path = output_path / "data_quality_report.txt"
+    generate_text_report(
+        df=df,
+        null_stats=null_stats,
+        unusable=unusable,
+        high_coverage=high_coverage,
+        contact_analysis=contact_analysis,
+        type_analysis=type_analysis,
+        numeric_analysis=numeric_analysis,
+        categorical_analysis=categorical_analysis,
+        consistency_checks=consistency_checks,
+        data_path=data_path,
+        output_path=text_report_path,
+        null_threshold_unusable=null_threshold_unusable,
+        null_threshold_high_coverage=null_threshold_high_coverage
+    )
+    print(f"  ✓ Saved: {text_report_path}")
     
     # Print summary to console
-    print("\nSUMMARY:")
+    print(f"\n{'=' * 80}")
+    print("SUMMARY:")
+    print(f"  - Total fields analyzed: {len(null_stats)}")
     print(f"  - Unusable fields (>={null_threshold_unusable}% null): {len(unusable)}")
     print(f"  - High coverage fields (<{null_threshold_high_coverage}% null): {len(high_coverage)}")
     print(f"  - Phone fields: {len(contact_analysis['phones'])}")
     print(f"  - Email fields: {len(contact_analysis['emails'])}")
     print(f"  - Address fields: {len(contact_analysis['addresses'])}")
+    print(f"  - Numeric fields: {len(numeric_analysis)}")
+    print(f"  - Categorical fields analyzed: {len(categorical_analysis)}")
+    print(f"  - Consistency checks: {len(consistency_checks)}")
     
     if len(contact_analysis['phones']) > 0:
         top_phone = contact_analysis['phones'].head(1)
-        print(f"  - Top phone field: {top_phone['field'][0]} ({top_phone['non_null_pct'][0]:.1f}% coverage)")
+        print(f"\n  Top phone field: {top_phone['field'][0]} ({top_phone['non_null_pct'][0]:.1f}% coverage)")
     
     if len(contact_analysis['emails']) > 0:
         top_email = contact_analysis['emails'].head(1)
-        print(f"  - Top email field: {top_email['field'][0]} ({top_email['non_null_pct'][0]:.1f}% coverage)")
+        print(f"  Top email field: {top_email['field'][0]} ({top_email['non_null_pct'][0]:.1f}% coverage)")
     
     if len(contact_analysis['addresses']) > 0:
         top_addr = contact_analysis['addresses'].head(1)
-        print(f"  - Top address field: {top_addr['field'][0]} ({top_addr['non_null_pct'][0]:.1f}% coverage)")
+        print(f"  Top address field: {top_addr['field'][0]} ({top_addr['non_null_pct'][0]:.1f}% coverage)")
+    
+    print(f"\n{'=' * 80}")
+    print(f"All reports saved to: {output_path}")
+    print(f"{'=' * 80}")
+
+
+def main(
+    data_path: str = typer.Option("artifacts/raw_insertions.parquet", help="Path to flattened & anonymized insertions parquet file"),
+    output_dir: str = typer.Option("artifacts/data_quality_reports", help="Directory to save CSV reports"),
+    null_threshold_unusable: float = typer.Option(95.0, help="Fields with >= this % null are considered unusable"),
+    null_threshold_high_coverage: float = typer.Option(50.0, help="Fields with < this % null are considered high coverage")
+):
+    """
+    Generate comprehensive data quality reports as CSV files.
+    """
+    generate_report(
+        data_path=data_path,
+        output_dir=output_dir,
+        null_threshold_unusable=null_threshold_unusable,
+        null_threshold_high_coverage=null_threshold_high_coverage
+    )
 
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Generate data quality report")
-    parser.add_argument(
-        "--data-path",
-        type=str,
-        default="artifacts/raw_insertions.parquet",
-        help="Path to flattened & anonymized insertions parquet file"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="artifacts/data_quality_report.txt",
-        help="Path to save the report"
-    )
-    parser.add_argument(
-        "--null-threshold-unusable",
-        type=float,
-        default=95.0,
-        help="Fields with >= this % null are considered unusable"
-    )
-    parser.add_argument(
-        "--null-threshold-high-coverage",
-        type=float,
-        default=50.0,
-        help="Fields with < this % null are considered high coverage"
-    )
-    
-    args = parser.parse_args()
-    
-    generate_report(
-        data_path=args.data_path,
-        output_path=args.output,
-        null_threshold_unusable=args.null_threshold_unusable,
-        null_threshold_high_coverage=args.null_threshold_high_coverage
-    )
+    import typer
+    typer.run(main)
 

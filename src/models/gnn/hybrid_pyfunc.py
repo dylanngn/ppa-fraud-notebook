@@ -14,7 +14,7 @@ import mlflow
 from mlflow.pyfunc import PythonModel, PythonModelContext
 from typing import Dict, Any, Optional
 
-from src.models.common import get_device, filter_graph_by_time
+from src.models.utils.common import get_device, filter_graph_by_time
 from src.models.feature_engineering import feature_engineering
 
 
@@ -130,7 +130,7 @@ class HybridFraudDetectionModel(PythonModel):
         cutoff_date = df["submission_at"].max()
         
         # Create default experiment config if not stored in model artifacts
-        from src.models.experiment_config import ExperimentConfig
+        from src.models.config.experiment_config import ExperimentConfig
         config = ExperimentConfig()  # Uses all feature categories by default
         df = feature_engineering(df, cutoff_date=cutoff_date, config=config)
         
@@ -282,7 +282,7 @@ def log_hybrid_model_as_pyfunc(
         )
         ```
     """
-    from src.models.mlflow_helpers import get_model_dependencies
+    from src.models.utils.mlflow_helpers import get_model_dependencies
     
     # Create artifacts dictionary
     artifacts = {
@@ -303,7 +303,7 @@ def log_hybrid_model_as_pyfunc(
     
     # Log as Python function model
     model_uri = mlflow.pyfunc.log_model(
-        artifact_path="hybrid_model",
+        name="hybrid_model",
         python_model=HybridFraudDetectionModel(),
         artifacts=artifacts,
         registered_model_name=registered_model_name,

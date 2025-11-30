@@ -5,6 +5,8 @@ import torch_geometric.transforms as T
 import os
 import numpy as np
 import pickle
+from datetime import datetime
+from typing import Optional
 from sentence_transformers import SentenceTransformer
 
 def load_node_mapping(df, id_col, node_type):
@@ -60,8 +62,20 @@ def generate_embeddings(df_listings):
     print(f"Generated {len(embeddings)} embeddings of dimension {embeddings.shape[1]}")
     return embeddings
 
-def build_graph():
+def build_graph(cutoff_date: Optional[datetime] = None):
+    """
+    Build graph from parquet artifacts with optional temporal filtering.
+    
+    Args:
+        cutoff_date: If provided, only include listings and edges before this date.
+                     This prevents temporal leakage during training.
+    
+    Returns:
+        HeteroData graph object
+    """
     print("Loading Parquet artifacts...")
+    if cutoff_date is not None:
+        print(f"Filtering graph by cutoff_date: {cutoff_date}")
     
     # --- Load Nodes ---
     df_user = pl.read_parquet("artifacts/nodes_user.parquet")
@@ -70,7 +84,16 @@ def build_graph():
     df_email = pl.read_parquet("artifacts/nodes_email.parquet")
     df_phone = pl.read_parquet("artifacts/nodes_phone.parquet")
     df_address = pl.read_parquet("artifacts/nodes_address.parquet")
-    df_person = pl.read_parquet("artifacts/nodes_person.parquet")
+    # NOTE: Person nodes removed - not used in models
+    
+    # Filter listings by cutoff_date if provided
+    if cutoff_date is not None:
+        # Ensure submission_at is datetime
+        df_listing = df_listing.with_columns(
+            pl.col("submission_at").cast(pl.Datetime("ns"))
+        )
+        df_listing = df_listing.filter(pl.col("submission_at") < cutoff_date)
+        print(f"Filtered listings to {len(df_listing)} before cutoff_date")
     
     data = HeteroData()
     
@@ -210,10 +233,7 @@ def build_graph():
     data['address'].x = torch.from_numpy(addr_feats).float()
     data['address'].num_nodes = len(addr_map)
 
-    # 7. Person
-    person_map, _ = load_node_mapping(df_person, "person_name", "person")
-    data['person'].num_nodes = len(person_map)
-    data['person'].x = torch.ones(len(person_map), 1)
+    # NOTE: Person nodes removed - not used in models
 
     # --- Process Edges ---
     
@@ -221,13 +241,81 @@ def build_graph():
     # Fix 1970 issue: Ensure nanoseconds
     listing_time_map = dict(zip(df_listing["insertion_id"], df_listing["submission_at"].cast(pl.Datetime("ns")).cast(pl.Int64)))
     
-    def add_edge(filename, src_col, dst_col, src_type, dst_type, rel_name, time_source_col=None):
+    # For user-based edges, compute user's earliest listing time
+    # This is used to timestamp user->ip and user->email edges
+    user_earliest_listing = None
+    user_earliest_listing_map = {}
+    if cutoff_date is not None:
+        # Get user->listing edges to find earliest listing per user
+        user_posts = pl.read_parquet("artifacts/edges_user_posts_listing.parquet")
+        user_posts = user_posts.join(
+            df_listing.select(["insertion_id", "submission_at"]),
+            left_on="target",
+            right_on="insertion_id",
+            how="inner"
+        )
+        user_earliest_listing = (
+            user_posts.group_by("source")
+            .agg(pl.col("submission_at").min().alias("earliest_listing_time"))
+            .with_columns(
+                pl.col("earliest_listing_time").cast(pl.Datetime("ns")).cast(pl.Int64)
+            )
+        )
+        user_earliest_listing_map = dict(
+            zip(user_earliest_listing["source"], user_earliest_listing["earliest_listing_time"])
+        )
+    
+    def add_edge(filename, src_col, dst_col, src_type, dst_type, rel_name, time_source_col=None, edge_type="listing_to_target"):
+        """
+        Add edge to graph with temporal filtering.
+        
+        Args:
+            edge_type: How to filter edges temporally:
+                - "listing_to_target": source is listing_id, filter by source
+                - "target_to_listing": target is listing_id, filter by target
+                - "user_based": edge involves user, filter by user's earliest listing
+        """
         print(f"Processing edge: {src_type} - {rel_name} - {dst_type}")
         if not os.path.exists(f"artifacts/{filename}"):
             print(f"Warning: {filename} not found. Skipping.")
             return
 
         df_edge = pl.read_parquet(f"artifacts/{filename}")
+        
+        # Apply temporal filtering if cutoff_date is provided
+        if cutoff_date is not None:
+            if edge_type == "listing_to_target":
+                # source is listing_id, filter by source
+                df_edge = df_edge.join(
+                    df_listing.select(["insertion_id"]),
+                    left_on="source",
+                    right_on="insertion_id",
+                    how="inner"
+                ).select(["source", "target"])
+            elif edge_type == "target_to_listing":
+                # target is listing_id, filter by target
+                df_edge = df_edge.join(
+                    df_listing.select(["insertion_id"]),
+                    left_on="target",
+                    right_on="insertion_id",
+                    how="inner"
+                ).select(["source", "target"])
+            elif edge_type == "user_based":
+                # Filter by user's earliest listing time
+                if user_earliest_listing is not None:
+                    df_edge = df_edge.join(
+                        user_earliest_listing,
+                        left_on="source",
+                        right_on="source",
+                        how="inner"
+                    ).select(["source", "target"])
+                else:
+                    # No users with listings before cutoff, skip this edge type
+                    return
+        
+        if df_edge.is_empty():
+            print(f"  No edges remaining after temporal filtering")
+            return
         
         # Map IDs to Indices
         src_indices = [src_map.get(i) for i in df_edge[src_col].to_list()]
@@ -253,6 +341,10 @@ def build_graph():
             elif src_type == 'listing':
                 valid_src_ids = [i for i, v in zip(df_edge[src_col].to_list(), valid_mask) if v]
                 edge_times = [listing_time_map.get(i, 0) for i in valid_src_ids]
+        elif edge_type == "user_based" and cutoff_date is not None:
+            # For user-based edges, use user's earliest listing time
+            valid_src_ids = [i for i, v in zip(df_edge[src_col].to_list(), valid_mask) if v]
+            edge_times = [user_earliest_listing_map.get(i, 0) for i in valid_src_ids]
                 
         if edge_times:
             data[src_type, rel_name, dst_type].timestamp = torch.tensor(edge_times, dtype=torch.long)
@@ -264,55 +356,70 @@ def build_graph():
         "ip": ip_map,
         "email": email_map,
         "phone": phone_map,
-        "address": addr_map,
-        "person": person_map
+        "address": addr_map
     }
 
     # 1. User -> Posts -> Listing
     src_map, dst_map = maps["user"], maps["listing"]
-    add_edge("edges_user_posts_listing.parquet", "source", "target", "user", "listing", "posts", time_source_col="target")
+    add_edge("edges_user_posts_listing.parquet", "source", "target", "user", "listing", "posts", time_source_col="target", edge_type="target_to_listing")
     
     # 2. User -> Uses -> IP
     src_map, dst_map = maps["user"], maps["ip"]
-    add_edge("edges_user_uses_ip.parquet", "source", "target", "user", "ip", "uses")
+    add_edge("edges_user_uses_ip.parquet", "source", "target", "user", "ip", "uses", edge_type="user_based")
     
     # 3. User -> Has -> Email
     src_map, dst_map = maps["user"], maps["email"]
-    add_edge("edges_user_email.parquet", "source", "target", "user", "email", "has_email")
+    add_edge("edges_user_has_email.parquet", "source", "target", "user", "email", "has_email", edge_type="user_based")
     
     # 4. Listing -> Has -> Email (All types)
     src_map, dst_map = maps["listing"], maps["email"]
-    add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "email", "has_contact_email", time_source_col="source")
-    add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "email", "has_billing_email", time_source_col="source")
+    add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "email", "has_contact_email", time_source_col="source", edge_type="listing_to_target")
+    add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "email", "has_billing_email", time_source_col="source", edge_type="listing_to_target")
     
     # 5. Listing -> Has -> Phone (All types)
     src_map, dst_map = maps["listing"], maps["phone"]
-    add_edge("edges_listing_contact_phone.parquet", "source", "target", "listing", "phone", "has_contact_phone", time_source_col="source")
-    add_edge("edges_listing_billing_phone.parquet", "source", "target", "listing", "phone", "has_billing_phone", time_source_col="source")
+    add_edge("edges_listing_contact_phone.parquet", "source", "target", "listing", "phone", "has_contact_phone", time_source_col="source", edge_type="listing_to_target")
+    add_edge("edges_listing_billing_phone.parquet", "source", "target", "listing", "phone", "has_billing_phone", time_source_col="source", edge_type="listing_to_target")
     
     # 8. Listing -> Located_At -> Address
     src_map, dst_map = maps["listing"], maps["address"]
-    add_edge("edges_listing_located_at.parquet", "source", "target", "listing", "address", "located_at", time_source_col="source")
-    add_edge("edges_listing_lister_addr.parquet", "source", "target", "listing", "address", "lister_address", time_source_col="source")
-    add_edge("edges_listing_billing_addr.parquet", "source", "target", "listing", "address", "billing_address", time_source_col="source")
+    add_edge("edges_listing_located_at.parquet", "source", "target", "listing", "address", "located_at", time_source_col="source", edge_type="listing_to_target")
+    add_edge("edges_listing_billing_addr.parquet", "source", "target", "listing", "address", "billing_address", time_source_col="source", edge_type="listing_to_target")
     
-    # 9. Listing -> Has_Contact_Person -> Person
-    src_map, dst_map = maps["listing"], maps["person"]
-    add_edge("edges_listing_has_person.parquet", "source", "target", "listing", "person", "has_contact_person", time_source_col="source")
+    # NOTE: Person edges removed - not used in models
 
     # --- Reverse Edges ---
     transform = T.ToUndirected()
     data = transform(data)
     
+    # After ToUndirected(), copy timestamps to reverse edges
+    # Reverse edges should have the same timestamps as forward edges
+    for edge_type in list(data.edge_types):
+        if 'timestamp' in data[edge_type]:
+            # Timestamp is already set for forward edges
+            # ToUndirected() may have created reverse edges without timestamps
+            # Check if reverse edge exists and copy timestamp if needed
+            src_type, rel_name, dst_type = edge_type
+            reverse_type = (dst_type, rel_name, src_type)
+            if reverse_type in data.edge_types and 'timestamp' not in data[reverse_type]:
+                # Copy timestamp from forward edge
+                data[reverse_type].timestamp = data[edge_type].timestamp
+    
     print("Graph construction complete!")
     print(data)
     
-    # Save
-    torch.save(data, "artifacts/graph.pt")
+    # Only save if no cutoff_date (full graph for initial training)
+    if cutoff_date is None:
+        torch.save(data, "artifacts/graph.pt")
+        
+        # Save Mappings
+        with open("artifacts/mappings.pkl", "wb") as f:
+            pickle.dump(maps, f)
+    else:
+        print(f"Graph built with cutoff_date, not saving to artifacts/graph.pt (temporary graph)")
     
-    # Save Mappings
-    with open("artifacts/mappings.pkl", "wb") as f:
-        pickle.dump(maps, f)
+    return data
 
 if __name__ == "__main__":
-    build_graph()
+    import typer
+    typer.run(build_graph)

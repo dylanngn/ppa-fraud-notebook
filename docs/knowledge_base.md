@@ -88,7 +88,3 @@ We need to extract the following deep features from the `listing` JSONB:
         *   `LOCATED_AT` (Property Address: `listing.address`) - The bait.
         *   `LISTER_ADDRESS` (Lister Address: `lister.address`) - The declared entity.
         *   `BILLING_ADDRESS` (Billing Address: `lister.billing.address`) - The money trail.
-*   **Person Node** (New):
-    *   ID: `GivenName_FamilyName` (Normalized).
-    *   Source: `lister.contacts.inquiry.givenName` + `familyName`.
-    *   Edge: `Listing -> HAS_CONTACT_PERSON -> Person`.

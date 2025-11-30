@@ -48,7 +48,7 @@ class ExperimentConfig:
         Returns:
             List of feature column names
         """
-        from src.models.constants import (
+        from src.models.config.constants import (
             BASE_FEATURES,
             GRAPH_FEATURE_COLUMNS,
             ADVANCED_GRAPH_FEATURE_COLUMNS,
@@ -91,7 +91,7 @@ class ExperimentConfig:
         Returns:
             Validation results dictionary
         """
-        from src.models.signature_validation import compare_model_signatures
+        from src.models.utils.signature_validation import compare_model_signatures
         
         return compare_model_signatures(model_uris, self)
     

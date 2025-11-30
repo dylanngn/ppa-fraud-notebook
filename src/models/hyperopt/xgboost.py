@@ -6,10 +6,11 @@ import optuna
 import polars as pl
 import xgboost as xgb
 import mlflow
+import typer
 from typing import Dict, Any, Callable, Optional
 
 from src.models.training_window import train_accumulating_window
-from src.models.experiment_config import ExperimentConfig
+from src.models.config.experiment_config import ExperimentConfig
 from src.models.feature_engineering import load_data, add_base_tabular_features
 
 
@@ -150,7 +151,7 @@ def optimize_xgboost_hyperparameters(
         Dictionary with best parameters and metrics
     """
     # Setup MLflow
-    from src.models.common import setup_mlflow
+    from src.models.utils.common import setup_mlflow
     setup_mlflow(config.experiment_name)
     
     # Load data
@@ -195,9 +196,58 @@ def optimize_xgboost_hyperparameters(
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
         mlflow.log_metric("best_composite_score", -study.best_value)
         
-        return {
+    return {
             "best_params": study.best_params,
             "best_score": -study.best_value,
             "n_trials": len(study.trials),
         }
+
+
+def main(
+    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
+    initial_window_days: int = typer.Option(180, help="Initial training window size in days"),
+    step_days: int = typer.Option(7, help="Step size between evaluation windows in days"),
+    n_trials: int = typer.Option(100, help="Number of Optuna trials"),
+    n_windows: int = typer.Option(5, help="Number of evaluation windows per trial"),
+    timeout_minutes: Optional[int] = typer.Option(None, help="Optional timeout in minutes"),
+    feature_categories: Optional[str] = typer.Option(
+        None,
+        help="Comma-separated feature categories: base,graph,advanced_graph,time_weighted,interaction,text"
+    ),
+):
+    """
+    Hyperparameter optimization for XGBoost models using Optuna.
+    
+    Tunes XGBoost hyperparameters to maximize: 0.7 * AUC-PR + 0.3 * P@100
+    """
+    from src.models.config.experiment_config import ExperimentConfig, FeatureCategory
+    
+    # Parse feature categories
+    categories = None
+    if feature_categories:
+        categories = [FeatureCategory(cat.strip()) for cat in feature_categories.split(",")]
+    
+    config = ExperimentConfig(
+        experiment_name=experiment_name,
+        initial_window_days=initial_window_days,
+        step_days=step_days,
+        feature_categories=categories
+    )
+    
+    result = optimize_xgboost_hyperparameters(
+        config=config,
+        n_trials=n_trials,
+        n_windows=n_windows,
+        timeout_minutes=timeout_minutes
+    )
+    
+    typer.echo(f"Best parameters: {result['best_params']}")
+    typer.echo(f"Best score: {result['best_score']:.4f}")
+    
+    return result
+
+
+if __name__ == "__main__":
+    import typer
+    typer.run(main)
 

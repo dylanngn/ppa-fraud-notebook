@@ -44,24 +44,24 @@ env:
 
 # Data Pipeline
 etl:
-	python src/cli.py extract-data
+	python -m src.data.etl
 
 build-graph:
-	python src/cli.py build-graph
+	python -m src.data.create_graph_artifacts
 
 # Model Training
 train-baseline:
-	python src/cli.py train-baseline
+	python -m src.models.train_baseline
 
 train-sage:
-	python src/cli.py train-hybrid-sage
+	python -m src.models.train_hybrid_sage
 
 train-hgt:
-	python src/cli.py train-hybrid-hgt
+	python -m src.models.train_hybrid_hgt
 
 # Hyperparameter Optimization
 optimize-xgboost:
-	python src/cli.py optimize-xgboost
+	python -m src.models.hyperopt_xgboost
 
 optimize-pytorch:
 	@echo "Usage: make optimize-pytorch MODEL_TYPE=hgt|sage"
@@ -69,14 +69,39 @@ optimize-pytorch:
 		echo "Error: MODEL_TYPE is required (hgt or sage)"; \
 		exit 1; \
 	fi
-	python src/cli.py optimize-pytorch --model-type $(MODEL_TYPE)
+	python -m src.models.hyperopt_pytorch --model-type $(MODEL_TYPE)
 
 # Utilities
 check-density:
-	python src/cli.py check-density
+	python -m src.utils.check_window_density
 
 data-quality-report:
-	python src/cli.py data-quality-report
+	python -m src.utils.data_quality_report
 
 evaluate-seon:
-	python src/cli.py evaluate-seon
+	python -m src.utils.evaluate_seon
+
+# MLflow Management
+mlflow-compare-models:
+	@echo "Usage: make mlflow-compare-models MODEL_NAME=... CANDIDATE_RUN_ID=..."
+	@if [ -z "$(MODEL_NAME)" ] || [ -z "$(CANDIDATE_RUN_ID)" ]; then \
+		echo "Error: MODEL_NAME and CANDIDATE_RUN_ID are required"; \
+		exit 1; \
+	fi
+	python -m src.utils.mlflow_model_comparison compare --model-name $(MODEL_NAME) --candidate-run-id $(CANDIDATE_RUN_ID)
+
+mlflow-deployment-recommendation:
+	@echo "Usage: make mlflow-deployment-recommendation MODEL_NAME=... CANDIDATE_RUN_ID=..."
+	@if [ -z "$(MODEL_NAME)" ] || [ -z "$(CANDIDATE_RUN_ID)" ]; then \
+		echo "Error: MODEL_NAME and CANDIDATE_RUN_ID are required"; \
+		exit 1; \
+	fi
+	python -m src.utils.mlflow_model_comparison recommend --model-name $(MODEL_NAME) --candidate-run-id $(CANDIDATE_RUN_ID)
+
+mlflow-drift-summary:
+	@echo "Usage: make mlflow-drift-summary MODEL_NAME=..."
+	@if [ -z "$(MODEL_NAME)" ]; then \
+		echo "Error: MODEL_NAME is required"; \
+		exit 1; \
+	fi
+	python -m src.utils.mlflow_model_comparison drift --model-name $(MODEL_NAME)

@@ -19,9 +19,9 @@ if str(project_root) not in sys.path:
 from typing import List
 import mlflow
 from mlflow.tracking import MlflowClient
-from src.models.experiment_config import ExperimentConfig
-from src.models.signature_validation import create_experiment_signature_report
-from src.models.constants import BASE_FEATURES, ALL_GRAPH_FEATURE_COLUMNS
+from src.models.config.experiment_config import ExperimentConfig
+from src.models.utils.signature_validation import create_experiment_signature_report
+from src.models.config.constants import BASE_FEATURES, ALL_GRAPH_FEATURE_COLUMNS
 import json
 
 # Set MLflow tracking URI to use SQLite database

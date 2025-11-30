@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import polars as pl
 import mlflow
+import typer
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from src.utils.metrics import calculate_metrics
@@ -551,17 +552,23 @@ def run_seon_evaluation(
 
 
 def main(
-    evaluation_start_days: int = 90,
-    step_days: int = 14,
-    include_fallback: bool = True,
-    log_to_mlflow: bool = True
+    evaluation_start_days: int = typer.Option(90, help="Days to skip before starting evaluation"),
+    step_days: int = typer.Option(14, help="Step size between evaluation windows"),
+    include_fallback: bool = typer.Option(True, help="Whether to include fallback predictions"),
+    log_to_mlflow: bool = typer.Option(True, help="Whether to log metrics to MLflow"),
+    results_filename: Optional[str] = typer.Option(None, help="Output file path for results CSV")
 ):
-    """Main entry point for CLI."""
+    """
+    Evaluate Seon performance using sliding test windows.
+    
+    Matches model evaluation strategy for fair comparison.
+    """
     run_seon_evaluation(
         evaluation_start_days=evaluation_start_days,
         step_days=step_days,
         include_fallback=include_fallback,
-        log_to_mlflow=log_to_mlflow
+        log_to_mlflow=log_to_mlflow,
+        results_filename=results_filename
     )
 
 

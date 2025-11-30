@@ -17,8 +17,8 @@ import pandas as pd
 import numpy as np
 import polars as pl
 
-from src.models.experiment_config import ExperimentConfig
-from src.models.constants import (
+from src.models.config.experiment_config import ExperimentConfig
+from src.models.config.constants import (
     BASE_FEATURES,
     ALL_GRAPH_FEATURE_COLUMNS,
 )

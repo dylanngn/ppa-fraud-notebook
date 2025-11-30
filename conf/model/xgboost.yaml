@@ -1,0 +1,22 @@
+# XGBoost configuration
+defaults:
+  - _self_
+
+name: "baseline_xgboost"
+
+# XGBoost hyperparameters
+params:
+  objective: "binary:logistic"
+  eval_metric: "aucpr"
+  n_estimators: 500
+  max_depth: 6
+  learning_rate: 0.1
+  n_jobs: -1
+  random_state: 42
+  tree_method: "auto" # Will be resolved to hist or gpu_hist in code
+
+# Training loop settings
+training:
+  initial_window_days: 180
+  step_days: 7
+  max_windows: null # Set to integer for debugging/fast runs

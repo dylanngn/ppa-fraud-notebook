@@ -227,7 +227,7 @@ def _categorize_features(
     
     Uses constants from src.models.constants for accurate categorization.
     """
-    from src.models.constants import (
+    from src.models.config.constants import (
         BASE_FEATURES,
         GRAPH_FEATURE_COLUMNS,
         ADVANCED_GRAPH_FEATURE_COLUMNS,
@@ -310,7 +310,7 @@ def _infer_category(feature_name: str) -> str:
     
     Uses constants for accurate categorization.
     """
-    from src.models.constants import (
+    from src.models.config.constants import (
         BASE_FEATURES,
         GRAPH_FEATURE_COLUMNS,
         ADVANCED_GRAPH_FEATURE_COLUMNS,
