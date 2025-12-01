@@ -17,19 +17,31 @@ Graph Structure:
 """
 
 import logging
-import os
 import pickle
+from datetime import datetime
+from typing import Optional
 
 import numpy as np
 import polars as pl
 import torch
 import torch_geometric.transforms as T
 from torch_geometric.data import HeteroData
+from sentence_transformers import SentenceTransformer
+
+from src.utils.hydra_utils import resolve_path
 
 logger = logging.getLogger(__name__)
-from datetime import datetime
-from typing import Optional
-from sentence_transformers import SentenceTransformer
+
+ARTIFACTS_DIR = resolve_path("artifacts")
+GRAPH_PT = resolve_path("artifacts/graph.pt")
+MAPPINGS_PKL = resolve_path("artifacts/mappings.pkl")
+NODES_USER = resolve_path("artifacts/nodes_user.parquet")
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
+NODES_IP = resolve_path("artifacts/nodes_ip.parquet")
+NODES_EMAIL = resolve_path("artifacts/nodes_email.parquet")
+NODES_PHONE = resolve_path("artifacts/nodes_phone.parquet")
+NODES_ADDRESS = resolve_path("artifacts/nodes_address.parquet")
+EDGES_USER_POSTS = resolve_path("artifacts/edges_user_posts_listing.parquet")
 
 
 def load_node_mapping(df, id_col, node_type):
@@ -101,12 +113,12 @@ def build_graph(cutoff_date: Optional[datetime] = None):
         logger.info(f"Filtering graph by cutoff_date: {cutoff_date}")
     
     # --- Load Nodes ---
-    df_user = pl.read_parquet("artifacts/nodes_user.parquet")
-    df_listing = pl.read_parquet("artifacts/nodes_listing.parquet")
-    df_ip = pl.read_parquet("artifacts/nodes_ip.parquet")
-    df_email = pl.read_parquet("artifacts/nodes_email.parquet")
-    df_phone = pl.read_parquet("artifacts/nodes_phone.parquet")
-    df_address = pl.read_parquet("artifacts/nodes_address.parquet")
+    df_user = pl.read_parquet(NODES_USER)
+    df_listing = pl.read_parquet(NODES_LISTING)
+    df_ip = pl.read_parquet(NODES_IP)
+    df_email = pl.read_parquet(NODES_EMAIL)
+    df_phone = pl.read_parquet(NODES_PHONE)
+    df_address = pl.read_parquet(NODES_ADDRESS)
     
     # Filter listings by cutoff_date if provided
     if cutoff_date is not None:
@@ -308,7 +320,7 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     user_earliest_listing_map = {}
     if cutoff_date is not None:
         # Get user->listing edges to find earliest listing per user
-        user_posts = pl.read_parquet("artifacts/edges_user_posts_listing.parquet")
+        user_posts = pl.read_parquet(EDGES_USER_POSTS)
         user_posts = user_posts.join(
             df_listing.select(["insertion_id", "submission_at"]),
             left_on="target",
@@ -337,11 +349,12 @@ def build_graph(cutoff_date: Optional[datetime] = None):
                 - "user_based": edge involves user, filter by user's earliest listing
         """
         logger.info(f"Processing edge: {src_type} - {rel_name} - {dst_type}")
-        if not os.path.exists(f"artifacts/{filename}"):
+        edge_path = ARTIFACTS_DIR / filename
+        if not edge_path.exists():
             logger.warning(f"{filename} not found. Skipping.")
             return
 
-        df_edge = pl.read_parquet(f"artifacts/{filename}")
+        df_edge = pl.read_parquet(edge_path)
         
         # Apply temporal filtering if cutoff_date is provided
         if cutoff_date is not None:
@@ -469,10 +482,10 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     
     # Only save if no cutoff_date (full graph for initial training)
     if cutoff_date is None:
-        torch.save(data, "artifacts/graph.pt")
+        torch.save(data, GRAPH_PT)
         
         # Save Mappings
-        with open("artifacts/mappings.pkl", "wb") as f:
+        with open(MAPPINGS_PKL, "wb") as f:
             pickle.dump(maps, f)
     else:
         logger.info("Graph built with cutoff_date, not saving to artifacts/graph.pt (temporary graph)")

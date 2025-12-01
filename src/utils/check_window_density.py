@@ -1,18 +1,25 @@
 """Check fraud density in time windows."""
 import argparse
 import logging
-import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import polars as pl
 
+from src.utils.hydra_utils import resolve_path
+
 logger = logging.getLogger(__name__)
 
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
 
-def check_density(start_date_str: str = "2023-11-01", nodes_path: str = "artifacts/nodes_listing.parquet"):
+
+def check_density(start_date_str: str = "2023-11-01", nodes_path: str = None):
     """Check fraud density in time windows."""
+    if nodes_path is None:
+        nodes_path = NODES_LISTING
+    
     logger.info("Loading listing nodes...")
-    if not os.path.exists(nodes_path):
+    if not Path(nodes_path).exists():
         logger.error(f"{nodes_path} not found.")
         raise SystemExit(1)
         
@@ -76,7 +83,7 @@ def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(description="Check fraud density in time windows")
     parser.add_argument("--start-date", default="2023-11-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--nodes-path", default="artifacts/nodes_listing.parquet", help="Path to listing nodes")
+    parser.add_argument("--nodes-path", default=None, help=f"Path to listing nodes (default: {NODES_LISTING})")
     
     args = parser.parse_args()
     check_density(start_date_str=args.start_date, nodes_path=args.nodes_path)

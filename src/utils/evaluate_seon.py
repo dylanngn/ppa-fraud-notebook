@@ -11,20 +11,19 @@ Usage:
 """
 import json
 import logging
-import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 import polars as pl
 
-logger = logging.getLogger(__name__)
-
+from src.utils.hydra_utils import resolve_path
 from src.utils.metrics import calculate_metrics
 
-# Static baseline file path
-SEON_BASELINE_PATH = Path("artifacts/seon_baseline.json")
+logger = logging.getLogger(__name__)
+
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
+SEON_BASELINE_PATH = resolve_path("artifacts/seon_baseline.json")
 
 
 def calculate_seon_predictions(df: pl.DataFrame) -> pl.DataFrame:
@@ -128,10 +127,10 @@ def generate_seon_baseline(
     logger.info("Generating Seon baseline (one-time computation)...")
     
     # Load data
-    if not os.path.exists("artifacts/nodes_listing.parquet"):
+    if not NODES_LISTING.exists():
         raise FileNotFoundError("nodes_listing.parquet not found. Run ETL first.")
     
-    df = pl.read_parquet("artifacts/nodes_listing.parquet")
+    df = pl.read_parquet(NODES_LISTING)
     
     # Ensure seon_approved column exists
     if "seon_approved" not in df.columns:

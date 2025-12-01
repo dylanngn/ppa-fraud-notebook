@@ -5,9 +5,8 @@ This module provides the canonical data loading function used across
 all training modules (XGBoost, GNN, hyperopt).
 """
 import polars as pl
-from pathlib import Path
 
-ARTIFACTS_DIR = Path("artifacts")
+from src.utils.hydra_utils import resolve_path
 
 
 def load_data() -> pl.DataFrame:
@@ -20,8 +19,8 @@ def load_data() -> pl.DataFrame:
     Raises:
         FileNotFoundError: If required parquet files don't exist
     """
-    listing_path = ARTIFACTS_DIR / "nodes_listing.parquet"
-    user_path = ARTIFACTS_DIR / "nodes_user.parquet"
+    listing_path = resolve_path("artifacts/nodes_listing.parquet")
+    user_path = resolve_path("artifacts/nodes_user.parquet")
     
     if not listing_path.exists():
         raise FileNotFoundError(

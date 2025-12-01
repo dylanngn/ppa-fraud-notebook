@@ -16,36 +16,38 @@ Note: User-listing relationship is established via:
 This is handled in the ETL extract query (src/data/etl/extract.py).
 """
 import logging
-import os
+from pathlib import Path
 from typing import Optional, Tuple
 
 import polars as pl
 
+from src.utils.hydra_utils import resolve_path
+
 logger = logging.getLogger(__name__)
 
-# Constants
-ARTIFACTS_DIR = "artifacts"
+ARTIFACTS_DIR = resolve_path("artifacts")
+RAW_INSERTIONS = resolve_path("artifacts/raw_insertions.parquet")
 
 # Node file paths
 NODE_FILES = {
-    "user": os.path.join(ARTIFACTS_DIR, "nodes_user.parquet"),
-    "listing": os.path.join(ARTIFACTS_DIR, "nodes_listing.parquet"),
-    "ip": os.path.join(ARTIFACTS_DIR, "nodes_ip.parquet"),
-    "email": os.path.join(ARTIFACTS_DIR, "nodes_email.parquet"),
-    "phone": os.path.join(ARTIFACTS_DIR, "nodes_phone.parquet"),
-    "address": os.path.join(ARTIFACTS_DIR, "nodes_address.parquet"),
+    "user": ARTIFACTS_DIR / "nodes_user.parquet",
+    "listing": ARTIFACTS_DIR / "nodes_listing.parquet",
+    "ip": ARTIFACTS_DIR / "nodes_ip.parquet",
+    "email": ARTIFACTS_DIR / "nodes_email.parquet",
+    "phone": ARTIFACTS_DIR / "nodes_phone.parquet",
+    "address": ARTIFACTS_DIR / "nodes_address.parquet",
 }
 
 # Edge file paths
 EDGE_FILES = {
-    "user_posts": os.path.join(ARTIFACTS_DIR, "edges_user_posts_listing.parquet"),
-    "user_ip": os.path.join(ARTIFACTS_DIR, "edges_user_uses_ip.parquet"),
-    "user_email": os.path.join(ARTIFACTS_DIR, "edges_user_has_email.parquet"),
-    "listing_contact_email": os.path.join(ARTIFACTS_DIR, "edges_listing_contact_email.parquet"),
-    "listing_billing_email": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_email.parquet"),
-    "listing_phone": os.path.join(ARTIFACTS_DIR, "edges_listing_phone.parquet"),  # Unified phone edge
-    "listing_located_at": os.path.join(ARTIFACTS_DIR, "edges_listing_located_at.parquet"),
-    "listing_billing_addr": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_addr.parquet"),
+    "user_posts": ARTIFACTS_DIR / "edges_user_posts_listing.parquet",
+    "user_ip": ARTIFACTS_DIR / "edges_user_uses_ip.parquet",
+    "user_email": ARTIFACTS_DIR / "edges_user_has_email.parquet",
+    "listing_contact_email": ARTIFACTS_DIR / "edges_listing_contact_email.parquet",
+    "listing_billing_email": ARTIFACTS_DIR / "edges_listing_billing_email.parquet",
+    "listing_phone": ARTIFACTS_DIR / "edges_listing_phone.parquet",  # Unified phone edge
+    "listing_located_at": ARTIFACTS_DIR / "edges_listing_located_at.parquet",
+    "listing_billing_addr": ARTIFACTS_DIR / "edges_listing_billing_addr.parquet",
 }
 
 # Email columns with coverage info
@@ -407,7 +409,7 @@ def _save_artifacts(
 ) -> None:
     """Save all node and edge DataFrames to parquet files."""
     logger.info("Saving parquet artifacts...")
-    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     
     node_names = ["user", "listing", "ip", "email", "phone", "address"]
     # Edge names
@@ -463,18 +465,19 @@ def main():
     parser = argparse.ArgumentParser(description="Create graph artifacts (nodes and edges)")
     parser.add_argument(
         "--input-path", 
-        default="artifacts/raw_insertions.parquet",
-        help="Path to flattened and anonymized data parquet file"
+        default=None,
+        help=f"Path to flattened and anonymized data parquet file (default: {RAW_INSERTIONS})"
     )
     args = parser.parse_args()
     
-    if not os.path.exists(args.input_path):
-        logger.error(f"{args.input_path} not found. Run ETL first.")
+    input_path = Path(args.input_path) if args.input_path else RAW_INSERTIONS
+    if not input_path.exists():
+        logger.error(f"{input_path} not found. Run ETL first.")
         raise SystemExit(1)
     
     try:
-        logger.info(f"Loading data from {args.input_path}...")
-        df_insertions = pl.read_parquet(args.input_path)
+        logger.info(f"Loading data from {input_path}...")
+        df_insertions = pl.read_parquet(input_path)
         
         if len(df_insertions) == 0:
             logger.error("Input file is empty.")

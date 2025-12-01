@@ -13,7 +13,11 @@ import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
+from src.utils.hydra_utils import resolve_path
+
 logger = logging.getLogger(__name__)
+
+GRAPH_PT = resolve_path("artifacts/graph.pt")
 
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
 from src.utils.metrics import calculate_metrics
@@ -226,7 +230,7 @@ def optimize_pytorch_hyperparameters(
     setup_mlflow(experiment_name)
     
     # Load graph data
-    data = torch.load("artifacts/graph.pt", weights_only=False)
+    data = torch.load(GRAPH_PT, weights_only=False)
     
     # Create objective function
     objective = create_pytorch_objective(

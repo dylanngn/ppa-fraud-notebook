@@ -10,18 +10,20 @@ Analyzes the flattened insertions data to generate CSV reports for:
 
 All outputs are sorted by positive metrics (coverage, non-null percentage, etc.)
 """
-
-import polars as pl
-import os
+import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from datetime import datetime
-import logging
 
-# Pandera for schema validation
+import polars as pl
+
+from src.utils.hydra_utils import resolve_path
 from src.data.schema import validate_raw_insertions
 
 logger = logging.getLogger(__name__)
+
+RAW_INSERTIONS = resolve_path("artifacts/raw_insertions.parquet")
+DATA_QUALITY_REPORTS_DIR = resolve_path("artifacts/data_quality_reports")
 
 
 def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
@@ -45,14 +47,16 @@ def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
     return str(df_display)
 
 
-def load_flattened_data(data_path: str = "artifacts/raw_insertions.parquet") -> pl.DataFrame:
+def load_flattened_data(data_path: str = None) -> pl.DataFrame:
     """
     Load the flattened and anonymized insertions data.
     
     The ETL now flattens and anonymizes before saving to raw_insertions.parquet,
     so this file contains the fully flattened data.
     """
-    if os.path.exists(data_path):
+    if data_path is None:
+        data_path = RAW_INSERTIONS
+    if Path(data_path).exists():
         print(f"Loading flattened & anonymized data from {data_path}...")
         return pl.read_parquet(data_path)
     else:
@@ -689,8 +693,8 @@ def generate_text_report(
 
 
 def generate_report(
-    data_path: str = "artifacts/raw_insertions.parquet",
-    output_dir: str = "artifacts/data_quality_reports",
+    data_path: str = None,
+    output_dir: str = None,
     null_threshold_unusable: float = 95.0,
     null_threshold_high_coverage: float = 50.0
 ) -> None:
@@ -703,6 +707,11 @@ def generate_report(
         null_threshold_unusable: Fields with >=this % null are considered unusable
         null_threshold_high_coverage: Fields with <this % null are considered high coverage
     """
+    if data_path is None:
+        data_path = str(RAW_INSERTIONS)
+    if output_dir is None:
+        output_dir = str(DATA_QUALITY_REPORTS_DIR)
+        
     print("=" * 80)
     print("DATA QUALITY REPORT GENERATOR")
     print("=" * 80)
@@ -870,10 +879,10 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Generate data quality reports")
-    parser.add_argument("--data-path", default="artifacts/raw_insertions.parquet",
-                       help="Path to flattened & anonymized insertions parquet file")
-    parser.add_argument("--output-dir", default="data_quality_reports",
-                       help="Directory to save CSV reports")
+    parser.add_argument("--data-path", default=None,
+                       help=f"Path to flattened & anonymized insertions parquet file (default: {RAW_INSERTIONS})")
+    parser.add_argument("--output-dir", default=None,
+                       help=f"Directory to save CSV reports (default: {DATA_QUALITY_REPORTS_DIR})")
     parser.add_argument("--null-threshold-unusable", type=float, default=95.0,
                        help="Fields with >= this %% null are unusable")
     parser.add_argument("--null-threshold-high-coverage", type=float, default=50.0,

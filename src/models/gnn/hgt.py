@@ -5,7 +5,6 @@ Optimized HGT (Heterogeneous Graph Transformer) with RTE implementation for frau
 Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
 """
 import logging
-import os
 from datetime import datetime
 
 import hydra
@@ -18,7 +17,14 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from torch_geometric.nn import HGTConv, Linear
 
+from src.utils.hydra_utils import resolve_path
+
 logger = logging.getLogger(__name__)
+
+GRAPH_PT = resolve_path("artifacts/graph.pt")
+MODEL_HGT_BEST = resolve_path("artifacts/model_hgt_best.pt")
+EMBEDDINGS_HGT = resolve_path("artifacts/embeddings_hgt.pt")
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
 
 from src.models.xgboost.trainer import train_accumulating_window
 from src.features.definitions.base import compute_base_features
@@ -29,7 +35,7 @@ from src.models.utils.mlflow_helpers import (
     get_model_dependencies
 )
 from src.utils.metrics import calculate_metrics
-from src.data.graph.schema import get_metadata, GRAPH_METADATA
+from src.data.graph.schema import get_metadata
 from src.data.graph.graph_builder import build_graph
 from src.data.loader import load_data
 
@@ -169,11 +175,11 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
     mlflow.pytorch.autolog()
     
     # Build or load graph
-    if not os.path.exists("artifacts/graph.pt"):
+    if not GRAPH_PT.exists():
         logger.info("Graph not found. Building full graph...")
         data = build_graph(cutoff_date=None)  # Build full graph for initial training
     else:
-        data = torch.load("artifacts/graph.pt", weights_only=False)
+        data = torch.load(GRAPH_PT, weights_only=False)
     device = get_device()
 
     # Temporal split
@@ -248,11 +254,11 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
             
             if loss < best_loss:
                 best_loss = loss
-                torch.save(model.state_dict(), "artifacts/model_hgt_best.pt")
+                torch.save(model.state_dict(), MODEL_HGT_BEST)
                 mlflow.log_metric("best_loss", best_loss.item())
 
         # Load best model
-        model.load_state_dict(torch.load("artifacts/model_hgt_best.pt", weights_only=False))
+        model.load_state_dict(torch.load(MODEL_HGT_BEST, weights_only=False))
         
         # Prepare edge times for full data (needed for evaluation and embedding generation)
         full_edge_times_device = {}
@@ -308,9 +314,8 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
         z_listing = z_listing.cpu()
             
         # Save embeddings
-        save_path = "artifacts/embeddings_hgt.pt"
-        torch.save(z_listing, save_path)
-        mlflow.log_artifact(save_path)
+        torch.save(z_listing, EMBEDDINGS_HGT)
+        mlflow.log_artifact(str(EMBEDDINGS_HGT))
         
         # Register GNN model to Model Registry
         try:
@@ -412,7 +417,7 @@ def create_hgt_embedding_generator():
         Callback function(train_data, test_data, train_end) -> (train_embeddings_df, test_embeddings_df, embed_cols)
     """
     # Load the trained model and full graph once
-    if not os.path.exists("artifacts/model_hgt_best.pt"):
+    if not MODEL_HGT_BEST.exists():
         raise FileNotFoundError(
             "HGT model not found. Run train_hgt_embeddings() first."
         )
@@ -433,7 +438,7 @@ def create_hgt_embedding_generator():
     ).to(device)
     
     # Load trained weights
-    model.load_state_dict(torch.load("artifacts/model_hgt_best.pt", weights_only=False))
+    model.load_state_dict(torch.load(MODEL_HGT_BEST, weights_only=False))
     model.eval()
     
     def generate_embeddings_for_window(train_data, test_data, train_end):
@@ -453,7 +458,7 @@ def create_hgt_embedding_generator():
         filtered_data = build_graph(cutoff_date=train_end)
         
         # Create listing_id to index mapping for this filtered graph
-        df_listing_filtered = pl.read_parquet("artifacts/nodes_listing.parquet")
+        df_listing_filtered = pl.read_parquet(NODES_LISTING)
         df_listing_filtered = df_listing_filtered.with_columns(
             pl.col("submission_at").cast(pl.Datetime("ns"))
         )
@@ -549,7 +554,7 @@ def main(cfg: DictConfig):
     2. Create embedding generator for per-window embedding generation
     3. Train hybrid XGBoost model with accumulating window
     """
-    if not os.path.exists("artifacts/nodes_listing.parquet"):
+    if not NODES_LISTING.exists():
         raise FileNotFoundError("Artifacts not found. Run 'make etl' first.")
     
     # Get config values

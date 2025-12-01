@@ -5,7 +5,6 @@ Optimized SAGE (GraphSAGE) implementation for fraud detection.
 Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
 """
 import logging
-import os
 from datetime import datetime
 
 import hydra
@@ -18,7 +17,14 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from torch_geometric.nn import Linear, SAGEConv, to_hetero
 
+from src.utils.hydra_utils import resolve_path
+
 logger = logging.getLogger(__name__)
+
+GRAPH_PT = resolve_path("artifacts/graph.pt")
+MODEL_SAGE_BEST = resolve_path("artifacts/model_sage_best.pt")
+EMBEDDINGS_SAGE = resolve_path("artifacts/embeddings_sage.pt")
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
 
 from src.models.xgboost.trainer import train_accumulating_window
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
@@ -113,11 +119,11 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     mlflow.pytorch.autolog()
     
     # Build or load graph
-    if not os.path.exists("artifacts/graph.pt"):
+    if not GRAPH_PT.exists():
         logger.info("Graph not found. Building full graph...")
         data = build_graph(cutoff_date=None)  # Build full graph for initial training
     else:
-        data = torch.load("artifacts/graph.pt", weights_only=False)
+        data = torch.load(GRAPH_PT, weights_only=False)
     device = get_device()
 
     # Temporal split
@@ -187,11 +193,11 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
             
             if loss < best_loss:
                 best_loss = loss
-                torch.save(model.state_dict(), "artifacts/model_sage_best.pt")
+                torch.save(model.state_dict(), MODEL_SAGE_BEST)
                 mlflow.log_metric("best_loss", best_loss.item())
 
         # Load best model
-        model.load_state_dict(torch.load("artifacts/model_sage_best.pt", weights_only=False))
+        model.load_state_dict(torch.load(MODEL_SAGE_BEST, weights_only=False))
         
         # Evaluate on test split (before loading full graph to save memory)
         test_mask = ((data['listing'].timestamp > split_time) & 
@@ -231,9 +237,8 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         z_listing = z_listing.cpu()
             
         # Save embeddings
-        save_path = "artifacts/embeddings_sage.pt"
-        torch.save(z_listing, save_path)
-        mlflow.log_artifact(save_path)
+        torch.save(z_listing, EMBEDDINGS_SAGE)
+        mlflow.log_artifact(str(EMBEDDINGS_SAGE))
         
         # Register GNN model to Model Registry
         try:
@@ -330,7 +335,7 @@ def create_sage_embedding_generator():
         Callback function(train_data, test_data, train_end) -> (train_embeddings_df, test_embeddings_df, embed_cols)
     """
     # Load the trained model and full graph once
-    if not os.path.exists("artifacts/model_sage_best.pt"):
+    if not MODEL_SAGE_BEST.exists():
         raise FileNotFoundError(
             "SAGE model not found. Run train_sage_embeddings() first."
         )
@@ -349,19 +354,19 @@ def create_sage_embedding_generator():
     ).to(device)
     
     # Load trained weights
-    model.load_state_dict(torch.load("artifacts/model_sage_best.pt", weights_only=False))
+    model.load_state_dict(torch.load(MODEL_SAGE_BEST, weights_only=False))
     model.eval()
     
     # Load full graph ONCE (cached for all windows)
     logger.info("Loading full graph for embedding generation (cached for all windows)...")
-    if os.path.exists("artifacts/graph.pt"):
-        full_graph = torch.load("artifacts/graph.pt", weights_only=False)
+    if GRAPH_PT.exists():
+        full_graph = torch.load(GRAPH_PT, weights_only=False)
     else:
         logger.info("Graph not found. Building full graph...")
         full_graph = build_graph(cutoff_date=None)
     
     # Load full listing data for ID mapping
-    df_listing_full = pl.read_parquet("artifacts/nodes_listing.parquet")
+    df_listing_full = pl.read_parquet(NODES_LISTING)
     df_listing_full = df_listing_full.with_columns(
         pl.col("submission_at").cast(pl.Datetime("ns"))
     )
@@ -459,7 +464,7 @@ def main(cfg: DictConfig):
     2. Create embedding generator for per-window embedding generation
     3. Train hybrid XGBoost model with accumulating window
     """
-    if not os.path.exists("artifacts/nodes_listing.parquet"):
+    if not NODES_LISTING.exists():
         raise FileNotFoundError("Artifacts not found. Run 'make etl' first.")
     
     # Get config values

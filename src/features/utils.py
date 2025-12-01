@@ -1,13 +1,16 @@
 """
 Utility functions for feature engineering and temporal filtering.
 """
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
 import polars as pl
 
-ARTIFACTS_DIR = Path("artifacts")
-LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
+from src.utils.hydra_utils import resolve_path
+
+ARTIFACTS_DIR = resolve_path("artifacts")
+LISTING_NODES = resolve_path("artifacts/nodes_listing.parquet")
 
 
 def _groupby(df: pl.DataFrame, *args, **kwargs):

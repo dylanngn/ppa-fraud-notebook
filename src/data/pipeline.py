@@ -3,13 +3,16 @@ ETL Pipeline Orchestrator.
 """
 import os
 import logging
-import hydra
-from omegaconf import DictConfig
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
+
+import hydra
+import hydra.utils
+from omegaconf import DictConfig
+
+from src.utils.hydra_utils import load_env
 
 # Load environment variables before Hydra config resolution
-load_dotenv()
+load_env()
 
 from src.data.etl.extract import build_chunk_query, fetch_chunk
 from src.data.etl.transform import process_chunk_data
@@ -61,9 +64,9 @@ def main(cfg: DictConfig):
     if not cfg.data.db_uri:
         raise ValueError("DB_URI not set in config or environment variables")
     
-    # Paths
-    temp_dir = cfg.data.paths.temp_chunks
-    output_path = cfg.data.paths.raw_insertions
+    # Paths - resolve relative config paths to absolute using Hydra utility
+    temp_dir = hydra.utils.to_absolute_path(cfg.data.paths.temp_chunks)
+    output_path = hydra.utils.to_absolute_path(cfg.data.paths.raw_insertions)
     
     # Check if we need to run fetch
     if os.path.exists(output_path) and not cfg.data.extract.force_refresh:

@@ -13,8 +13,30 @@ extract:
   days_per_chunk: 7
   force_refresh: false
 
-# Paths
+# Paths - RELATIVE paths, resolved via hydra.utils.to_absolute_path() in code
+# This is Hydra's recommended approach for handling CWD changes
 paths:
-  artifacts_dir: "artifacts"
-  raw_insertions: "artifacts/raw_insertions.parquet"
-  temp_chunks: "artifacts/temp_raw_insertions"
+  # Base directories
+  artifacts_dir: artifacts
+  
+  # Data files
+  raw_insertions: artifacts/raw_insertions.parquet
+  temp_chunks: artifacts/temp_raw_insertions
+  
+  # Node files
+  nodes_user: artifacts/nodes_user.parquet
+  nodes_listing: artifacts/nodes_listing.parquet
+  nodes_ip: artifacts/nodes_ip.parquet
+  nodes_email: artifacts/nodes_email.parquet
+  nodes_phone: artifacts/nodes_phone.parquet
+  nodes_address: artifacts/nodes_address.parquet
+  
+  # Graph files
+  graph: artifacts/graph.pt
+  mappings: artifacts/mappings.pkl
+  
+  # Model files
+  model_sage: artifacts/model_sage_best.pt
+  model_hgt: artifacts/model_hgt_best.pt
+  embeddings_sage: artifacts/embeddings_sage.pt
+  embeddings_hgt: artifacts/embeddings_hgt.pt
