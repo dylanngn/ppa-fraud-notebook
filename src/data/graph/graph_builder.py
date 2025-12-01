@@ -13,7 +13,7 @@ Graph Structure:
   * listing -> has_billing_email -> email
   * listing -> has_phone -> phone (UNIFIED: billing + lister phone coalesced)
   * listing -> located_at -> address
-  * listing -> billing_address -> address
+  * listing -> has_billing_addr -> address
 """
 
 import logging
@@ -445,7 +445,7 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     # 8. Listing -> Located_At -> Address
     src_map, dst_map = maps["listing"], maps["address"]
     add_edge("edges_listing_located_at.parquet", "source", "target", "listing", "address", "located_at", time_source_col="source", edge_type="listing_to_target")
-    add_edge("edges_listing_billing_addr.parquet", "source", "target", "listing", "address", "billing_address", time_source_col="source", edge_type="listing_to_target")
+    add_edge("edges_listing_billing_addr.parquet", "source", "target", "listing", "address", "has_billing_addr", time_source_col="source", edge_type="listing_to_target")
 
     # --- Reverse Edges ---
     transform = T.ToUndirected()

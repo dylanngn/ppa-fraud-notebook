@@ -11,7 +11,6 @@ Structure:
   - graph_features.py: Generate listing_graph_features.parquet
   - advanced_graph_features.py: Generate listing_advanced_features.parquet
   - time_weighted_features.py: Generate time-weighted features
-  - interaction_features.py: Generate interaction features
   - text_features.py: Generate text-based features
 
 - processor.py: FeatureProcessor - orchestrates feature generation

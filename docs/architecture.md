@@ -57,6 +57,7 @@ ppa-fraud-notebook/
 ├── src/
 │   ├── data/                       # Data Pipeline
 │   │   ├── pipeline.py             # ETL orchestrator (Hydra entry)
+│   │   ├── schema.py               # Tabular data schema (Pandera validation)
 │   │   ├── etl/                    # Extract-Transform-Load
 │   │   │   ├── extract.py          # Database queries
 │   │   │   ├── transform.py        # Data cleaning
@@ -69,7 +70,7 @@ ppa-fraud-notebook/
 │   ├── features/                   # Feature Engineering
 │   │   ├── registry.py             # Feature category registry
 │   │   ├── processor.py            # Feature processor (Hydra-aware)
-│   │   ├── definitions/            # Feature computation
+│   │   ├── definitions/            # Feature computation (order-independent)
 │   │   │   ├── base.py             # Tabular features
 │   │   │   ├── graph.py            # Graph-derived features
 │   │   │   └── text.py             # Text features
@@ -391,7 +392,44 @@ All modules now use unified Hydra configuration directly, eliminating legacy com
 ## Recommended Improvements
 
 1. **Add Integration Tests**: Verify full pipeline works end-to-end
-2. **Optimize Embedding Generation**: Graph building per window is slow; consider caching
+2. ~~**Optimize Embedding Generation**: Graph building per window is slow; consider caching~~ ✅ Fixed (2025-12-01)
+
+## Technical Debt
+
+### Feature Category Ordering (Deferred)
+
+The `FeatureRegistry` executes categories in YAML-listed order. Currently all categories are independent, so order doesn't matter. **If adding dependent categories in the future**, either:
+- Document dependencies in docstrings and ensure correct YAML ordering
+- Add explicit dependency declarations to `FeatureRegistry` for auto-ordering
+
+See `docs/knowledge_base.md` § "Technical Debt: Feature Category Ordering" for details.
+
+### Production Readiness (Deferred to Post-Experiment Phase)
+
+The following items are deferred during the experiment phase to prioritize iteration speed. Revisit when transitioning to production:
+
+| Category | Item | Notes |
+|----------|------|-------|
+| **Testing** | Unit tests for `FeatureProcessor`, `calculate_metrics` | Add pytest suite |
+| **Testing** | Integration tests for full pipeline | End-to-end validation |
+| **CI/CD** | GitHub Actions workflow | Lint, test, type-check |
+| **Data Versioning** | DVC for artifacts | Track data lineage |
+
+**Already Implemented:**
+- ✅ **Data Quality**: Pandera schema validation in `src/data/schema.py`
+- ✅ **Config Validation**: `src/features/config_validator.py`
+- ✅ **MLflow Config Logging**: Full Hydra config logged as artifact
+| **Serving** | Feature Store pattern | Pre-compute graph features in batch |
+| **Serving** | FastAPI inference service | Raw listing → prediction |
+| **Monitoring** | Feature drift detection | KS-test on distributions |
+| **Monitoring** | Model performance monitoring | Track AUC-PR over time |
+
+**Serving Architecture Note**: Graph features (`shared_contact_email_count`, `listing_component_size`, etc.) cannot be computed at request time. Production requires:
+1. **Batch job** to pre-compute graph features → Feature Store
+2. **Online features** computed at request time (account_age, booleans)
+3. **Inference service** merges online + offline features → model prediction
+
+See `docs/mlops_review.md` for detailed implementation guidance.
 
 ---
 

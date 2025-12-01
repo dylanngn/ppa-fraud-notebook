@@ -5,6 +5,7 @@ connectorx>=0.4.0
 pyarrow>=22.0.0
 numpy>=2.3.0
 pandas>=2.3.0
+pandera[polars]>=0.23.0
 
 # ML frameworks
 torch>=2.9.0

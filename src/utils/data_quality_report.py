@@ -2,6 +2,7 @@
 Data Quality Report Generator
 
 Analyzes the flattened insertions data to generate CSV reports for:
+- Schema validation using Pandera
 - Fields that are mostly null and unusable
 - Top fields with highest coverage (most present)
 - Phone, email, and address field coverage specifically
@@ -15,6 +16,12 @@ import os
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
+import logging
+
+# Pandera for schema validation
+from src.data.schema import validate_raw_insertions
+
+logger = logging.getLogger(__name__)
 
 
 def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
@@ -401,13 +408,49 @@ def analyze_categorical_fields(df: pl.DataFrame, null_stats: pl.DataFrame, top_n
 
 def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Check for data consistency issues.
+    Check for data consistency issues using Pandera schema validation.
     
     Works with dot-notation field names (e.g., listing.id, listing.meta.createdAt).
     
     Returns DataFrame of consistency checks, sorted by positive metrics (coverage, etc.)
     """
     checks = []
+    
+    # === Pandera Schema Validation ===
+    try:
+        validation_result = validate_raw_insertions(df, raise_on_error=False)
+        checks.append({
+            "check_name": "pandera_schema_validation",
+            "metric": "valid",
+            "value": 100.0 if validation_result["valid"] else 0.0,
+            "total": validation_result["stats"]["total_rows"],
+            "details": "; ".join(validation_result["errors"]) if validation_result["errors"] else "OK",
+            "issue": not validation_result["valid"]
+        })
+        
+        # Add fraud rate check from pandera validation
+        if "fraud_rate" in validation_result["stats"]:
+            fraud_rate = validation_result["stats"]["fraud_rate"]
+            checks.append({
+                "check_name": "fraud_rate",
+                "metric": "percentage",
+                "value": fraud_rate * 100,
+                "total": validation_result["stats"]["total_rows"],
+                "details": f"{fraud_rate:.2%}",
+                "issue": fraud_rate < 0.001 or fraud_rate > 0.5
+            })
+    except Exception as e:
+        logger.warning(f"Pandera validation failed: {e}")
+        checks.append({
+            "check_name": "pandera_schema_validation",
+            "metric": "valid",
+            "value": 0.0,
+            "total": len(df),
+            "details": str(e),
+            "issue": True
+        })
+    
+    # === Additional Consistency Checks ===
     
     # Check for duplicate object_reference
     if "object_reference" in df.columns:
@@ -424,7 +467,6 @@ def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
         })
     
     # Check for flattened JSON structure consistency
-    # Count how many rows have flattened listing fields
     listing_id_cols = [c for c in df.columns if c.startswith("listing.id") or c == "listing.id"]
     if listing_id_cols:
         listing_id_col = listing_id_cols[0]
@@ -437,7 +479,7 @@ def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
             "value": coverage_pct,
             "total": total,
             "with_listing_id": has_listing_id,
-            "issue": has_listing_id < total * 0.9  # Flag if <90% have listing data
+            "issue": has_listing_id < total * 0.9
         })
     
     # Check for empty strings vs nulls in key fields
@@ -455,17 +497,15 @@ def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
             "issue": empty_refs > 0
         })
     
-    # Check date consistency (works with both base columns and dot-notation)
-    # Look for date/datetime fields
+    # Check date ranges
     date_cols = [
         c for c in df.columns 
         if ("date" in c.lower() or "at" in c.lower()) 
-        and c not in ["object_reference"]  # Exclude non-date fields
+        and c not in ["object_reference"]
     ]
-    for col in date_cols[:20]:  # Limit to first 20 date columns
+    for col in date_cols[:20]:
         if col in df.columns:
             try:
-                # Check if it's actually a date/datetime column
                 dtype = str(df[col].dtype)
                 if "date" in dtype.lower() or "datetime" in dtype.lower():
                     min_date = df.select(pl.col(col).min()).item()
@@ -474,12 +514,12 @@ def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
                         checks.append({
                             "check_name": f"date_range_{col}",
                             "metric": "date_range",
-                            "value": None,  # No single numeric metric
+                            "value": None,
                             "min_date": str(min_date),
                             "max_date": str(max_date),
                             "issue": False
                         })
-            except:
+            except Exception:
                 pass
     
     if not checks:
@@ -491,12 +531,7 @@ def check_data_consistency(df: pl.DataFrame) -> pl.DataFrame:
         })
     
     result_df = pl.DataFrame(checks)
-    # Sort by value (positive metric) descending, with None values last
-    return result_df.sort(
-        by="value",
-        descending=True,
-        nulls_last=True
-    )
+    return result_df.sort(by="value", descending=True, nulls_last=True)
 
 
 def generate_text_report(
@@ -636,10 +671,11 @@ def generate_text_report(
             report_lines.append(f"\n{col}:")
             report_lines.append(format_dataframe_table(value_counts))
     
-    # Data consistency checks
+    # Data consistency checks (includes Pandera schema validation)
     report_lines.append("\n" + "=" * 80)
-    report_lines.append("DATA CONSISTENCY CHECKS")
+    report_lines.append("DATA CONSISTENCY CHECKS (Pandera Schema Validation)")
     report_lines.append("=" * 80)
+    report_lines.append("\nUsing Pandera for schema validation (src/data/schema.py)")
     if len(consistency_checks) > 0:
         report_lines.append(format_dataframe_table(consistency_checks))
     else:

@@ -218,30 +218,7 @@ DEPRECATED_BURST_FEATURES = [
     "any_dormant_reactivation",
 ]
 
-# Interaction features (Exp 10: XGBoost learns these automatically)
-# Keep in code for rule-based flagging, but exclude from model training
-INTERACTION_FEATURE_COLUMNS = [
-    # Binary interactions (for explainability, not training)
-    "new_account_high_email_reuse",
-    "new_account_high_phone_reuse",
-    "new_account_high_reuse_any",
-    "new_account_invoice_payment",
-    "very_new_account_invoice",
-    "is_small_listing",
-    "new_account_small_listing",
-    "in_large_component",
-    "new_account_large_component",
-    "new_account_isolated",
-    # Continuous scores
-    "account_age_risk_score",
-    "email_reuse_intensity",
-    "component_risk_score",
-    "suspicious_combo_score",
-]
-
 # Uninformative features (almost never set, not useful for discrimination)
-# NOTE: This is NOT the same as "low coverage" - boolean fields with NULL = FALSE
-#       have 100% semantic coverage. These are features that are almost always FALSE.
 UNINFORMATIVE_FEATURES = [
     "is_new",              # 0.04% TRUE - almost never set, uninformative
 ]
@@ -286,7 +263,6 @@ ALL_GRAPH_FEATURE_COLUMNS = (
     GRAPH_FEATURE_COLUMNS
     + ADVANCED_GRAPH_FEATURE_COLUMNS
     + TIME_WEIGHTED_FEATURE_COLUMNS
-    + INTERACTION_FEATURE_COLUMNS
     + TEXT_FEATURE_COLUMNS
 )
 
@@ -318,7 +294,6 @@ FEATURE_GROUPS = {
     
     # Deprecated (for comparison experiments)
     "burst_detection": DEPRECATED_BURST_FEATURES,
-    "interaction": INTERACTION_FEATURE_COLUMNS,
 }
 
 

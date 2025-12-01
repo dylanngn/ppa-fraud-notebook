@@ -10,6 +10,7 @@ import mlflow
 from mlflow.models import infer_signature
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+from omegaconf import DictConfig
 
 from src.models.xgboost.utils import (
     get_optimal_tree_method,
@@ -23,6 +24,7 @@ from src.models.registry import ModelRegistry
 from src.models.utils.mlflow_helpers import get_model_dependencies
 from src.utils.metrics import calculate_metrics, measure_inference_latency
 from src.features.processor import FeatureProcessor
+from src.features.config_validator import validate_feature_config
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ EmbeddingGenerator = Callable[[pl.DataFrame, pl.DataFrame, datetime], tuple]
 
 def train_accumulating_window(
     df: pl.DataFrame,
-    config: Dict[str, Any],
+    config: DictConfig,
     max_windows: Optional[int] = None,
     embedding_generator: Optional[EmbeddingGenerator] = None
 ) -> Dict[str, Any]:
@@ -54,6 +56,9 @@ def train_accumulating_window(
     Returns:
         Dictionary with run info and metrics
     """
+    # Validate config before training (fail fast on bad config)
+    validate_feature_config(config)
+    
     # Extract config
     model_name = config.model.name
     initial_window_days = config.model.training.initial_window_days
@@ -92,6 +97,10 @@ def train_accumulating_window(
             "feature_categories": ",".join(feature_categories),
             "uses_gnn_embeddings": embedding_generator is not None,
         })
+        
+        # Log full Hydra config for reproducibility
+        from omegaconf import OmegaConf
+        mlflow.log_dict(OmegaConf.to_container(config, resolve=True), "hydra_config.yaml")
         
         # Training loop
         current_date = start_date + timedelta(days=initial_window_days)

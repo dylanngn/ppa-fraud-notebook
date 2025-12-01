@@ -289,6 +289,22 @@ include_groups:
 | Include `has_elevator` in model | 100% semantic coverage, was incorrectly excluded | 2025-12-01 |
 | Switch to `include_groups` config | Explicit selection prevents silent failures | 2025-12-01 |
 | Add low TRUE rate booleans | Potentially discriminative for fraud detection | 2025-12-01 |
+| Remove interaction features | XGBoost learns these automatically (Exp 10); eliminates dependency ordering issue | 2025-12-01 |
+
+### ⚠️ Technical Debt: Feature Category Ordering
+
+**Status**: Deferred (acceptable for experiment phase)
+
+**Context**: The `FeatureRegistry` executes feature categories in the order listed in YAML config. If a category depends on columns from another category, incorrect ordering causes silent failures (returns df unchanged with warning).
+
+**Current State**: Safe. Interaction features (the only category with dependencies) were removed. Remaining categories (`base`, `graph`, `advanced_graph`, `time_weighted`, `text`) are independent.
+
+**Future Risk**: If adding new feature categories with dependencies:
+1. Document dependencies in the category's docstring
+2. Consider adding explicit dependency declarations to `FeatureRegistry`
+3. Or: auto-detect and compute dependencies before dependent categories
+
+**Reference**: Code review feedback Issue #11 (2025-12-01)
 
 ---
 

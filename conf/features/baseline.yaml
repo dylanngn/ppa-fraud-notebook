@@ -1,30 +1,26 @@
-# Baseline Profile - Production Ready (alias for production)
-# Based on data quality analysis: data_quality_reports/data_quality_report.txt
+# Baseline Profile - Core + Graph features only (no enhanced features)
+# Use this as the control group for ablation experiments.
 #
-# Feature Tiers:
-#   - Tier 1 (core_numerical): Core features, 100% coverage, essential
-#   - Tier 1b (boolean_all): Boolean indicators, 100% semantic coverage
-#   - Tier 2 (graph_all): +11.9% AUC-PR improvement
-#   - Tier 3 (time_weighted, text): +0.98% incremental improvement
+# Difference from production:
+#   - EXCLUDES time_weighted_core and text features
+#   - Expected: Slightly lower AUC-PR (~0.98% less than production)
+#
+# Use production.yaml for best performance in deployment.
 
 defaults:
   - _self_
 
 profile: baseline
-description: "Standard baseline configuration - equivalent to production profile"
+description: "Core + Graph only (excludes time-weighted and text for ablation baseline)"
 
-# Feature categories to compute
+# Feature categories to compute (no time_weighted or text)
 categories:
   - base
   - graph
   - advanced_graph
-  - time_weighted
-  - text
 
-# Feature groups to INCLUDE
+# Feature groups to INCLUDE (no time_weighted_core or text)
 include_groups:
   - core_numerical
   - boolean_all
   - graph_all
-  - time_weighted_core
-  - text

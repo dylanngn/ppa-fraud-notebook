@@ -6,9 +6,7 @@ from omegaconf import DictConfig
 import logging
 
 from src.models.xgboost.trainer import train_accumulating_window
-from src.features.definitions.base import compute_base_features
 from src.data.loader import load_data
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +22,6 @@ def main(cfg: DictConfig):
     
     # Load data
     df = load_data()
-    
-    # Apply base features (these are independent of graph)
-    df = compute_base_features(df, cutoff_date=datetime.now(), config=None)
     
     # Train
     result = train_accumulating_window(

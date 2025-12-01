@@ -16,101 +16,51 @@ logger = logging.getLogger(__name__)
 #   required: whether the feature must be present
 # =============================================================================
 
-FEATURE_MANIFEST: Dict[str, Tuple[str, bool]] = {
-    # --- Base Features (from base.py) ---
-    "account_age_days": ("numeric", True),
-    "log_price": ("numeric", False),
-    "is_new": ("boolean", False),
-    "has_balcony": ("boolean", False),
-    "has_elevator": ("boolean", False),
-    "has_parking": ("boolean", False),
-    "bundle_period": ("numeric", False),
-    "bundle_tier": ("categorical", False),
-    "payment_type": ("categorical", False),
-    "offer_type": ("categorical", False),
-    "latitude": ("numeric", False),
-    "longitude": ("numeric", False),
-    "living_space": ("numeric", False),
-    "rooms": ("numeric", False),
+# =============================================================================
+# FEATURE MANIFEST - Auto-generated from FEATURE_GROUPS in constants.py
+# This ensures manifest stays in sync with the authoritative feature definitions.
+# DO NOT edit manually - update constants.py instead.
+# =============================================================================
+
+def _build_manifest_from_constants() -> Dict[str, Tuple[str, bool]]:
+    """Build feature manifest from FEATURE_GROUPS in constants.py."""
+    from src.models.config.constants import (
+        TIER1_CORE_FEATURES,
+        ALL_BOOLEAN_FEATURES,
+        TIER2_GRAPH_FEATURES,
+        TIME_WEIGHTED_FEATURE_COLUMNS,
+        TEXT_FEATURE_COLUMNS,
+    )
     
-    # --- Graph Features (from graph_features.py) ---
-    "shared_contact_email_count": ("numeric", False),
-    "max_shared_contact_email": ("numeric", False),
-    "contact_email_degree": ("numeric", False),
-    "shared_contact_phone_count": ("numeric", False),
-    "max_shared_contact_phone": ("numeric", False),
-    "contact_phone_degree": ("numeric", False),
-    "user_listing_count": ("numeric", False),
-    "user_unique_ip_count": ("numeric", False),
-    "shared_ip_user_count": ("numeric", False),
-    "max_shared_ip_users": ("numeric", False),
-    "listing_component_size": ("numeric", False),
-    "listing_pagerank": ("numeric", False),
+    manifest = {}
     
-    # --- Advanced Graph Features (from advanced_graph_features.py) ---
-    "email_isolation_score": ("numeric", False),
-    "phone_isolation_score": ("numeric", False),
-    "combined_isolation_score": ("numeric", False),
-    "email_cluster_density": ("numeric", False),
-    "phone_cluster_density": ("numeric", False),
-    "email_phone_overlap_ratio": ("numeric", False),
-    "cross_contact_linkage": ("numeric", False),
+    # Core numerical features (required: account_age_days)
+    for feat in TIER1_CORE_FEATURES:
+        required = feat == "account_age_days"
+        if feat in ["payment_type", "bundle_tier", "offer_type"]:
+            manifest[feat] = ("categorical", required)
+        else:
+            manifest[feat] = ("numeric", required)
     
-    # --- Time-Weighted Features (from time_weighted_features.py) ---
-    "email_velocity_1d": ("numeric", False),
-    "email_velocity_3d": ("numeric", False),
-    "email_velocity_7d": ("numeric", False),
-    "email_velocity_14d": ("numeric", False),
-    "email_velocity_30d": ("numeric", False),
-    "email_acceleration_7d": ("numeric", False),
-    "email_recency_score": ("numeric", False),
-    "email_time_spread_days": ("numeric", False),
-    "email_peak_velocity": ("numeric", False),
-    "email_is_burst": ("numeric", False),
-    "email_first_use_days_ago": ("numeric", False),
-    "email_last_use_days_ago": ("numeric", False),
-    "email_usage_count": ("numeric", False),
-    "email_unique_users": ("numeric", False),
-    "email_velocity_trend": ("numeric", False),
-    "email_weekend_ratio": ("numeric", False),
-    "email_business_hours_ratio": ("numeric", False),
-    "email_regularity_score": ("numeric", False),
-    "phone_velocity_1d": ("numeric", False),
-    "phone_velocity_3d": ("numeric", False),
-    "phone_velocity_7d": ("numeric", False),
-    "phone_velocity_14d": ("numeric", False),
-    "phone_velocity_30d": ("numeric", False),
-    "phone_acceleration_7d": ("numeric", False),
-    "phone_recency_score": ("numeric", False),
-    "phone_time_spread_days": ("numeric", False),
-    "phone_peak_velocity": ("numeric", False),
-    "phone_is_burst": ("numeric", False),
-    "phone_first_use_days_ago": ("numeric", False),
-    "phone_last_use_days_ago": ("numeric", False),
-    "phone_usage_count": ("numeric", False),
-    "phone_unique_users": ("numeric", False),
-    "phone_velocity_trend": ("numeric", False),
-    "phone_weekend_ratio": ("numeric", False),
-    "phone_business_hours_ratio": ("numeric", False),
-    "phone_regularity_score": ("numeric", False),
-    "combined_velocity_7d": ("numeric", False),
+    # Boolean features
+    for feat in ALL_BOOLEAN_FEATURES:
+        manifest[feat] = ("boolean", False)
     
-    # --- Text Features (from text_features.py) ---
-    "description_length": ("numeric", False),
-    "description_word_count": ("numeric", False),
-    "description_avg_word_length": ("numeric", False),
-    "description_digit_ratio": ("numeric", False),
-    "description_uppercase_ratio": ("numeric", False),
-    "description_special_char_ratio": ("numeric", False),
-    "description_sentence_count": ("numeric", False),
+    # Graph features (all numeric)
+    for feat in TIER2_GRAPH_FEATURES:
+        manifest[feat] = ("numeric", False)
     
-    # --- Interaction Features (from interaction_features.py) ---
-    "new_account_high_email_reuse": ("numeric", False),
-    "new_account_high_phone_reuse": ("numeric", False),
-    "new_account_high_reuse_any": ("numeric", False),
-    "new_account_invoice_payment": ("numeric", False),
-    "account_age_risk_score": ("numeric", False),
-}
+    # Time-weighted features (all numeric)
+    for feat in TIME_WEIGHTED_FEATURE_COLUMNS:
+        manifest[feat] = ("numeric", False)
+    
+    # Text features (all numeric)
+    for feat in TEXT_FEATURE_COLUMNS:
+        manifest[feat] = ("numeric", False)
+    
+    return manifest
+
+FEATURE_MANIFEST: Dict[str, Tuple[str, bool]] = _build_manifest_from_constants()
 
 
 def get_manifest_features() -> Set[str]:

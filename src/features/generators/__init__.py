@@ -8,7 +8,6 @@ Exports all generator submodules for use via:
 from src.features.generators import (
     advanced_graph_features,
     graph_features,
-    interaction_features,
     text_features,
     time_weighted_features,
 )
@@ -16,7 +15,6 @@ from src.features.generators import (
 __all__ = [
     "advanced_graph_features",
     "graph_features",
-    "interaction_features",
     "text_features",
     "time_weighted_features",
 ]

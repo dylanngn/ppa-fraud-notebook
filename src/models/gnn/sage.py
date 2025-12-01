@@ -21,7 +21,6 @@ from torch_geometric.nn import Linear, SAGEConv, to_hetero
 logger = logging.getLogger(__name__)
 
 from src.models.xgboost.trainer import train_accumulating_window
-from src.features.definitions.base import compute_base_features
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
 from src.models.utils.mlflow_helpers import (
     create_gnn_signature,
@@ -123,12 +122,17 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
 
     # Temporal split
     timestamps = data['listing'].timestamp.numpy()
-    start_threshold = datetime(2023, 1, 1).timestamp() * 1e9
+    
+    # Use 10th percentile as start threshold to filter out very old/invalid timestamps
+    # This is more robust than a hardcoded date and adapts to the data range
+    start_threshold = np.percentile(timestamps[timestamps > 0], 10)
     valid_mask = timestamps >= start_threshold
     valid_timestamps = timestamps[valid_mask]
     
     if len(valid_timestamps) == 0:
         valid_timestamps = timestamps
+    
+    logger.info(f"Using start_threshold: {datetime.fromtimestamp(start_threshold / 1e9)}")
         
     split_time = np.percentile(valid_timestamps, split_percent * 100)
 
@@ -266,7 +270,7 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
             # Get explicit dependencies
             deps = get_model_dependencies()
             
-            gnn_model_uri = mlflow.pytorch.log_model(
+            model_info = mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name="gnn_model",
                 registered_model_name="fraud-detection-gnn-sage",
@@ -292,6 +296,8 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
                     "split_percent": split_percent,
                 }
             )
+            # Ensure we return a string URI, not ModelInfo object
+            gnn_model_uri = model_info.model_uri if hasattr(model_info, 'model_uri') else str(model_info)
         except Exception:
             # Try alternative: register from autologged model
             try:
@@ -317,6 +323,9 @@ def create_sage_embedding_generator():
     Creates an embedding generator function for per-window embedding generation.
     This ensures temporal fairness by filtering the graph before generating embeddings.
     
+    OPTIMIZATION: Loads full graph once, then filters by time per window
+    (instead of rebuilding the entire graph for each window).
+    
     Returns:
         Callback function(train_data, test_data, train_end) -> (train_embeddings_df, test_embeddings_df, embed_cols)
     """
@@ -326,10 +335,9 @@ def create_sage_embedding_generator():
             "SAGE model not found. Run train_sage_embeddings() first."
         )
     
-    # Load model (graph will be built dynamically per window)
     device = get_device()
     
-    # Get metadata from schema (no graph loading needed!)
+    # Get metadata from schema
     metadata = get_metadata()
     
     # Initialize model
@@ -344,6 +352,20 @@ def create_sage_embedding_generator():
     model.load_state_dict(torch.load("artifacts/model_sage_best.pt", weights_only=False))
     model.eval()
     
+    # Load full graph ONCE (cached for all windows)
+    logger.info("Loading full graph for embedding generation (cached for all windows)...")
+    if os.path.exists("artifacts/graph.pt"):
+        full_graph = torch.load("artifacts/graph.pt", weights_only=False)
+    else:
+        logger.info("Graph not found. Building full graph...")
+        full_graph = build_graph(cutoff_date=None)
+    
+    # Load full listing data for ID mapping
+    df_listing_full = pl.read_parquet("artifacts/nodes_listing.parquet")
+    df_listing_full = df_listing_full.with_columns(
+        pl.col("submission_at").cast(pl.Datetime("ns"))
+    )
+    
     def generate_embeddings_for_window(train_data, test_data, train_end):
         """
         Generate embeddings for a specific window with temporal filtering.
@@ -356,16 +378,14 @@ def create_sage_embedding_generator():
         Returns:
             (train_embeddings_df, test_embeddings_df, embed_cols)
         """
-        # Build graph dynamically with temporal filtering
-        # This ensures only edges between entities that existed before train_end are included
-        filtered_data = build_graph(cutoff_date=train_end)
+        # Convert train_end to nanoseconds timestamp for filtering
+        cutoff_ns = int(train_end.timestamp() * 1e9)
+        
+        # Filter graph by time using cached full graph
+        filtered_data = filter_graph_by_time(full_graph, cutoff_ns)
         
         # Create listing_id to index mapping for this filtered graph
-        df_listing_filtered = pl.read_parquet("artifacts/nodes_listing.parquet")
-        df_listing_filtered = df_listing_filtered.with_columns(
-            pl.col("submission_at").cast(pl.Datetime("ns"))
-        )
-        df_listing_filtered = df_listing_filtered.filter(
+        df_listing_filtered = df_listing_full.filter(
             pl.col("submission_at") < train_end
         )
         listing_id_to_idx = {
@@ -460,10 +480,11 @@ def main(cfg: DictConfig):
     # Step 3: Load base data (without embeddings - they'll be generated per window)
     df = load_data()
     
-    # Step 4: Add base tabular features
-    df = compute_base_features(df, cutoff_date=datetime.now(), config=None)
+    # NOTE: Base features are computed by FeatureProcessor inside trainer.py
+    # per-window with the correct temporal cutoff. Removed duplicate call here
+    # that used datetime.now() which was semantically incorrect.
     
-    # Step 5: Override model name for hybrid
+    # Step 4: Override model name for hybrid
     hybrid_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     hybrid_cfg.model.name = "hybrid_sage"
     
