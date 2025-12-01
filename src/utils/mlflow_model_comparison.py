@@ -8,11 +8,11 @@ This module provides MLflow-native utilities for:
 
 Follows MLflow best practices for model lifecycle management.
 """
-
-from typing import Dict, List, Optional, Tuple
+import argparse
+import json
+from typing import Dict, List, Optional
 import mlflow
 from mlflow.tracking import MlflowClient
-import typer
 
 
 def compare_models(
@@ -326,64 +326,80 @@ def recommend_deployment(
     }
 
 
-app = typer.Typer(help="MLflow Model Comparison and Drift Detection CLI")
+# =============================================================================
+# CLI Commands
+# =============================================================================
 
-
-@app.command()
-def compare(
-    model_name: str = typer.Option(..., help="Registered model name"),
-    candidate_run_id: str = typer.Option(..., help="Candidate run ID"),
-    primary_metric: str = typer.Option("auc_pr", help="Primary metric to compare"),
-    improvement_threshold: float = typer.Option(0.01, help="Minimum improvement threshold"),
-):
+def cmd_compare(args):
     """Compare a candidate model with production."""
     result = compare_with_production(
-        model_name=model_name,
-        candidate_run_id=candidate_run_id,
-        primary_metric=primary_metric,
-        improvement_threshold=improvement_threshold
+        model_name=args.model_name,
+        candidate_run_id=args.candidate_run_id,
+        primary_metric=args.primary_metric,
+        improvement_threshold=args.improvement_threshold
     )
-    
-    import json
-    typer.echo(json.dumps(result, indent=2, default=str))
+    print(json.dumps(result, indent=2, default=str))
 
 
-@app.command()
-def drift(
-    model_name: str = typer.Option(..., help="Registered model name"),
-    n_versions: int = typer.Option(5, help="Number of recent versions to analyze"),
-):
+def cmd_drift(args):
     """Analyze model drift across recent versions."""
     result = get_model_drift_summary(
-        model_name=model_name,
-        n_recent_versions=n_versions
+        model_name=args.model_name,
+        n_recent_versions=args.n_versions
     )
-    
-    import json
-    typer.echo(json.dumps(result, indent=2, default=str))
+    print(json.dumps(result, indent=2, default=str))
 
 
-@app.command()
-def recommend(
-    model_name: str = typer.Option(..., help="Registered model name"),
-    candidate_run_id: str = typer.Option(..., help="Candidate run ID"),
-    primary_metric: str = typer.Option("auc_pr", help="Primary metric to compare"),
-    improvement_threshold: float = typer.Option(0.01, help="Minimum improvement threshold"),
-    min_improvement_pct: float = typer.Option(1.0, help="Minimum percentage improvement"),
-):
+def cmd_recommend(args):
     """Get deployment recommendation."""
     result = recommend_deployment(
-        model_name=model_name,
-        candidate_run_id=candidate_run_id,
-        primary_metric=primary_metric,
-        improvement_threshold=improvement_threshold,
-        min_improvement_pct=min_improvement_pct
+        model_name=args.model_name,
+        candidate_run_id=args.candidate_run_id,
+        primary_metric=args.primary_metric,
+        improvement_threshold=args.improvement_threshold,
+        min_improvement_pct=args.min_improvement_pct
     )
+    print(json.dumps(result, indent=2, default=str))
+
+
+def main():
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="MLflow Model Comparison and Drift Detection CLI"
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
-    import json
-    typer.echo(json.dumps(result, indent=2, default=str))
+    # Compare command
+    compare_parser = subparsers.add_parser("compare", help="Compare candidate with production")
+    compare_parser.add_argument("--model-name", required=True, help="Registered model name")
+    compare_parser.add_argument("--candidate-run-id", required=True, help="Candidate run ID")
+    compare_parser.add_argument("--primary-metric", default="auc_pr", help="Primary metric")
+    compare_parser.add_argument("--improvement-threshold", type=float, default=0.01)
+    compare_parser.set_defaults(func=cmd_compare)
+    
+    # Drift command
+    drift_parser = subparsers.add_parser("drift", help="Analyze model drift")
+    drift_parser.add_argument("--model-name", required=True, help="Registered model name")
+    drift_parser.add_argument("--n-versions", type=int, default=5, help="Versions to analyze")
+    drift_parser.set_defaults(func=cmd_drift)
+    
+    # Recommend command
+    recommend_parser = subparsers.add_parser("recommend", help="Get deployment recommendation")
+    recommend_parser.add_argument("--model-name", required=True, help="Registered model name")
+    recommend_parser.add_argument("--candidate-run-id", required=True, help="Candidate run ID")
+    recommend_parser.add_argument("--primary-metric", default="auc_pr", help="Primary metric")
+    recommend_parser.add_argument("--improvement-threshold", type=float, default=0.01)
+    recommend_parser.add_argument("--min-improvement-pct", type=float, default=1.0)
+    recommend_parser.set_defaults(func=cmd_recommend)
+    
+    args = parser.parse_args()
+    
+    if args.command is None:
+        parser.print_help()
+        return
+    
+    args.func(args)
 
 
 if __name__ == "__main__":
-    app()
-
+    main()

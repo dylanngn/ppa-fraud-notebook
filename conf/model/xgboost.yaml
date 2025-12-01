@@ -1,8 +1,9 @@
 # XGBoost configuration
+# This is our PRIMARY model - not a baseline (Seon is the baseline)
 defaults:
   - _self_
 
-name: "baseline_xgboost"
+name: "xgboost"
 
 # XGBoost hyperparameters
 params:

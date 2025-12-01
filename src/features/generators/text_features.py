@@ -14,10 +14,12 @@ Features:
 - description_exclamation_count: Count of exclamation marks
 - description_question_count: Count of question marks
 """
-
+import logging
 from pathlib import Path
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 from src.features.utils import ensure_artifact, ARTIFACTS_DIR
 
@@ -32,7 +34,7 @@ def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
     These features are optimized for XGBoost and don't require
     expensive embedding generation.
     """
-    print("[text-features] Loading listings...")
+    logger.info("Loading listings...")
     
     if not ensure_artifact(LISTING_NODES):
         raise FileNotFoundError(f"Listing nodes missing: {LISTING_NODES}")
@@ -43,7 +45,7 @@ def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
     if "description_text" not in df_listings.columns:
         raise ValueError("description_text column not found in nodes_listing.parquet. Ensure ETL includes description_text extraction.")
     
-    print(f"[text-features] Processing {len(df_listings):,} listings...")
+    logger.info(f"Processing {len(df_listings):,} listings...")
     
     # Compute text features
     df_features = df_listings.select([
@@ -115,11 +117,11 @@ def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df_features.write_parquet(output_path)
     
-    print(f"[text-features] Generated {len(numerical_cols)} text features")
-    print(f"[text-features] Saved to {output_path}")
+    logger.info(f"Generated {len(numerical_cols)} text features")
+    logger.info(f"Saved to {output_path}")
     
-    # Print feature summary
-    print("\n[text-features] Feature Summary:")
+    # Log feature summary
+    logger.info("Feature Summary:")
     for col in numerical_cols:
         stats = df_features.select([
             pl.col(col).mean().alias("mean"),
@@ -127,7 +129,7 @@ def generate_text_features(output_path: Path = OUTPUT_PATH) -> None:
             pl.col(col).max().alias("max"),
             (pl.col(col) > 0).sum().alias("non_zero")
         ]).row(0)
-        print(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]:,}")
+        logger.info(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]:,}")
 
 
 if __name__ == "__main__":

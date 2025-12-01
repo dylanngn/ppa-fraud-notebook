@@ -15,13 +15,15 @@ Features computed:
 OPTIMIZATION: Uses chunked processing to avoid memory issues with large graphs.
 """
 
+import logging
 from pathlib import Path
-from typing import Optional, Dict
-from datetime import timedelta, datetime
+from typing import Optional
+from datetime import datetime
 import math
 
 import polars as pl
-import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from src.features.utils import (
     _groupby,
@@ -60,7 +62,7 @@ def _compute_time_weighted_features_chunked(
     if "source" in edges.columns and "listing_id" not in edges.columns:
         edges = edges.rename({"source": "listing_id"})
     
-    print(f"[time-weighted] Processing {prefix} features...")
+    logger.info(f"Processing {prefix} features...")
     
     # Join edges with listing timestamps
     edges_with_time = edges.join(
@@ -72,7 +74,7 @@ def _compute_time_weighted_features_chunked(
     # Get all unique targets
     unique_targets = edges_with_time.select("target").unique()["target"].to_list()
     n_targets = len(unique_targets)
-    print(f"[time-weighted] Processing {n_targets:,} unique {prefix}s in chunks...")
+    logger.info(f"Processing {n_targets:,} unique {prefix}s in chunks...")
     
     # Initialize result accumulators
     all_results = []
@@ -86,7 +88,7 @@ def _compute_time_weighted_features_chunked(
         chunk_targets = unique_targets[start_idx:end_idx]
         
         if (chunk_idx + 1) % 10 == 0 or chunk_idx == n_chunks - 1:
-            print(f"[time-weighted]   Chunk {chunk_idx + 1}/{n_chunks} ({end_idx:,}/{n_targets:,} {prefix}s)")
+            logger.info(f"Chunk {chunk_idx + 1}/{n_chunks} ({end_idx:,}/{n_targets:,} {prefix}s)")
         
         # Filter edges to this chunk of targets
         chunk_edges = edges_with_time.filter(pl.col("target").is_in(chunk_targets))
@@ -358,9 +360,9 @@ def generate_time_weighted_features(
         FileNotFoundError: If required artifact files are missing
         ValueError: If no features can be generated
     """
-    print("[time-weighted] Loading listings with timestamps...")
+    logger.info("Loading listings with timestamps...")
     listings_df = load_listings_with_timestamps()
-    print(f"[time-weighted] Loaded {listings_df.shape[0]:,} listings")
+    logger.info(f"Loaded {listings_df.shape[0]:,} listings")
     
     # Load edges
     email_edges = safe_load_edges(EDGE_LISTING_CONTACT_EMAIL)
@@ -368,7 +370,7 @@ def generate_time_weighted_features(
     
     # Apply temporal filtering if cutoff_date is provided
     if cutoff_date is not None:
-        print(f"[time-weighted] Filtering edges by cutoff_date: {cutoff_date}")
+        logger.info(f"Filtering edges by cutoff_date: {cutoff_date}")
         listings_with_time = load_listings_with_timestamps()
         
         if email_edges is not None:
@@ -388,16 +390,16 @@ def generate_time_weighted_features(
             )
     
     if email_edges is not None:
-        print(f"[time-weighted] Email edges: {email_edges.shape[0]:,}")
+        logger.info(f"Email edges: {email_edges.shape[0]:,}")
     if phone_edges is not None:
-        print(f"[time-weighted] Phone edges: {phone_edges.shape[0]:,}")
+        logger.info(f"Phone edges: {phone_edges.shape[0]:,}")
     
     # Compute time-weighted features for each edge type
     email_features = _compute_time_weighted_features_chunked(listings_df, email_edges, "email")
     phone_features = _compute_time_weighted_features_chunked(listings_df, phone_edges, "phone")
     
     # Combine features
-    print("[time-weighted] Combining features...")
+    logger.info("Combining features...")
     combined = _compute_combined_features(email_features, phone_features)
     
     if combined is None:
@@ -417,13 +419,13 @@ def generate_time_weighted_features(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         combined.write_parquet(output_path)
-        print(f"[time-weighted] Saved to {output_path}")
+        logger.info(f"Saved to {output_path}")
     
-    print(f"[time-weighted] Generated {len(numerical_cols)} features for {combined.shape[0]:,} listings")
+    logger.info(f"Generated {len(numerical_cols)} features for {combined.shape[0]:,} listings")
     
-    # Print feature summary (only if saving to disk)
+    # Log feature summary (only if saving to disk)
     if output_path is not None:
-        print("\n[time-weighted] Feature Summary:")
+        logger.info("Feature Summary:")
         for col in numerical_cols[:12]:
             stats = combined.select([
                 pl.col(col).mean().alias("mean"),
@@ -431,7 +433,7 @@ def generate_time_weighted_features(
                 pl.col(col).max().alias("max"),
                 (pl.col(col) > 0).sum().alias("non_zero")
             ]).row(0)
-            print(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]}")
+            logger.info(f"  {col}: mean={stats[0]:.4f}, std={stats[1]:.4f}, max={stats[2]:.2f}, non_zero={stats[3]}")
     
     return combined
 

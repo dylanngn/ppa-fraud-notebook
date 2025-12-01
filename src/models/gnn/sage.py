@@ -4,20 +4,25 @@ SAGE Hybrid Model Training
 Optimized SAGE (GraphSAGE) implementation for fraud detection.
 Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
 """
+import logging
 import os
 from datetime import datetime
 from typing import Optional
 
+import hydra
+import mlflow
 import numpy as np
 import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import mlflow
+from omegaconf import DictConfig, OmegaConf
 from torch_geometric.nn import SAGEConv, Linear, to_hetero
 
-from src.models.training_window import train_accumulating_window
-from src.models.feature_engineering import load_data, add_base_tabular_features
+logger = logging.getLogger(__name__)
+
+from src.models.xgboost.trainer import train_accumulating_window
+from src.features.definitions.base import compute_base_features
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
 from src.models.utils.mlflow_helpers import (
     create_gnn_signature,
@@ -25,6 +30,8 @@ from src.models.utils.mlflow_helpers import (
     get_model_dependencies
 )
 from src.utils.metrics import calculate_metrics
+from src.data.graph.schema import get_metadata, GRAPH_METADATA
+from src.data.loader import load_data
 
 
 class GraphSAGE(nn.Module):
@@ -108,22 +115,11 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     
     # Build or load graph
     if not os.path.exists("artifacts/graph.pt"):
-        print("Graph not found. Building full graph...")
+        logger.info("Graph not found. Building full graph...")
         from src.data.graph.graph_builder import build_graph
         data = build_graph(cutoff_date=None)  # Build full graph for initial training
     else:
         data = torch.load("artifacts/graph.pt", weights_only=False)
-        # Safeguard: Remove person nodes if they exist (legacy from old graph artifacts)
-        if 'person' in data.node_types:
-            print("Warning: Found 'person' node type in loaded graph. Removing it...")
-            # Remove person node data
-            if hasattr(data['person'], 'x'):
-                del data['person']
-            # Remove any edges involving person nodes
-            edge_types_to_remove = [et for et in data.edge_types if 'person' in et]
-            for edge_type in edge_types_to_remove:
-                del data[edge_type]
-            print("Removed person nodes and edges from graph.")
     device = get_device()
 
     # Temporal split
@@ -337,24 +333,12 @@ def create_sage_embedding_generator():
     # Load model (graph will be built dynamically per window)
     device = get_device()
     
-    # Get metadata for model initialization (without building full graph)
-    # Use saved graph.pt if available, otherwise build graph for metadata only
-    from src.data.graph.graph_builder import build_graph
-    if os.path.exists("artifacts/graph.pt"):
-        # Use saved graph (already built during initial training)
-        full_data = torch.load("artifacts/graph.pt", weights_only=False)
-        print("Using saved graph.pt for metadata")
-    else:
-        # Build full graph only if needed (for metadata)
-        print("Building graph for metadata (this is a one-time cost)")
-        full_data = build_graph(cutoff_date=None)
-    
-    # Get metadata
-    filtered_metadata = full_data.metadata()
+    # Get metadata from schema (no graph loading needed!)
+    metadata = get_metadata()
     
     # Initialize model
     model = SAGEWrapper(
-        metadata=filtered_metadata,
+        metadata=metadata,
         hidden_channels=64,
         out_channels=64,
         num_layers=2,
@@ -363,9 +347,6 @@ def create_sage_embedding_generator():
     # Load trained weights
     model.load_state_dict(torch.load("artifacts/model_sage_best.pt", weights_only=False))
     model.eval()
-    
-    # Load listing node mapping (will be used to map insertion_ids to graph indices)
-    df_listing_all = pl.read_parquet("artifacts/nodes_listing.parquet")
     
     def generate_embeddings_for_window(train_data, test_data, train_end):
         """
@@ -452,30 +433,27 @@ def create_sage_embedding_generator():
     return generate_embeddings_for_window
 
 
-def main(
-    experiment_name: str = "ppa-fraud-detection",
-    initial_window_days: int = 180,
-    step_days: int = 7,
-    epochs: int = 25,
-    max_windows: Optional[int] = None
-):
+@hydra.main(version_base=None, config_path="../../../conf", config_name="config")
+def main(cfg: DictConfig):
     """
     Train SAGE hybrid model: embeddings + XGBoost.
     
     Pipeline:
     1. Train SAGE model on graph (temporal split)
     2. Create embedding generator for per-window embedding generation
-    3. Train hybrid XGBoost model with accumulating window (embeddings generated per window with temporal filtering)
-    
-    Args:
-        experiment_name: MLflow experiment name
-        initial_window_days: Initial training window size in days
-        step_days: Step size between evaluation windows in days
-        epochs: Number of GNN training epochs
-        max_windows: Optional maximum number of windows to evaluate (for faster training)
+    3. Train hybrid XGBoost model with accumulating window
     """
     if not os.path.exists("artifacts/nodes_listing.parquet"):
-        raise FileNotFoundError("Artifacts not found. Please run ETL.py first.")
+        raise FileNotFoundError("Artifacts not found. Run 'make etl' first.")
+    
+    # Get config values
+    epochs = cfg.get("gnn", {}).get("epochs", 25)
+    max_windows = cfg.model.training.get("max_windows", None)
+    
+    logger.info(f"Training SAGE hybrid model...")
+    logger.info(f"  Experiment: {cfg.experiment_name}")
+    logger.info(f"  GNN epochs: {epochs}")
+    logger.info(f"  Feature categories: {cfg.features.categories}")
     
     # Step 1: Train SAGE model (once, on training split)
     gnn_model_uri = train_sage_embeddings(epochs=epochs)
@@ -486,53 +464,25 @@ def main(
     # Step 3: Load base data (without embeddings - they'll be generated per window)
     df = load_data()
     
-    # Step 4: Add base tabular features (graph features will be added per window)
-    df = add_base_tabular_features(df)
+    # Step 4: Add base tabular features
+    df = compute_base_features(df, cutoff_date=datetime.now(), config=None)
     
-    # Step 5: Create config and train hybrid model with per-window embeddings
-    from src.models.config.experiment_config import ExperimentConfig
+    # Step 5: Override model name for hybrid
+    hybrid_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+    hybrid_cfg.model.name = "hybrid_sage"
     
-    config = ExperimentConfig(
-        experiment_name=experiment_name,
-        initial_window_days=initial_window_days,
-        step_days=step_days
-    )
-    
+    # Step 6: Train hybrid model with per-window embeddings
     result = train_accumulating_window(
         df,
-        embedding_generator=embedding_generator,
-        model_name="hybrid_sage",
-        config=config,
-        max_windows=max_windows
+        config=hybrid_cfg,
+        max_windows=max_windows,
+        embedding_generator=embedding_generator
     )
     
-    # Step 6: Log hybrid model using "models from code" pattern (pyfunc)
-    if gnn_model_uri and result.get("best_run_id"):
-        try:
-            from src.models.gnn.hybrid_pyfunc import log_hybrid_model_as_pyfunc
-            
-            xgb_model_uri = f"runs:/{result['best_run_id']}/model"
-            
-            # Log hybrid model in the parent run
-            with mlflow.start_run(run_id=result["run_id"]):
-                hybrid_model_uri = log_hybrid_model_as_pyfunc(
-                    gnn_model_uri=gnn_model_uri,
-                    xgb_model_uri=xgb_model_uri,
-                    graph_path="artifacts/graph.pt",
-                    registered_model_name="fraud-detection-hybrid-sage"
-                )
-                
-                mlflow.log_param("hybrid_model_uri", hybrid_model_uri)
-                mlflow.log_param("gnn_model_uri", gnn_model_uri)
-                mlflow.log_param("xgb_model_uri", xgb_model_uri)
-                
-                print(f"✓ Logged hybrid model as pyfunc: {hybrid_model_uri}")
-        except Exception as e:
-            print(f"Warning: Could not log hybrid pyfunc model: {e}")
+    logger.info(f"SAGE hybrid training complete. Mean AUC-PR: {result['mean_auc_pr']:.4f}")
     
     return result
 
 
 if __name__ == "__main__":
-    import typer
-    typer.run(main)
+    main()

@@ -23,23 +23,35 @@ from src.models.xgboost.utils import (
 from src.models.utils.common import setup_mlflow
 from src.models.registry import ModelRegistry
 from src.models.utils.mlflow_helpers import get_model_dependencies
-from src.utils.metrics import calculate_metrics
+from src.utils.metrics import calculate_metrics, measure_inference_latency
 from src.features.processor import FeatureProcessor
 
 logger = logging.getLogger(__name__)
 
+from typing import Callable
+
+# Type alias for embedding generator callback
+EmbeddingGenerator = Callable[[pl.DataFrame, pl.DataFrame, datetime], tuple]
+
+
 def train_accumulating_window(
     df: pl.DataFrame,
     config: Dict[str, Any],
-    max_windows: Optional[int] = None
+    max_windows: Optional[int] = None,
+    embedding_generator: Optional[EmbeddingGenerator] = None
 ) -> Dict[str, Any]:
     """
     Train XGBoost with accumulating window and MLflow tracking.
+    
+    Supports hybrid GNN+XGBoost training via embedding_generator callback.
     
     Args:
         df: DataFrame with base features and target
         config: Hydra configuration dictionary
         max_windows: Optional maximum number of windows (for debugging)
+        embedding_generator: Optional callback for per-window embedding generation.
+            Signature: (train_data, test_data, train_end) -> (train_embed_df, test_embed_df, embed_cols)
+            The embedding DataFrames should have 'insertion_id' as join key.
         
     Returns:
         Dictionary with run info and metrics
@@ -80,6 +92,7 @@ def train_accumulating_window(
             "data_start_date": str(start_date.date()),
             "data_end_date": str(end_date.date()),
             "feature_categories": ",".join(feature_categories),
+            "uses_gnn_embeddings": embedding_generator is not None,
         })
         
         # Training loop
@@ -110,9 +123,41 @@ def train_accumulating_window(
                 continue
             
             # Generate features with temporal filtering
-            feature_processor = FeatureProcessor(config=feature_categories)
+            feature_processor = FeatureProcessor.from_config(config.features)
             train_data = feature_processor.process(train_data, cutoff_date=train_end)
             test_data = feature_processor.process(test_data, cutoff_date=train_end)
+            
+            # Generate and merge GNN embeddings if embedding_generator is provided
+            embed_cols = []
+            if embedding_generator is not None:
+                try:
+                    logger.info(f"Generating embeddings for window {window_idx}...")
+                    train_embed_df, test_embed_df, embed_cols = embedding_generator(
+                        train_data, test_data, train_end
+                    )
+                    
+                    # Join embeddings with feature data
+                    train_data = train_data.join(
+                        train_embed_df, on="insertion_id", how="left"
+                    )
+                    test_data = test_data.join(
+                        test_embed_df, on="insertion_id", how="left"
+                    )
+                    
+                    # Fill any missing embeddings with zeros
+                    for col in embed_cols:
+                        train_data = train_data.with_columns(
+                            pl.col(col).fill_null(0.0)
+                        )
+                        test_data = test_data.with_columns(
+                            pl.col(col).fill_null(0.0)
+                        )
+                    
+                    logger.info(f"Added {len(embed_cols)} embedding features")
+                    
+                except Exception as e:
+                    logger.warning(f"Embedding generation failed: {e}. Continuing without embeddings.")
+                    embed_cols = []
             
             # Convert to pandas
             train_df = train_data.to_pandas()
@@ -122,13 +167,18 @@ def train_accumulating_window(
             # and catches type mismatches early rather than silently filtering
             valid_features, invalid_cols = validate_features(train_df, strict=False)
             
+            # Add embedding columns to valid features (they're not in the manifest)
+            if embed_cols:
+                valid_features = valid_features + embed_cols
+                logger.info(f"Added {len(embed_cols)} embedding columns to feature set")
+            
             if not valid_features:
                 raise ValueError(
                     f"No valid features found! Check that feature generators are producing expected columns. "
                     f"Invalid columns: {invalid_cols[:10]}..."  # Show first 10
                 )
             
-            logger.info(f"Using {len(valid_features)} features from manifest (excluded {len(invalid_cols)} non-feature columns)")
+            logger.info(f"Using {len(valid_features)} features ({len(valid_features) - len(embed_cols)} manifest + {len(embed_cols)} embeddings)")
             
             # Get categorical features from the valid set
             categorical_features = get_categorical_features(valid_features)
@@ -211,10 +261,17 @@ def train_accumulating_window(
                 proba = model.predict_proba(X_test)[:, 1]
                 metrics = calculate_metrics(y_test, proba)
                 
+                # Measure inference latency (sample of 100 rows)
+                latency_sample = X_test.head(min(100, len(X_test)))
+                latency_metrics = measure_inference_latency(model, latency_sample, n_iterations=50)
+                
                 mlflow.log_metrics({
                     "auc_pr": metrics["auc_pr"],
                     "auc_roc": metrics["auc_roc"],
                     "p_at_100": metrics["p@100"],
+                    "latency_mean_ms": latency_metrics.get("latency_mean_ms", 0),
+                    "latency_p95_ms": latency_metrics.get("latency_p95_ms", 0),
+                    "latency_per_sample_ms": latency_metrics.get("latency_per_sample_ms", 0),
                 })
                 
                 # Track best model

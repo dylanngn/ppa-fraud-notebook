@@ -1,0 +1,17 @@
+field,null_count,null_pct,non_null_count,non_null_pct,unique_count,dtype
+listing.lister.email.hash,55,0.023458359279700414,234403,99.9765416407203,130947,String
+listing.lister.email.domain_hash,56,0.023884874902967698,234402,99.97611512509704,24442,String
+listing.lister.email.user_hash,57,0.024311390526234978,234401,99.97568860947376,116353,String
+auto_approval_criteria.criteria.hasUsedSameEmailBefore,2739,1.1682262921290807,231719,98.83177370787092,3,Boolean
+listing.lister.billing.email.hash,4683,1.9973726637606735,229775,98.00262733623933,129918,String
+listing.lister.billing.email.domain_hash,4685,1.998225695007208,229773,98.0017743049928,25625,String
+listing.lister.billing.email.user_hash,4685,1.998225695007208,229773,98.0017743049928,114575,String
+contact_emails_hash,19003,8.105076388948127,215455,91.89492361105187,114282,String
+listing.lister.contacts.inquiry.email.domain_hash,234053,99.82726117257675,405,0.1727388274232453,112,String
+listing.lister.contacts.inquiry.email.hash,234053,99.82726117257675,405,0.1727388274232453,182,String
+listing.lister.contacts.inquiry.email.user_hash,234053,99.82726117257675,405,0.1727388274232453,143,String
+listing.lister.contacts.viewing.email.domain_hash,234436,99.99061665628813,22,0.009383343711874659,11,String
+listing.lister.contacts.viewing.email.hash,234436,99.99061665628813,22,0.009383343711874659,15,String
+listing.lister.contacts.viewing.email.user_hash,234436,99.99061665628813,22,0.009383343711874659,15,String
+listing.lister.billing.directPaymentInfo.payer.email_address,234444,99.99402878127425,14,0.0059712187257474625,15,String
+listing.autoApprovalCriteria.criteria.hasUsedSameEmailBefore,234457,99.99957348437674,1,0.00042651562326057046,2,Boolean

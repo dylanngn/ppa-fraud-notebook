@@ -1,0 +1,83 @@
+# Ablation Study Profile - For systematic feature importance analysis
+# Run multiple experiments with different feature combinations to measure impact
+
+defaults:
+  - _self_
+
+profile: ablation
+description: "Systematic feature ablation study"
+
+# Define ablation experiments
+ablation_experiments:
+  
+  # Tier 1 only (baseline)
+  tier1_only:
+    categories:
+      - base
+    exclude:
+      - is_new
+      - has_elevator
+    expected_auc_pr: 0.59
+    
+  # Tier 1 + basic graph
+  tier1_plus_graph:
+    categories:
+      - base
+      - graph
+    exclude:
+      - is_new
+      - has_elevator
+    expected_auc_pr: 0.66
+    
+  # Tier 1 + all graph
+  tier1_plus_all_graph:
+    categories:
+      - base
+      - graph
+      - advanced_graph
+    exclude:
+      - is_new
+      - has_elevator
+    expected_auc_pr: 0.67
+    
+  # Tier 1 + graph + time-weighted
+  full_no_text:
+    categories:
+      - base
+      - graph
+      - advanced_graph
+      - time_weighted
+    exclude:
+      - is_new
+      - has_elevator
+      - email_is_burst
+      - phone_is_burst
+      - any_burst
+    expected_auc_pr: 0.68
+    
+  # Full production config
+  full:
+    categories:
+      - base
+      - graph
+      - advanced_graph
+      - time_weighted
+      - text
+    exclude:
+      - is_new
+      - has_elevator
+      - email_is_burst
+      - phone_is_burst
+      - any_burst
+    expected_auc_pr: 0.70
+
+# Default: run all ablation experiments
+run_all: true
+
+# Metrics to track per experiment
+metrics:
+  - auc_pr
+  - precision_at_100
+  - feature_count
+  - training_time_seconds
+

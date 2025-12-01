@@ -1,0 +1,25 @@
+# Quick Profile - Fast iteration during development
+# Uses only Tier 1 core features for fastest training
+# Expected: ~15min training, ~0.62 AUC-PR (baseline without graph features)
+
+defaults:
+  - _self_
+
+profile: quick
+description: "Fast iteration during development - core features only"
+
+# Only base features (no graph computation)
+categories:
+  - base
+
+# Exclude low-coverage and deprecated features
+exclude:
+  - is_new               # 99.99% NULL
+  - has_elevator         # ~60% NULL
+  - email_is_burst
+  - phone_is_burst
+  - any_burst
+  - email_is_dormant_reactivation
+  - phone_is_dormant_reactivation
+  - any_dormant_reactivation
+

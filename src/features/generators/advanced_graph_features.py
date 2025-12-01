@@ -1,8 +1,11 @@
+import logging
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 from src.features.utils import (
     _groupby,
@@ -143,7 +146,7 @@ def generate_advanced_features(
         FileNotFoundError: If required artifact files are missing
         ValueError: If no features can be generated
     """
-    print("[advanced-features] Loading data...")
+    logger.info("Loading data...")
     listings_df = load_listing_ids()
     listing_ids = listings_df["insertion_id"].to_list()
 
@@ -152,7 +155,7 @@ def generate_advanced_features(
     
     # Apply temporal filtering if cutoff_date is provided
     if cutoff_date is not None:
-        print(f"[advanced-features] Filtering edges by cutoff_date: {cutoff_date}")
+        logger.info(f"Filtering edges by cutoff_date: {cutoff_date}")
         listings_with_time = load_listings_with_timestamps()
         
         if contact_email_edges is not None:
@@ -174,13 +177,13 @@ def generate_advanced_features(
     feature_frames = [listings_df]
 
     # 1. Isolation Scores
-    print("[advanced-features] Calculating isolation scores...")
+    logger.info("Calculating isolation scores...")
     isolation = _calculate_isolation_scores(listing_ids, contact_email_edges, contact_phone_edges)
     if isolation is not None:
         feature_frames.append(isolation)
 
     # 2. Clustering / Overlap
-    print("[advanced-features] Calculating clustering/overlap metrics...")
+    logger.info("Calculating clustering/overlap metrics...")
     clustering = _calculate_clustering_coefficient(listing_ids, contact_email_edges, contact_phone_edges)
     if clustering is not None:
         feature_frames.append(clustering)
@@ -188,7 +191,7 @@ def generate_advanced_features(
     if len(feature_frames) == 1:
         raise ValueError("No advanced features were generated. Check that edge files exist and contain data.")
 
-    print("[advanced-features] Joining features...")
+    logger.info("Joining features...")
     features = feature_frames[0]
     for frame in feature_frames[1:]:
         features = features.join(frame, on="insertion_id", how="left")
@@ -203,7 +206,7 @@ def generate_advanced_features(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         features.write_parquet(output_path)
-        print(f"[advanced-features] Saved advanced graph features to {output_path}")
+        logger.info(f"Saved to {output_path}")
     
     return features
 

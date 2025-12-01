@@ -1,0 +1,6 @@
+check_name,metric,value,total,unique,duplicates,issue,with_listing_id,empty_count,valid_count,min_date,max_date
+duplicate_object_reference,unique_pct,100.0,234458,234458,0,false,,,,,
+empty_object_reference,valid_pct,100.0,234458,,,false,,0,234458,,
+flattened_listing_coverage,coverage_pct,98.21375256975664,234458,,,false,230270,,,,
+date_range_account_created_at,date_range,,,,,false,,,,2020-12-17 15:18:31.712636+00:00,2025-11-25 12:42:49.058033+00:00
+date_range_first_published_date,date_range,,,,,false,,,,2023-01-01 07:36:39.930000+00:00,2025-11-11 18:01:54.642000+00:00

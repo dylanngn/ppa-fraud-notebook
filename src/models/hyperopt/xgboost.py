@@ -2,21 +2,27 @@
 Hyperparameter optimization for XGBoost models using Optuna and MLflow.
 Follows MLflow best practices for hyperparameter tuning.
 """
+import logging
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional
+
+import hydra
+import mlflow
 import optuna
 import polars as pl
 import xgboost as xgb
-import mlflow
-import typer
-from typing import Dict, Any, Callable, Optional
+from omegaconf import DictConfig, OmegaConf
 
-from src.models.training_window import train_accumulating_window
-from src.models.config.experiment_config import ExperimentConfig
-from src.models.feature_engineering import load_data, add_base_tabular_features
+logger = logging.getLogger(__name__)
+
+from src.models.xgboost.trainer import train_accumulating_window
+from src.features.definitions.base import compute_base_features
+from src.data.loader import load_data
 
 
 def create_xgboost_objective(
     df: pl.DataFrame,
-    config: ExperimentConfig,
+    base_config: DictConfig,
     n_windows: int = 5,
     metric_weights: Dict[str, float] = None
 ) -> Callable:
@@ -25,7 +31,7 @@ def create_xgboost_objective(
     
     Args:
         df: Training DataFrame
-        config: Experiment configuration
+        base_config: Hydra config to use as base
         n_windows: Number of evaluation windows per trial (for faster optimization)
         metric_weights: Weights for composite metric (default: 0.7 * AUC-PR + 0.3 * P@100)
     
@@ -58,43 +64,25 @@ def create_xgboost_objective(
             "reg_lambda": trial.suggest_float("reg_lambda", 1.0, 10.0),
         }
         
+        # Create trial config by overriding base config params
+        trial_config = OmegaConf.create(OmegaConf.to_container(base_config, resolve=True))
+        trial_config.model.name = "xgboost_hyperopt"
+        trial_config.model.params = OmegaConf.create(params)
+        
+        # Use larger step size for faster optimization
+        step_days_optimization = max(base_config.model.training.step_days * 4, 28)
+        trial_config.model.training.step_days = step_days_optimization
+        
         # Create nested MLflow run for this trial
         with mlflow.start_run(nested=True):
             # Log hyperparameters
             mlflow.log_params(params)
             mlflow.log_param("trial_number", trial.number)
             
-            # Create config with these hyperparameters
-            trial_config = ExperimentConfig(
-                experiment_name=config.experiment_name,
-                initial_window_days=config.initial_window_days,
-                step_days=config.step_days,
-                feature_categories=config.feature_categories,
-                xgb_params=params
-            )
-            
-            # Train with limited windows for faster optimization
-            # Use larger step size to reduce number of windows
-            step_days_optimization = max(config.step_days * 4, 28)  # At least 28 days
-            
-            # Create trial config with optimized step size
-            trial_config_optimized = ExperimentConfig(
-                experiment_name=config.experiment_name,
-                initial_window_days=config.initial_window_days,
-                step_days=step_days_optimization,
-                feature_categories=config.feature_categories,
-                xgb_params=params
-            )
-            
             try:
                 result = train_accumulating_window(
                     df=df,
-                    initial_window_days=config.initial_window_days,
-                    step_days=step_days_optimization,
-                    extra_features=[],
-                    embedding_generator=None,
-                    model_name="xgboost_hyperopt",
-                    config=trial_config_optimized,
+                    config=trial_config,
                     max_windows=n_windows  # Limit windows for faster optimization
                 )
                 
@@ -129,7 +117,7 @@ def create_xgboost_objective(
 
 
 def optimize_xgboost_hyperparameters(
-    config: ExperimentConfig,
+    config: DictConfig,
     n_trials: int = 100,
     n_windows: int = 5,
     timeout_minutes: Optional[int] = None,
@@ -140,7 +128,7 @@ def optimize_xgboost_hyperparameters(
     Run hyperparameter optimization for XGBoost models.
     
     Args:
-        config: Experiment configuration
+        config: Hydra configuration
         n_trials: Number of Optuna trials
         n_windows: Number of evaluation windows per trial
         timeout_minutes: Optional timeout in minutes
@@ -150,18 +138,17 @@ def optimize_xgboost_hyperparameters(
     Returns:
         Dictionary with best parameters and metrics
     """
-    # Setup MLflow
     from src.models.utils.common import setup_mlflow
     setup_mlflow(config.experiment_name)
     
-    # Load data
+    # Load and prepare data
     df = load_data()
-    df = add_base_tabular_features(df)
+    df = compute_base_features(df, cutoff_date=datetime.now(), config=None)
     
     # Create objective function
     objective = create_xgboost_objective(
         df=df,
-        config=config,
+        base_config=config,
         n_windows=n_windows,
         metric_weights=metric_weights
     )
@@ -178,8 +165,9 @@ def optimize_xgboost_hyperparameters(
         mlflow.log_params({
             "n_trials": n_trials,
             "n_windows": n_windows,
-            "initial_window_days": config.initial_window_days,
-            "step_days": config.step_days,
+            "initial_window_days": config.model.training.initial_window_days,
+            "step_days": config.model.training.step_days,
+            "feature_categories": str(config.features.categories),
         })
         
         try:
@@ -197,57 +185,43 @@ def optimize_xgboost_hyperparameters(
         mlflow.log_metric("best_composite_score", -study.best_value)
         
     return {
-            "best_params": study.best_params,
-            "best_score": -study.best_value,
-            "n_trials": len(study.trials),
-        }
+        "best_params": study.best_params,
+        "best_score": -study.best_value,
+        "n_trials": len(study.trials),
+    }
 
 
-def main(
-    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
-    initial_window_days: int = typer.Option(180, help="Initial training window size in days"),
-    step_days: int = typer.Option(7, help="Step size between evaluation windows in days"),
-    n_trials: int = typer.Option(100, help="Number of Optuna trials"),
-    n_windows: int = typer.Option(5, help="Number of evaluation windows per trial"),
-    timeout_minutes: Optional[int] = typer.Option(None, help="Optional timeout in minutes"),
-    feature_categories: Optional[str] = typer.Option(
-        None,
-        help="Comma-separated feature categories: base,graph,advanced_graph,time_weighted,interaction,text"
-    ),
-):
+@hydra.main(version_base=None, config_path="../../../conf", config_name="config")
+def main(cfg: DictConfig):
     """
     Hyperparameter optimization for XGBoost models using Optuna.
     
     Tunes XGBoost hyperparameters to maximize: 0.7 * AUC-PR + 0.3 * P@100
     """
-    from src.models.config.experiment_config import ExperimentConfig, FeatureCategory
+    # Get optimization parameters from config or use defaults
+    n_trials = cfg.get("hyperopt", {}).get("n_trials", 100)
+    n_windows = cfg.get("hyperopt", {}).get("n_windows", 5)
+    timeout_minutes = cfg.get("hyperopt", {}).get("timeout_minutes", None)
     
-    # Parse feature categories
-    categories = None
-    if feature_categories:
-        categories = [FeatureCategory(cat.strip()) for cat in feature_categories.split(",")]
-    
-    config = ExperimentConfig(
-        experiment_name=experiment_name,
-        initial_window_days=initial_window_days,
-        step_days=step_days,
-        feature_categories=categories
-    )
+    logger.info(f"Starting XGBoost hyperparameter optimization...")
+    logger.info(f"  Experiment: {cfg.experiment_name}")
+    logger.info(f"  Trials: {n_trials}")
+    logger.info(f"  Windows per trial: {n_windows}")
+    logger.info(f"  Feature categories: {cfg.features.categories}")
     
     result = optimize_xgboost_hyperparameters(
-        config=config,
+        config=cfg,
         n_trials=n_trials,
         n_windows=n_windows,
         timeout_minutes=timeout_minutes
     )
     
-    typer.echo(f"Best parameters: {result['best_params']}")
-    typer.echo(f"Best score: {result['best_score']:.4f}")
+    logger.info("Optimization complete!")
+    logger.info(f"  Best parameters: {result['best_params']}")
+    logger.info(f"  Best score: {result['best_score']:.4f}")
     
     return result
 
 
 if __name__ == "__main__":
-    import typer
-    typer.run(main)
-
+    main()

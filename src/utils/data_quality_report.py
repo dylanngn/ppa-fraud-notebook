@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
-import typer
 
 
 def format_dataframe_table(df: pl.DataFrame, max_rows: int = None) -> str:
@@ -704,24 +703,30 @@ def generate_report(
     print(f"{'=' * 80}")
 
 
-def main(
-    data_path: str = typer.Option("artifacts/raw_insertions.parquet", help="Path to flattened & anonymized insertions parquet file"),
-    output_dir: str = typer.Option("artifacts/data_quality_reports", help="Directory to save CSV reports"),
-    null_threshold_unusable: float = typer.Option(95.0, help="Fields with >= this % null are considered unusable"),
-    null_threshold_high_coverage: float = typer.Option(50.0, help="Fields with < this % null are considered high coverage")
-):
-    """
-    Generate comprehensive data quality reports as CSV files.
-    """
+def main():
+    """Generate comprehensive data quality reports as CSV files."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate data quality reports")
+    parser.add_argument("--data-path", default="artifacts/raw_insertions.parquet",
+                       help="Path to flattened & anonymized insertions parquet file")
+    parser.add_argument("--output-dir", default="data_quality_reports",
+                       help="Directory to save CSV reports")
+    parser.add_argument("--null-threshold-unusable", type=float, default=95.0,
+                       help="Fields with >= this %% null are unusable")
+    parser.add_argument("--null-threshold-high-coverage", type=float, default=50.0,
+                       help="Fields with < this %% null are high coverage")
+    
+    args = parser.parse_args()
+    
     generate_report(
-        data_path=data_path,
-        output_dir=output_dir,
-        null_threshold_unusable=null_threshold_unusable,
-        null_threshold_high_coverage=null_threshold_high_coverage
+        data_path=args.data_path,
+        output_dir=args.output_dir,
+        null_threshold_unusable=args.null_threshold_unusable,
+        null_threshold_high_coverage=args.null_threshold_high_coverage
     )
 
 
 if __name__ == "__main__":
-    import typer
-    typer.run(main)
+    main()
 

@@ -1,107 +1,112 @@
-.PHONY: install env etl build-graph train-baseline train-sage train-hgt \
-	optimize-xgboost optimize-pytorch check-timestamps check-density \
-	data-quality-report evaluate-seon mlflow-compare-models \
-	mlflow-deployment-recommendation mlflow-drift-summary help
+.PHONY: help install etl build-graph seon-baseline \
+	train train-quick train-sage train-hgt \
+	optimize-xgboost data-quality-report \
+	mlflow-compare mlflow-recommend mlflow-drift
 
-# Default target
+# =============================================================================
+# HELP
+# =============================================================================
 help:
-	@echo "Fraud Detection Pipeline - Available Commands:"
+	@echo "═══════════════════════════════════════════════════════════════════"
+	@echo "                   FRAUD DETECTION PIPELINE                        "
+	@echo "═══════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "Data Pipeline:"
-	@echo "  make install          - Install dependencies"
-	@echo "  make env              - Create virtual environment"
-	@echo "  make etl              - Run ETL pipeline"
-	@echo "  make build-graph       - Build PyTorch Geometric graph"
+	@echo "Data Pipeline (run once):"
+	@echo "  make etl              Extract, transform, load data"
+	@echo "  make build-graph      Build PyTorch Geometric graph"
+	@echo "  make seon-baseline    Generate static Seon baseline"
 	@echo ""
 	@echo "Model Training:"
-	@echo "  make train-baseline   - Train baseline XGBoost model"
-	@echo "  make train-sage       - Train SAGE hybrid model"
-	@echo "  make train-hgt        - Train HGT hybrid model"
+	@echo "  make train            XGBoost with production features"
+	@echo "  make train-quick      XGBoost with core features (fast)"
+	@echo "  make train-sage       SAGE GNN hybrid"
+	@echo "  make train-hgt        HGT GNN hybrid"
 	@echo ""
-	@echo "Hyperparameter Optimization:"
-	@echo "  make optimize-xgboost - Optimize XGBoost hyperparameters"
-	@echo "  make optimize-pytorch - Optimize PyTorch GNN hyperparameters"
+	@echo "Optimization:"
+	@echo "  make optimize-xgboost Tune XGBoost hyperparameters"
 	@echo ""
-	@echo "Utilities:"
-	@echo "  make check-density    - Check fraud density in time windows"
-	@echo "  make data-quality-report - Generate data quality report"
-	@echo "  make evaluate-seon    - Evaluate Seon baseline"
+	@echo "Analysis:"
+	@echo "  make data-quality-report  Generate data quality report"
 	@echo ""
-	@echo "MLflow Management:"
-	@echo "  make mlflow-compare-models - Compare two MLflow runs"
-	@echo "  make mlflow-deployment-recommendation - Get deployment recommendation"
-	@echo "  make mlflow-drift-summary - Analyze model drift"
+	@echo "MLflow (requires MODEL_NAME, CANDIDATE_RUN_ID):"
+	@echo "  make mlflow-compare   Compare candidate vs production"
+	@echo "  make mlflow-recommend Get deployment recommendation"
+	@echo "  make mlflow-drift     Analyze model drift"
+	@echo ""
 
-# Installation
+# =============================================================================
+# SETUP
+# =============================================================================
 install:
 	pip install -r requirements.txt
 
-env:
-	python3 -m venv .venv
-	@echo "Virtual environment created. To activate:"
-	@echo "  source .venv/bin/activate"
-	.venv/bin/pip install -r requirements.txt
-
-# Data Pipeline
+# =============================================================================
+# DATA PIPELINE
+# =============================================================================
 etl:
-	python -m src.data.etl
+	python -m src.data.pipeline
 
 build-graph:
-	python -m src.data.create_graph_artifacts
+	python -m src.data.graph.create_artifacts
 
-# Model Training
-train-baseline:
-	python -m src.models.train_baseline
+seon-baseline:
+	python -m src.utils.evaluate_seon
+
+# =============================================================================
+# MODEL TRAINING
+# =============================================================================
+train:
+	python -m src.models.train features=production
+
+train-quick:
+	python -m src.models.train features=quick
 
 train-sage:
-	python -m src.models.train_hybrid_sage
+	python -m src.models.gnn.sage
 
 train-hgt:
-	python -m src.models.train_hybrid_hgt
+	python -m src.models.gnn.hgt
 
-# Hyperparameter Optimization
+# =============================================================================
+# OPTIMIZATION
+# =============================================================================
 optimize-xgboost:
-	python -m src.models.hyperopt_xgboost
+	python -m src.models.hyperopt.xgboost
 
-optimize-pytorch:
-	@echo "Usage: make optimize-pytorch MODEL_TYPE=hgt|sage"
-	@if [ -z "$(MODEL_TYPE)" ]; then \
-		echo "Error: MODEL_TYPE is required (hgt or sage)"; \
-		exit 1; \
-	fi
-	python -m src.models.hyperopt_pytorch --model-type $(MODEL_TYPE)
-
-# Utilities
-check-density:
-	python -m src.utils.check_window_density
-
+# =============================================================================
+# ANALYSIS
+# =============================================================================
 data-quality-report:
 	python -m src.utils.data_quality_report
 
-evaluate-seon:
-	python -m src.utils.evaluate_seon
+# =============================================================================
+# MLFLOW MODEL MANAGEMENT
+# =============================================================================
+mlflow-compare:
+ifndef MODEL_NAME
+	$(error MODEL_NAME is required)
+endif
+ifndef CANDIDATE_RUN_ID
+	$(error CANDIDATE_RUN_ID is required)
+endif
+	python -m src.utils.mlflow_model_comparison compare \
+		--model-name $(MODEL_NAME) \
+		--candidate-run-id $(CANDIDATE_RUN_ID)
 
-# MLflow Management
-mlflow-compare-models:
-	@echo "Usage: make mlflow-compare-models MODEL_NAME=... CANDIDATE_RUN_ID=..."
-	@if [ -z "$(MODEL_NAME)" ] || [ -z "$(CANDIDATE_RUN_ID)" ]; then \
-		echo "Error: MODEL_NAME and CANDIDATE_RUN_ID are required"; \
-		exit 1; \
-	fi
-	python -m src.utils.mlflow_model_comparison compare --model-name $(MODEL_NAME) --candidate-run-id $(CANDIDATE_RUN_ID)
+mlflow-recommend:
+ifndef MODEL_NAME
+	$(error MODEL_NAME is required)
+endif
+ifndef CANDIDATE_RUN_ID
+	$(error CANDIDATE_RUN_ID is required)
+endif
+	python -m src.utils.mlflow_model_comparison recommend \
+		--model-name $(MODEL_NAME) \
+		--candidate-run-id $(CANDIDATE_RUN_ID)
 
-mlflow-deployment-recommendation:
-	@echo "Usage: make mlflow-deployment-recommendation MODEL_NAME=... CANDIDATE_RUN_ID=..."
-	@if [ -z "$(MODEL_NAME)" ] || [ -z "$(CANDIDATE_RUN_ID)" ]; then \
-		echo "Error: MODEL_NAME and CANDIDATE_RUN_ID are required"; \
-		exit 1; \
-	fi
-	python -m src.utils.mlflow_model_comparison recommend --model-name $(MODEL_NAME) --candidate-run-id $(CANDIDATE_RUN_ID)
-
-mlflow-drift-summary:
-	@echo "Usage: make mlflow-drift-summary MODEL_NAME=..."
-	@if [ -z "$(MODEL_NAME)" ]; then \
-		echo "Error: MODEL_NAME is required"; \
-		exit 1; \
-	fi
-	python -m src.utils.mlflow_model_comparison drift --model-name $(MODEL_NAME)
+mlflow-drift:
+ifndef MODEL_NAME
+	$(error MODEL_NAME is required)
+endif
+	python -m src.utils.mlflow_model_comparison drift \
+		--model-name $(MODEL_NAME)

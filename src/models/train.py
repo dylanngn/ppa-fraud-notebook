@@ -8,15 +8,10 @@ import logging
 
 from src.models.xgboost.trainer import train_accumulating_window
 from src.features.definitions.base import compute_base_features
+from src.data.loader import load_data
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-
-def load_data() -> pl.DataFrame:
-    """Load and join listing and user data."""
-    df_listings = pl.read_parquet("artifacts/nodes_listing.parquet")
-    df_users = pl.read_parquet("artifacts/nodes_user.parquet")
-    return df_listings.join(df_users, on="user_id", how="left")
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def main(cfg: DictConfig):

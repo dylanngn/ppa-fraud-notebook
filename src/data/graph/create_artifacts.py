@@ -7,10 +7,13 @@ This module creates the parquet files used by both:
 
 The input data should already be flattened and anonymized (from fetch_raw_insertions).
 """
-import polars as pl
+import logging
 import os
-import typer
 from typing import Optional, Tuple
+
+import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # Constants
 ARTIFACTS_DIR = "artifacts"
@@ -25,27 +28,45 @@ NODE_FILES = {
     "address": os.path.join(ARTIFACTS_DIR, "nodes_address.parquet"),
 }
 
-# Edge file paths
+# Edge file paths (SIMPLIFIED - Phase 2 cleanup)
+# CHANGE (2025-11-30): Merged contact_phone + billing_phone into single "listing_phone" edge
 EDGE_FILES = {
     "user_posts": os.path.join(ARTIFACTS_DIR, "edges_user_posts_listing.parquet"),
     "user_ip": os.path.join(ARTIFACTS_DIR, "edges_user_uses_ip.parquet"),
     "user_email": os.path.join(ARTIFACTS_DIR, "edges_user_has_email.parquet"),
     "listing_contact_email": os.path.join(ARTIFACTS_DIR, "edges_listing_contact_email.parquet"),
     "listing_billing_email": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_email.parquet"),
-    "listing_contact_phone": os.path.join(ARTIFACTS_DIR, "edges_listing_contact_phone.parquet"),
-    "listing_billing_phone": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_phone.parquet"),
+    "listing_phone": os.path.join(ARTIFACTS_DIR, "edges_listing_phone.parquet"),  # Unified phone edge
     "listing_located_at": os.path.join(ARTIFACTS_DIR, "edges_listing_located_at.parquet"),
     "listing_billing_addr": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_addr.parquet"),
 }
 
+# Email columns with coverage info (from data quality analysis 2025-11-30)
 EMAIL_COLS = [
-    "listing.lister.email.hash",
-    "listing.lister.billing.email.hash",
+    "listing.lister.email.hash",           # 99.97% coverage - PRIMARY
+    "listing.lister.billing.email.hash",   # 98.00% coverage - GOOD
 ]
 
-PHONE_COLS = [
-    "listing.lister.phone.hash",
-    "listing.lister.billing.phoneDay.hash",
+# Phone columns with coverage info (SIMPLIFIED - Phase 2 cleanup)
+# Coverage varies significantly - use billing phone as primary, coalesce with lister phone
+#   billing.phoneDay.hash: 97.99% coverage - BEST (PRIMARY)
+#   lister.phone.hash:     69.98% coverage - MODERATE (FALLBACK)
+#   viewing.phone.hash:     3.41% coverage - SKIP (too sparse)
+#   inquiry.phone.hash:     0.11% coverage - SKIP (too sparse)
+#
+# CHANGE (2025-11-30): Merged contact_phone and billing_phone into single "primary_phone" edge
+# This simplifies the graph from 9 edge types to 8, using coalesce to prefer billing phone
+PHONE_COL_PRIMARY = "listing.lister.billing.phoneDay.hash"   # 98% coverage
+PHONE_COL_FALLBACK = "listing.lister.phone.hash"              # 70% coverage
+
+# Legacy: Individual columns (kept for reference)
+PHONE_COLS = [PHONE_COL_PRIMARY, PHONE_COL_FALLBACK]
+
+# Columns to SKIP due to low coverage (<10%) - not used in graph
+PHONE_COLS_LOW_COVERAGE = [
+    "listing.lister.contacts.viewing.phone.hash",   # 3.4% - too sparse
+    "listing.lister.contacts.inquiry.phone.hash",   # 0.1% - too sparse  
+    "listing.lister.billing.phoneMobile.hash",      # 1.8% - too sparse
 ]
 
 
@@ -324,13 +345,15 @@ def _create_all_edges(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[
         df_listings, helper, "object_reference", "listing.lister.billing.email.hash"
     )
     
-    # Listing-phone edges
-    edges_listing_contact_phone = _create_edge_df(
-        df_listings, helper, "object_reference", "listing.lister.phone.hash"
-    )
-    edges_listing_billing_phone = _create_edge_df(
-        df_listings, helper, "object_reference", "listing.lister.billing.phoneDay.hash"
-    )
+    # Listing-phone edges (UNIFIED - Phase 2 simplification)
+    # Use coalesce to prefer billing phone (98% coverage) over lister phone (70% coverage)
+    edges_listing_phone = df_listings.select([
+        pl.col("object_reference").alias("source"),
+        pl.coalesce([
+            helper.get_col(PHONE_COL_PRIMARY),   # billing.phoneDay.hash (98%)
+            helper.get_col(PHONE_COL_FALLBACK),  # lister.phone.hash (70%)
+        ]).alias("target")
+    ]).drop_nulls().unique()
     
     # Listing-address edges
     edges_listing_located_at = _create_address_edge(
@@ -351,7 +374,7 @@ def _create_all_edges(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[
     return (
         edges_user_posts, edges_user_ip, edges_user_email,
         edges_listing_contact_email, edges_listing_billing_email,
-        edges_listing_contact_phone, edges_listing_billing_phone,
+        edges_listing_phone,  # Unified phone edge (simplified from 2 edges)
         edges_listing_located_at, edges_listing_billing_addr
     )
 
@@ -361,14 +384,15 @@ def _save_artifacts(
     edges: Tuple[pl.DataFrame, ...]
 ) -> None:
     """Save all node and edge DataFrames to parquet files."""
-    print("Saving Parquet Artifacts...")
+    logger.info("Saving parquet artifacts...")
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     
     node_names = ["user", "listing", "ip", "email", "phone", "address"]
+    # Edge names (SIMPLIFIED - Phase 2: merged phone edges)
     edge_names = [
         "user_posts", "user_ip", "user_email",
         "listing_contact_email", "listing_billing_email",
-        "listing_contact_phone", "listing_billing_phone",
+        "listing_phone",  # Unified phone edge
         "listing_located_at", "listing_billing_addr"
     ]
     
@@ -394,7 +418,7 @@ def create_nodes_and_edges(df_listings: pl.DataFrame) -> Tuple[pl.DataFrame, ...
     Returns:
         Tuple of all node and edge DataFrames
     """
-    print("Creating Nodes and Edges from flattened data...")
+    logger.info("Creating nodes and edges from flattened data...")
     
     helper = ColumnHelper(df_listings)
     
@@ -405,46 +429,44 @@ def create_nodes_and_edges(df_listings: pl.DataFrame) -> Tuple[pl.DataFrame, ...
     # Save artifacts
     _save_artifacts(nodes, edges)
     
-    print("Graph artifacts created successfully!")
+    logger.info("Graph artifacts created successfully!")
     
     return nodes + edges
 
 
-def main(
-    input_path: str = typer.Option(
-        "artifacts/raw_insertions.parquet",
+def main():
+    """Create graph artifacts from flattened and anonymized data."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Create graph artifacts (nodes and edges)")
+    parser.add_argument(
+        "--input-path", 
+        default="artifacts/raw_insertions.parquet",
         help="Path to flattened and anonymized data parquet file"
     )
-):
-    """
-    Create graph artifacts (nodes and edges) from flattened and anonymized data.
+    args = parser.parse_args()
     
-    This command reads the output from 'extract_data' and creates the node and edge
-    parquet files needed for graph-based models.
-    """
-    if not os.path.exists(input_path):
-        typer.echo(
-            f"Error: {input_path} not found. Run 'src.data.etl' first.",
-            err=True
-        )
-        raise typer.Exit(1)
+    if not os.path.exists(args.input_path):
+        logger.error(f"{args.input_path} not found. Run ETL first.")
+        raise SystemExit(1)
     
     try:
-        typer.echo(f"Loading data from {input_path}...")
-        df_insertions = pl.read_parquet(input_path)
+        logger.info(f"Loading data from {args.input_path}...")
+        df_insertions = pl.read_parquet(args.input_path)
         
         if len(df_insertions) == 0:
-            typer.echo("Warning: Input file is empty.", err=True)
-            raise typer.Exit(1)
+            logger.error("Input file is empty.")
+            raise SystemExit(1)
         
-        typer.echo(f"Creating graph artifacts from {len(df_insertions):,} insertions...")
+        logger.info(f"Creating graph artifacts from {len(df_insertions):,} insertions...")
         create_nodes_and_edges(df_insertions)
         
-        typer.echo("Graph artifacts created successfully!")
+        logger.info("Graph artifacts created successfully!")
     except Exception as e:
-        typer.echo(f"Error creating graph artifacts: {e}", err=True)
-        raise typer.Exit(1)
+        logger.error(f"Error creating graph artifacts: {e}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    main()

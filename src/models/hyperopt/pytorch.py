@@ -2,17 +2,21 @@
 Hyperparameter optimization for PyTorch GNN models using Optuna and MLflow.
 Follows MLflow best practices for hyperparameter tuning.
 """
+import logging
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional
+
+import hydra
+import mlflow
 import optuna
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import mlflow
-import typer
-from typing import Dict, Any, Callable, Optional
-from datetime import datetime
+from omegaconf import DictConfig
+
+logger = logging.getLogger(__name__)
 
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
-from src.models.config.experiment_config import ExperimentConfig
 from src.utils.metrics import calculate_metrics
 
 
@@ -44,12 +48,6 @@ def create_pytorch_objective(
     def objective(trial: optuna.Trial) -> float:
         """
         Optuna objective function for PyTorch hyperparameter tuning.
-        
-        Args:
-            trial: Optuna trial object
-            
-        Returns:
-            Negative composite metric score (for minimization)
         """
         # Define hyperparameter search space
         params = {
@@ -65,7 +63,6 @@ def create_pytorch_objective(
         
         # Create nested MLflow run for this trial
         with mlflow.start_run(nested=True):
-            # Log hyperparameters
             mlflow.log_params(params)
             mlflow.log_param("trial_number", trial.number)
             mlflow.log_param("epochs", epochs)
@@ -181,7 +178,6 @@ def create_pytorch_objective(
                         metric_weights.get("p@100", 0.3) * metrics["p@100"]
                     )
                     
-                    # Log metrics
                     mlflow.log_metrics({
                         "test_auc_pr": metrics["auc_pr"],
                         "test_auc_roc": metrics["auc_roc"],
@@ -190,7 +186,6 @@ def create_pytorch_objective(
                         "composite_score": composite_score,
                     })
                     
-                    # Report to Optuna (minimize negative score = maximize score)
                     return -composite_score
                 else:
                     return float('inf')
@@ -204,7 +199,7 @@ def create_pytorch_objective(
 
 def optimize_pytorch_hyperparameters(
     model_class,
-    config: ExperimentConfig,
+    experiment_name: str,
     n_trials: int = 50,
     epochs: int = 25,
     split_percent: float = 0.8,
@@ -217,7 +212,7 @@ def optimize_pytorch_hyperparameters(
     
     Args:
         model_class: PyTorch model class (e.g., HGTWrapper, SAGEWrapper)
-        config: Experiment configuration
+        experiment_name: MLflow experiment name
         n_trials: Number of Optuna trials
         epochs: Number of training epochs per trial
         split_percent: Train/test split percentage
@@ -228,10 +223,8 @@ def optimize_pytorch_hyperparameters(
     Returns:
         Dictionary with best parameters and metrics
     """
-    import torch
-    
     # Setup MLflow
-    setup_mlflow(config.experiment_name)
+    setup_mlflow(experiment_name)
     
     # Load graph data
     data = torch.load("artifacts/graph.pt", weights_only=False)
@@ -247,8 +240,8 @@ def optimize_pytorch_hyperparameters(
     
     # Create Optuna study
     study = optuna.create_study(
-        direction="minimize",  # Minimize negative composite score = maximize score
-        study_name=study_name or f"pytorch_hyperopt_{config.experiment_name}",
+        direction="minimize",
+        study_name=study_name or f"pytorch_hyperopt_{experiment_name}",
         sampler=optuna.samplers.TPESampler(seed=42)
     )
     
@@ -271,52 +264,55 @@ def optimize_pytorch_hyperparameters(
         except KeyboardInterrupt:
             pass
         
-        # Log best parameters
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
         mlflow.log_metric("best_composite_score", -study.best_value)
         
     return {
-            "best_params": study.best_params,
-            "best_score": -study.best_value,
-            "n_trials": len(study.trials),
-        }
+        "best_params": study.best_params,
+        "best_score": -study.best_value,
+        "n_trials": len(study.trials),
+    }
 
 
-def main(
-    model_type: str = typer.Option(..., help="Model type: 'hgt' or 'sage'"),
-    experiment_name: str = typer.Option("ppa-fraud-detection", help="MLflow experiment name"),
-    n_trials: int = typer.Option(50, help="Number of Optuna trials"),
-    epochs: int = typer.Option(25, help="Number of training epochs per trial"),
-    timeout_minutes: Optional[int] = typer.Option(None, help="Optional timeout in minutes"),
-):
+@hydra.main(version_base=None, config_path="../../../conf", config_name="config")
+def main(cfg: DictConfig):
     """
     Hyperparameter optimization for PyTorch GNN models using Optuna.
     
-    Tunes GNN hyperparameters to maximize: 0.7 * AUC-PR + 0.3 * P@100
+    Usage:
+        python -m src.models.hyperopt.pytorch gnn.model_type=hgt
+        python -m src.models.hyperopt.pytorch gnn.model_type=sage
     """
     from src.models.gnn.hgt import HGTWrapper
     from src.models.gnn.sage import SAGEWrapper
-    from src.models.config.experiment_config import ExperimentConfig
+    
+    # Get model type from config
+    model_type = cfg.get("gnn", {}).get("model_type", "sage")
+    n_trials = cfg.get("hyperopt", {}).get("n_trials", 50)
+    epochs = cfg.get("gnn", {}).get("epochs", 25)
+    timeout_minutes = cfg.get("hyperopt", {}).get("timeout_minutes", None)
     
     model_class = HGTWrapper if model_type.lower() == "hgt" else SAGEWrapper
     
-    config = ExperimentConfig(experiment_name=experiment_name)
+    logger.info(f"Starting {model_type.upper()} hyperparameter optimization...")
+    logger.info(f"  Experiment: {cfg.experiment_name}")
+    logger.info(f"  Trials: {n_trials}")
+    logger.info(f"  Epochs per trial: {epochs}")
     
     result = optimize_pytorch_hyperparameters(
         model_class=model_class,
-        config=config,
+        experiment_name=cfg.experiment_name,
         n_trials=n_trials,
         epochs=epochs,
         timeout_minutes=timeout_minutes
     )
     
-    typer.echo(f"Best parameters: {result['best_params']}")
-    typer.echo(f"Best score: {result['best_score']:.4f}")
+    logger.info("Optimization complete!")
+    logger.info(f"  Best parameters: {result['best_params']}")
+    logger.info(f"  Best score: {result['best_score']:.4f}")
     
     return result
 
 
 if __name__ == "__main__":
-    import typer
-    typer.run(main)
-
+    main()

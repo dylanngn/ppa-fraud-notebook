@@ -1,8 +1,11 @@
+import logging
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 from src.features.utils import (
     _groupby,
@@ -255,7 +258,7 @@ def generate_graph_features(
     
     # Apply temporal filtering if cutoff_date is provided
     if cutoff_date is not None:
-        print(f"[graph-features] Filtering edges by cutoff_date: {cutoff_date}")
+        logger.info(f"Filtering edges by cutoff_date: {cutoff_date}")
         listings_with_time = load_listings_with_timestamps()
         
         if contact_email_edges is not None:
@@ -313,7 +316,7 @@ def generate_graph_features(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         features.write_parquet(output_path)
-        print(f"[graph-features] Saved listing graph features to {output_path}")
+        logger.info(f"Saved listing graph features to {output_path}")
     
     return features
 

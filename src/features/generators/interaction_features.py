@@ -18,11 +18,14 @@ Features engineered:
 5. suspicious_combo_score: Weighted sum of fraud indicators
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 from src.features.utils import ensure_artifact, ARTIFACTS_DIR
 
@@ -61,7 +64,7 @@ def generate_interaction_features(
         FileNotFoundError: If required artifact files are missing
         ValueError: If graph_features_df or advanced_features_df are not provided
     """
-    print("[interaction-features] Loading data...")
+    logger.info("Loading data...")
     
     # Load listing nodes
     if not ensure_artifact(LISTING_NODES):
@@ -78,7 +81,7 @@ def generate_interaction_features(
     # Join to get account_created_at
     df = listings.join(users, on="user_id", how="left")
     
-    print(f"[interaction-features] Loaded {df.shape[0]:,} listings")
+    logger.info(f"Loaded {df.shape[0]:,} listings")
     
     # Compute account_age_days
     df = df.with_columns(
@@ -92,7 +95,7 @@ def generate_interaction_features(
         raise ValueError("graph_features_df must contain 'insertion_id' column")
     
     df = df.join(graph_features_df, on="insertion_id", how="left")
-    print(f"[interaction-features] Joined graph features")
+    logger.info("Joined graph features")
     
     # Require advanced features to be provided
     if advanced_features_df is None:
@@ -101,7 +104,7 @@ def generate_interaction_features(
         raise ValueError("advanced_features_df must contain 'insertion_id' column")
     
     df = df.join(advanced_features_df, on="insertion_id", how="left")
-    print(f"[interaction-features] Joined advanced features")
+    logger.info("Joined advanced features")
     
     # Fill nulls for graph features
     graph_cols = [
@@ -112,7 +115,7 @@ def generate_interaction_features(
         if col in df.columns:
             df = df.with_columns(pl.col(col).fill_null(0))
     
-    print("[interaction-features] Engineering interaction features...")
+    logger.info("Engineering interaction features...")
     
     # === INTERACTION FEATURES ===
     
@@ -311,20 +314,12 @@ def generate_interaction_features(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result.write_parquet(output_path)
-        print(f"[interaction-features] Saved to {output_path}")
+        logger.info(f"Saved to {output_path}")
     
     feature_count = len(existing_cols) - 1  # Exclude insertion_id
-    print(f"[interaction-features] Generated {feature_count} interaction features")
+    logger.info(f"Generated {feature_count} interaction features")
     
     return result
-    
-    # Print feature summary
-    print("\n[interaction-features] Feature Summary:")
-    for col in existing_cols[1:]:  # Skip insertion_id
-        if col in result.columns:
-            non_zero = (result[col] > 0).sum()
-            mean_val = result[col].mean()
-            print(f"  {col}: non_zero={non_zero:,} ({100*non_zero/len(result):.2f}%), mean={mean_val:.4f}")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,9 @@ defaults:
   - data: default
   - features: baseline
   - model: xgboost
+  # Enable colored logging (install: pip install hydra-colorlog)
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
 
 experiment_name: "ppa-fraud-detection"
 seed: 42

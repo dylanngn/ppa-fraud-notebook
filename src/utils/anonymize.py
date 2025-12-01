@@ -19,11 +19,14 @@ import copy
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 from typing import Dict, List, Optional, Tuple
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # Constants
 SALT_PREFIX = "ANON_SALT_"
@@ -103,7 +106,7 @@ def get_salt(identifier_type: str) -> bytes:
     salt_key = f"{SALT_PREFIX}{identifier_type.upper()}"
     salt = os.getenv(salt_key)
     if not salt:
-        print(f"Warning: {salt_key} not set. Using default salt (NOT SECURE).")
+        logger.warning(f"{salt_key} not set. Using default salt (NOT SECURE).")
         return f"{DEFAULT_SALT_PREFIX}{identifier_type}".encode()
     return salt.encode()
 
@@ -557,7 +560,7 @@ def _anonymize_listing_json_column(df: pl.DataFrame) -> pl.DataFrame:
             anon_dict = anonymize_listing_json_dict(listing_dict)
             return json.dumps(anon_dict, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError, AttributeError) as e:
-            print(f"Warning: Failed to parse/anonymize listing_json: {e}")
+            logger.warning(f"Failed to parse/anonymize listing_json: {e}")
             return json_str
     
     json_strings = df["listing_json"].to_list()

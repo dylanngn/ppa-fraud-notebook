@@ -15,5 +15,5 @@ __pycache__/
 outputs/
 mlruns/
 artifacts/
-**.db
+fraud-detection-mlflow.db
 
