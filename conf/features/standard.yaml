@@ -1,29 +1,21 @@
 # Standard Profile - Good balance of speed and performance
-# Uses Tier 1 (core) + Tier 2 (graph) features
+# Uses Tier 1 (core) + Tier 1b (boolean) + Tier 2 (graph) features
 # Expected: ~20min training, ~0.67 AUC-PR
 
 defaults:
   - _self_
 
 profile: standard
-description: "Balanced speed and performance - core + graph features"
+description: "Balanced speed and performance - core + boolean + graph features"
 
-# Core + graph features
+# Feature categories to compute
 categories:
   - base
   - graph
   - advanced_graph
 
-# Exclude low-coverage and deprecated features
-exclude:
-  - is_new               # 99.99% NULL
-  - has_elevator         # ~60% NULL
-  
-  # Burst detection (proven ineffective)
-  - email_is_burst
-  - phone_is_burst
-  - any_burst
-  - email_is_dormant_reactivation
-  - phone_is_dormant_reactivation
-  - any_dormant_reactivation
-
+# Feature groups to INCLUDE
+include_groups:
+  - core_numerical
+  - boolean_all        # All boolean indicators
+  - graph_all          # All graph features

@@ -39,10 +39,11 @@ ppa-fraud-notebook/
 │   ├── config.yaml                 # Main defaults
 │   ├── data/default.yaml           # Database & ETL settings
 │   ├── features/                   # Feature profiles
-│   │   ├── baseline.yaml           # Production features
-│   │   ├── quick.yaml              # Core features only
-│   │   ├── standard.yaml           # Core + Graph
-│   │   └── production.yaml         # All features
+│   │   ├── baseline.yaml           # Default (= production)
+│   │   ├── quick.yaml              # Fast iteration
+│   │   ├── standard.yaml           # Balanced
+│   │   ├── production.yaml         # Best performance
+│   │   └── ablation.yaml           # Experiment definitions
 │   └── model/xgboost.yaml          # Model hyperparameters
 │
 ├── artifacts/                      # Generated Data (gitignored)
@@ -81,6 +82,8 @@ ppa-fraud-notebook/
 │   ├── models/                     # Model Training
 │   │   ├── train.py                # Main entry point (Hydra)
 │   │   ├── registry.py             # MLflow model registry
+│   │   ├── config/
+│   │   │   └── constants.py        # FEATURE_GROUPS definitions
 │   │   ├── xgboost/
 │   │   │   ├── trainer.py          # XGBoost accumulating window
 │   │   │   └── utils.py            # Feature validation, constraints
@@ -126,15 +129,15 @@ ppa-fraud-notebook/
 │  ┌─────────────┐    ┌─────────────────┐    ┌─────────────┐                 │
 │  │ Raw Data    │───▶│ FeatureProcessor│───▶│ XGBClassifier│                │
 │  │ (Polars)    │    │ (categories,    │    │              │                │
-│  │             │    │  exclude)       │    │              │                │
+│  │             │    │  include_groups)│    │              │                │
 │  └─────────────┘    └─────────────────┘    └─────────────┘                 │
 │                              │                     │                        │
 │                              ▼                     ▼                        │
 │                     ┌─────────────────┐   ┌─────────────────┐              │
-│                     │ Feature Tiers:  │   │ MLflow Logging: │              │
-│                     │ - CORE (base)   │   │ - Metrics       │              │
-│                     │ - GRAPH         │   │ - Model         │              │
-│                     │ - ENHANCED      │   │ - Latency       │              │
+│                     │ Feature Groups: │   │ MLflow Logging: │              │
+│                     │ - core_numerical│   │ - Metrics       │              │
+│                     │ - boolean_all   │   │ - Model         │              │
+│                     │ - graph_all     │   │ - Latency       │              │
 │                     └─────────────────┘   └─────────────────┘              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -298,12 +301,17 @@ Hydra logging provides:
 
 ### Feature Profiles
 
-| Profile | Categories | Use Case |
-|---------|------------|----------|
-| `quick` | CORE only | Fast iteration |
-| `standard` | CORE + GRAPH | Balanced |
-| `production` | CORE + GRAPH + ENHANCED | Best performance |
-| `baseline` | All (with exclusions) | Default |
+Profiles use **include_groups** for explicit feature selection (no exclusions).
+
+| Profile | Include Groups | Use Case |
+|---------|----------------|----------|
+| `quick` | `core_numerical`, `boolean_high` | Fast iteration |
+| `standard` | `core_numerical`, `boolean_all`, `graph_all` | Balanced |
+| `production` | All core + graph + time_weighted + text | Best performance |
+| `baseline` | Same as production | Default |
+| `ablation` | Configurable per experiment | Feature group testing |
+
+> See `src/models/config/constants.py` for `FEATURE_GROUPS` definitions.
 
 ---
 

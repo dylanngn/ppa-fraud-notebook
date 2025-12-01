@@ -1,13 +1,11 @@
-# Feature configuration (Baseline - Production Ready)
+# Baseline Profile - Production Ready (alias for production)
 # Based on data quality analysis: data_quality_reports/data_quality_report.txt
 #
 # Feature Tiers:
-#   - Tier 1 (base): Core features, 100% coverage, essential
-#   - Tier 2 (graph, advanced_graph): +11.9% AUC-PR improvement
+#   - Tier 1 (core_numerical): Core features, 100% coverage, essential
+#   - Tier 1b (boolean_all): Boolean indicators, 100% semantic coverage
+#   - Tier 2 (graph_all): +11.9% AUC-PR improvement
 #   - Tier 3 (time_weighted, text): +0.98% incremental improvement
-#
-# Profiles available: quick, standard, production, ablation
-# Use: python src/cli.py train-baseline --feature-config conf/features/{profile}.yaml
 
 defaults:
   - _self_
@@ -15,8 +13,7 @@ defaults:
 profile: baseline
 description: "Standard baseline configuration - equivalent to production profile"
 
-# Feature categories to include
-# Note: interaction features excluded (XGBoost learns these automatically per Exp 10)
+# Feature categories to compute
 categories:
   - base
   - graph
@@ -24,16 +21,10 @@ categories:
   - time_weighted
   - text
 
-# Exclude low-coverage and deprecated features based on data quality analysis
-exclude:
-  # Low coverage features (>40% NULL - unreliable signal)
-  - is_new               # 99.99% NULL
-  - has_elevator         # ~60% NULL
-  
-  # Burst detection (Exp 9: proven ineffective, didn't appear in top 20 features)
-  - email_is_burst
-  - phone_is_burst
-  - any_burst
-  - email_is_dormant_reactivation
-  - phone_is_dormant_reactivation
-  - any_dormant_reactivation
+# Feature groups to INCLUDE
+include_groups:
+  - core_numerical
+  - boolean_all
+  - graph_all
+  - time_weighted_core
+  - text

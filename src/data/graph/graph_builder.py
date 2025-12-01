@@ -3,7 +3,7 @@ Graph Builder for Fraud Detection GNN
 
 Builds a heterogeneous graph from node/edge parquet artifacts for GNN training.
 
-Graph Structure (SIMPLIFIED - Phase 2 cleanup):
+Graph Structure:
 - 6 Node Types: user, listing, ip, email, phone, address
 - 8 Edge Types (reduced from 9):
   * user -> posts -> listing
@@ -14,11 +14,6 @@ Graph Structure (SIMPLIFIED - Phase 2 cleanup):
   * listing -> has_phone -> phone (UNIFIED: billing + lister phone coalesced)
   * listing -> located_at -> address
   * listing -> billing_address -> address
-
-Data Quality Notes (2025-11-30):
-- Phone: Using coalesced billing+lister phone (98%+70% -> ~99% coverage)
-- Boolean characteristics: is_new (0%), has_elevator (40%) - low coverage, excluded
-- Primary email and address: excellent coverage (98-100%)
 """
 
 import logging
@@ -140,13 +135,7 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     listing_map, df_listing = load_node_mapping(df_listing, "insertion_id", "listing")
     
     # Features: Price, Size, Rooms, OfferType, Characteristics, Bundle, Payment, Location
-    # 
-    # DATA QUALITY NOTES (from 2025-11-30 analysis):
-    # - High coverage (>80%): price, rooms, living_space, offer_type, location, bundle
-    # - Moderate coverage (50-80%): has_balcony (71%), has_parking (55%)
-    # - Low coverage (<50%): is_new (0.04%), has_elevator (40%) - CAUTION: fill_null masks missing data
-    #
-    # Handle Nulls - with explicit coverage tracking
+    # Handle Nulls - with correct semantic interpretation
     df_listing = df_listing.with_columns([
         # High coverage numerical features (>80%)
         pl.col("price_rent_gross").fill_null(0),
@@ -170,13 +159,30 @@ def build_graph(cutoff_date: Optional[datetime] = None):
         pl.col("customer_segment").fill_null("unknown").str.to_lowercase(),
         pl.col("language").fill_null("de").str.to_lowercase(),
         
-        # CAUTION: Low-coverage boolean features
-        # These are filled with False but 40-99% of data is actually missing
-        # Consider removing from model or using special "unknown" encoding
-        pl.col("is_new").fill_null(False).cast(pl.Int8),           # 0.04% coverage!
-        pl.col("has_balcony").fill_null(False).cast(pl.Int8),      # 71% coverage
-        pl.col("has_elevator").fill_null(False).cast(pl.Int8),     # 40% coverage - UNRELIABLE
-        pl.col("has_parking").fill_null(False).cast(pl.Int8),      # 55% coverage
+        # Boolean indicator features (NULL = FALSE semantics = 100% semantic coverage)
+        # These are correctly filled with False - NULL means "feature not present"
+        # High TRUE rate (>40%)
+        pl.col("has_balcony").fill_null(False).cast(pl.Int8),           # 71.2% TRUE
+        pl.col("has_parking").fill_null(False).cast(pl.Int8),           # 55.1% TRUE
+        pl.col("has_nice_view").fill_null(False).cast(pl.Int8),         # 47.7% TRUE
+        pl.col("has_garage").fill_null(False).cast(pl.Int8),            # 44.2% TRUE
+        pl.col("is_child_friendly").fill_null(False).cast(pl.Int8),     # 43.5% TRUE
+        pl.col("is_quiet").fill_null(False).cast(pl.Int8),              # 42.7% TRUE
+        pl.col("has_elevator").fill_null(False).cast(pl.Int8),          # 40.9% TRUE
+        # Moderate TRUE rate (20-40%)
+        pl.col("has_washing_machine").fill_null(False).cast(pl.Int8),   # 32.4% TRUE
+        pl.col("are_pets_allowed").fill_null(False).cast(pl.Int8),      # 28.4% TRUE
+        pl.col("is_wheelchair_accessible").fill_null(False).cast(pl.Int8),  # 25.7% TRUE
+        # Low TRUE rate (<20%) - rare but potentially discriminative
+        pl.col("is_old").fill_null(False).cast(pl.Int8),                # 16.7% TRUE
+        pl.col("is_new_building").fill_null(False).cast(pl.Int8),       # 16.2% TRUE
+        # Very rare TRUE rate (5-15%) - experimental, for ablation studies
+        pl.col("has_cable_tv").fill_null(False).cast(pl.Int8),          # 14.76% TRUE
+        pl.col("has_fireplace").fill_null(False).cast(pl.Int8),         # 10.71% TRUE
+        pl.col("is_minergie_general").fill_null(False).cast(pl.Int8),   # 9.20% TRUE
+        pl.col("is_minergie_certified").fill_null(False).cast(pl.Int8), # 6.81% TRUE
+        pl.col("is_smoking_allowed").fill_null(False).cast(pl.Int8),    # 4.88% TRUE
+        pl.col("has_swimming_pool").fill_null(False).cast(pl.Int8),     # 4.75% TRUE
     ])
     
     # One-hot encode offer_type (RENT=0, BUY=1)
@@ -207,11 +213,23 @@ def build_graph(cutoff_date: Optional[datetime] = None):
         lang_feats.append(feat)
     lang_matrix = np.concatenate(lang_feats, axis=1)
 
-    # Numerical Features
+    # Numerical + Boolean Features
+    # Note: Boolean features are cast to Int8 (0/1) and treated as numerical
     num_feats = df_listing.select([
+        # Core numerical
         "price_rent_gross", "price_buy", "living_space", "rooms",
-        "is_new", "has_balcony", "has_elevator", "has_parking",
-        "bundle_period", "latitude", "longitude"
+        "bundle_period", "latitude", "longitude",
+        # Boolean indicators (NULL = FALSE, 100% semantic coverage)
+        # High TRUE rate (>40%)
+        "has_balcony", "has_parking", "has_nice_view", "has_garage",
+        "is_child_friendly", "is_quiet", "has_elevator",
+        # Moderate TRUE rate (20-40%)
+        "has_washing_machine", "are_pets_allowed", "is_wheelchair_accessible",
+        # Low TRUE rate (<20%)
+        "is_old", "is_new_building",
+        # Very rare TRUE rate (5-15%)
+        "has_cable_tv", "has_fireplace", "is_minergie_general",
+        "is_minergie_certified", "is_smoking_allowed", "has_swimming_pool"
     ]).to_numpy()
     
     # Embeddings - Generate on-the-fly if not present

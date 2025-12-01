@@ -12,14 +12,7 @@ description: "Fast iteration during development - core features only"
 categories:
   - base
 
-# Exclude low-coverage and deprecated features
-exclude:
-  - is_new               # 99.99% NULL
-  - has_elevator         # ~60% NULL
-  - email_is_burst
-  - phone_is_burst
-  - any_burst
-  - email_is_dormant_reactivation
-  - phone_is_dormant_reactivation
-  - any_dormant_reactivation
-
+# Feature groups to INCLUDE (minimal set for fast iteration)
+include_groups:
+  - core_numerical
+  - boolean_high       # Only high TRUE rate booleans (>40%)

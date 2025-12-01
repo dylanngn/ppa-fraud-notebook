@@ -23,8 +23,24 @@ def compute_base_features(df: pl.DataFrame, cutoff_date: datetime, config: Any =
             pl.col("price_rent_gross").log1p().cast(pl.Float64).alias("log_price")
         )
     
-    # 3. Boolean features
-    bool_cols = ["is_new", "has_balcony", "has_elevator", "has_parking"]
+    # 3. Boolean indicator features (NULL = FALSE semantics = 100% semantic coverage)
+    # High TRUE rate (>40%): hasBalcony (71%), hasParking (55%), hasNiceView (48%), 
+    #                        hasGarage (44%), isChildFriendly (44%), isQuiet (43%), hasElevator (41%)
+    # Moderate TRUE rate (20-40%): hasWashingMachine (32%), arePetsAllowed (28%), isWheelchairAccessible (26%)
+    # Low TRUE rate (<20%): isOldBuilding (17%), isNewBuilding (16%) - rare but potentially discriminative
+    #
+    bool_cols = [
+        # High TRUE rate (>40%) - common features
+        "has_balcony", "has_parking", "has_elevator",
+        "has_nice_view", "has_garage", "is_child_friendly", "is_quiet",
+        # Moderate TRUE rate (20-40%)
+        "has_washing_machine", "are_pets_allowed", "is_wheelchair_accessible",
+        # Low TRUE rate (<20%) - potentially discriminative for fraud
+        "is_old", "is_new_building",
+        # Very rare TRUE rate (5-15%) - experimental, for ablation studies
+        "has_cable_tv", "has_fireplace", "is_minergie_general",
+        "is_minergie_certified", "is_smoking_allowed", "has_swimming_pool",
+    ]
     bool_exprs = [
         pl.col(col).fill_null(False).cast(pl.Int8) if col in df.columns else pl.lit(0).alias(col)
         for col in bool_cols

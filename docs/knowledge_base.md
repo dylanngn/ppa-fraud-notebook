@@ -1,37 +1,27 @@
-# Knowledge Base: Fraud Detection Feature Engineering
+# Knowledge Base: Fraud Detection Data & Features
 
-This document tracks our understanding of the data, feature definitions, and engineering logic.
+**Purpose**: Single source of truth for data quality, feature definitions, and engineering decisions.
+
+> 📁 For project structure and architecture, see [`architecture.md`](architecture.md)  
+> 📓 For experiment tracking and results, see [`experiment_journal.md`](experiment_journal.md)
 
 ---
 
-## Data Quality Overview
-
-### Dataset Summary
+## 1. Dataset Overview
 
 | Metric | Value |
 |--------|-------|
 | **Source** | `artifacts/raw_insertions.parquet` |
 | **Total Rows** | 234,458 |
 | **Total Columns** | 292 |
-| **Usable Fields** (<50% null) | 82 (28%) |
-| **Unusable Fields** (≥95% null) | 175 (60%) |
+| **Usable Fields** | 127 (≥50% semantic coverage) |
+| **Boolean Indicators** | 50 (100% semantic coverage via NULL=FALSE) |
+| **Truly Unusable** | 146 (≥95% null, excluding boolean indicators) |
 | **Account Date Range** | 2020-12-17 → 2025-11-25 |
 | **Listing Date Range** | 2023-01-01 → 2025-11-11 |
+| **Fraud Rate** | 8.2% (19,217 fraud flags) |
 
-### Contact Field Coverage
-
-| Field Type | Primary Field | Coverage | Unique Values |
-|------------|---------------|----------|---------------|
-| **Email (lister)** | `listing.lister.email.hash` | 99.98% | 130,947 |
-| **Email (billing)** | `listing.lister.billing.email.hash` | 98.00% | 129,918 |
-| **Phone (billing)** | `listing.lister.billing.phoneData.hash` | 97.99% | 127,770 |
-| **Phone (contact)** | `listing.lister.phone.hash` | 69.98% | 89,614 |
-| **Address** | `listing.address.address_hash` | 100.0% | ~234k |
-| **Coordinates** | `listing.address.geoCoordinates.lat/lng` | 99.40% | 107,168 |
-
-> ⚠️ **Key Insight:** Billing phone (98%) has much higher coverage than contact phone (70%). Use billing phone for graph edges.
-
-### Data Integrity
+### Data Integrity Checks
 
 | Check | Result |
 |-------|--------|
@@ -43,125 +33,179 @@ This document tracks our understanding of the data, feature definitions, and eng
 
 | Type | Count | Notes |
 |------|-------|-------|
-| String | 171 | Mostly hashed identifiers |
-| Boolean | 54 | Characteristics flags |
+| String | 171 | Hashed identifiers |
+| Boolean | 54 | NULL = FALSE semantics |
 | Int64 | 29 | IDs, counts |
 | Float64 | 20 | Prices, coordinates |
 | Datetime | 5 | Timestamps |
-| Null | 12 | Completely empty columns |
-
-> 📊 Full data quality report: [`docs/data_quality_reports/data_quality_report.md`](data_quality_reports/data_quality_report.md)
+| Null | 12 | Completely empty |
 
 ---
 
-## Project Structure
+## 2. Critical Data Quality Insight: NULL = FALSE
 
-```
-ppa-fraud-notebook/
-├── conf/                    # Hydra configuration
-│   ├── config.yaml          # Main config (defaults)
-│   ├── data/default.yaml    # Data extraction settings
-│   ├── features/            # Feature profiles (quick, standard, production)
-│   └── model/xgboost.yaml   # Model hyperparameters
-├── src/
-│   ├── data/                # ETL and graph building
-│   ├── features/            # Feature engineering
-│   ├── models/              # XGBoost and GNN training
-│   └── utils/               # Metrics, MLflow helpers
-├── artifacts/               # Generated data files
-└── docs/                    # Documentation
-```
+> ⚠️ **Boolean indicator fields use NULL to mean FALSE, not "missing data".**
 
-### Key Commands
+This insight significantly impacts feature engineering:
 
-```bash
-# Data Pipeline (run once)
-make etl              # Extract, transform, load
-make build-graph      # Build graph artifacts
-make seon-baseline    # Generate static Seon baseline
+| Pattern | Examples | NULL Semantics |
+|---------|----------|----------------|
+| `has*` | `hasBalcony`, `hasElevator` | Property does NOT have this feature |
+| `is*` | `isQuiet`, `isChildFriendly` | Property is NOT this |
+| `are*` | `arePetsAllowed` | Feature is NOT allowed |
 
-# Model Training
-make train-baseline   # XGBoost with production features
-make train-quick      # XGBoost with core features (fast iteration)
-make train-sage       # Train SAGE hybrid (GNN + XGBoost)
-```
+**Implication**: Fields like `hasElevator` (40% non-null) actually have **100% semantic coverage**:
+- 40% have elevators (TRUE)
+- 60% don't have elevators (NULL = FALSE)
 
 ---
 
-## 1. Data Sources & Identifiers
+## 3. Contact Field Coverage
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `object_reference` | Text | Primary business ID for listing |
-| `owner_id` | Text | User identifier |
-| `platform` | Text | Brand (Homegate, ImmoScout24, SMG) |
-| `submission_at` | Datetime | When listing was submitted |
-| `fraud_flag` | Datetime | If present, listing was marked as fraud |
+| Field Type | Primary Field | Coverage | Unique Values | Notes |
+|------------|---------------|----------|---------------|-------|
+| **Email (lister)** | `listing.lister.email.hash` | 99.98% | 130,947 | Primary email |
+| **Email (billing)** | `listing.lister.billing.email.hash` | 98.00% | 129,918 | Secondary |
+| **Phone (billing)** | `listing.lister.billing.phoneDay.hash` | 97.99% | 127,770 | **Use this** |
+| **Phone (contact)** | `listing.lister.phone.hash` | 69.98% | 89,614 | Lower coverage |
+| **Address** | `listing.address.address_hash` | 100.0% | ~234k | Unique per listing |
+| **Coordinates** | `listing.address.geoCoordinates.lat/lng` | 99.40% | 107,168 | High precision |
 
----
-
-## 2. Fraud Logic & Labels
-
-- **Fraud Flag**: `fraud_flag` timestamp indicates listing was marked as fraud
-- **Seon Baseline**: `auto_approval_criteria` contains production Seon check result
-- **Target**: Catch "slip-through" fraud (approved by Seon but later caught)
+> 💡 **Decision**: Use billing phone (98%) instead of contact phone (70%) for graph edges.
 
 ---
 
-## 3. Feature Tiers (Data Quality Based)
+## 4. Boolean Indicator Fields (Complete List)
 
-### Tier 1: Core Features (High Coverage >80%)
+All 50 boolean indicator fields with their TRUE rates (sorted by frequency):
 
-| Feature | Coverage | Source Field | Description |
-|---------|----------|--------------|-------------|
-| `account_age_days` | 100% | `account_created_at` | Days since account creation |
-| `payment_type` | 98% | `listing.selectedBundle` | DIRECT vs INVOICE (17.5x fraud lift for new+invoice) |
-| `bundle_tier` | 97.7% | `listing.selectedBundle.name` | basic, premium, top |
-| `bundle_period` | 77.25% | `listing.selectedBundle.duration` | Duration in days |
-| `log_price` | 80% | `listing.prices.sell/rent` | Log-transformed price |
-| `latitude` | 99.4% | `listing.address.geoCoordinates.lat` | Property latitude |
-| `longitude` | 99.4% | `listing.address.geoCoordinates.lng` | Property longitude |
+### High TRUE Rate (>40%) - Common Features
+
+| Feature | TRUE % | Source Field | In Model |
+|---------|--------|--------------|----------|
+| `isFromNewInsertionFunnel` | 99.96% | `listing.meta.isFromNewInsertionFunnel` | No (meta) |
+| `seonApproved` | 98.83% | `auto_approval_criteria.criteria.seonApproved` | No (label leak) |
+| `hasBalcony` | 71.19% | `listing.characteristics.hasBalcony` | ✅ Yes |
+| `hasParking` | 55.14% | `listing.characteristics.hasParking` | ✅ Yes |
+| `hasNiceView` | 47.72% | `listing.characteristics.hasNiceView` | ✅ Yes |
+| `hasGarage` | 44.19% | `listing.characteristics.hasGarage` | ✅ Yes |
+| `isChildFriendly` | 43.52% | `listing.characteristics.isChildFriendly` | ✅ Yes |
+| `isQuiet` | 42.74% | `listing.characteristics.isQuiet` | ✅ Yes |
+| `hasElevator` | 40.88% | `listing.characteristics.hasElevator` | ✅ Yes |
+
+### Moderate TRUE Rate (20-40%)
+
+| Feature | TRUE % | Source Field | In Model |
+|---------|--------|--------------|----------|
+| `hasWashingMachine` | 32.40% | `listing.characteristics.hasWashingMachine` | ✅ Yes |
+| `arePetsAllowed` | 28.43% | `listing.characteristics.arePetsAllowed` | ✅ Yes |
+| `isAPMEnabled` | 26.18% | `listing.lister.billing.payment.isAPMEnabled` | No (billing) |
+| `isWheelchairAccessible` | 25.69% | `listing.characteristics.isWheelchairAccessible` | ✅ Yes |
+
+### Low TRUE Rate (5-20%) - Potentially Discriminative
+
+| Feature | TRUE % | Source Field | In Model |
+|---------|--------|--------------|----------|
+| `isOldBuilding` | 16.67% | `listing.characteristics.isOldBuilding` | ✅ Yes |
+| `isNewBuilding` | 16.25% | `listing.characteristics.isNewBuilding` | ✅ Yes |
+| `hasCableTv` | 14.76% | `listing.characteristics.hasCableTv` | ⚠️ Experiment |
+| `hasFireplace` | 10.71% | `listing.characteristics.hasFireplace` | ⚠️ Experiment |
+| `isMinergieGeneral` | 9.20% | `listing.characteristics.isMinergieGeneral` | ⚠️ Experiment |
+| `isMinergieCertified` | 6.81% | `listing.characteristics.isMinergieCertified` | ⚠️ Experiment |
+
+### Very Low TRUE Rate (<5%) - Rare but Valid
+
+| Feature | TRUE % | Source Field | Notes |
+|---------|--------|--------------|-------|
+| `isSmokingAllowed` | 4.88% | `listing.characteristics.isSmokingAllowed` | Rare amenity |
+| `hasSwimmingPool` | 4.75% | `listing.characteristics.hasSwimmingPool` | Luxury feature |
+| `hasDishwasher` | 3.86% | `listing.characteristics.hasDishwasher` | Appliance |
+| `hasStoreRoom` | 3.82% | `listing.characteristics.hasStoreRoom` | Storage |
+
+> 💡 **Hypothesis**: Low TRUE rate features may be discriminative for fraud if fraudsters over-claim or under-claim certain amenities.
+
+---
+
+## 5. Feature Groups & Configuration
+
+Features are organized into explicit groups for ablation experiments. See `src/models/config/constants.py` for definitions.
+
+### Group: `core_numerical` (Always Include)
+
+| Feature | Coverage | Source | Description |
+|---------|----------|--------|-------------|
+| `account_age_days` | 100% | Derived | Days since account creation |
+| `payment_type` | 98% | `bundle.paymentType` | DIRECT vs INVOICE |
+| `bundle_tier` | 97.7% | `bundle.tier` | basic, premium, top |
+| `bundle_period` | 77.25% | `bundle.period` | Duration in days |
+| `log_price` | 80% | Derived | Log-transformed price |
+| `latitude` | 99.4% | `listing.address.geoCoordinates.latitude` | Property latitude |
+| `longitude` | 99.4% | `listing.address.geoCoordinates.longitude` | Property longitude |
 | `offer_type` | 100% | `listing.offerType` | BUY vs RENT |
 | `living_space` | 84.7% | `listing.characteristics.livingSpace` | Square meters |
-| `rooms` | 92.7% | `listing.characteristics.numberOfRooms` | Number of rooms |
+| `rooms` | 92.7% | `listing.characteristics.numberOfRooms` | Room count |
 
-### Tier 2: Graph Features (Computed)
+### Group: `boolean_high` (>40% TRUE rate)
 
-| Feature | Description |
-|---------|-------------|
-| `shared_contact_email_count` | Emails shared with other listings |
-| `listing_component_size` | Size of connected component |
-| `listing_pagerank` | PageRank centrality |
-| `is_isolated` | Boolean: no graph connections |
-| `neighbor_overlap_score` | Clustering coefficient proxy |
+7 features: `has_balcony`, `has_parking`, `has_nice_view`, `has_garage`, `is_child_friendly`, `is_quiet`, `has_elevator`
 
-### Tier 3: Time-Weighted Features (Computed)
+### Group: `boolean_moderate` (20-40% TRUE rate)
 
-| Feature | Description |
-|---------|-------------|
-| `email_time_spread` | Days between first and last email reuse |
-| `email_recency_weighted` | Exponentially-weighted email connections |
-| `combined_recency_weighted` | Email + phone combined |
+3 features: `has_washing_machine`, `are_pets_allowed`, `is_wheelchair_accessible`
 
-### Deprecated Features (Low Coverage)
+### Group: `boolean_low` (<20% TRUE rate)
 
-| Feature | Coverage | Reason |
-|---------|----------|--------|
-| `is_new` | 0.04% | Almost always NULL |
-| `has_elevator` | 40% | Below 50% threshold |
-| `hasSwimmingPool` | 4.75% | 95.25% null |
-| `isSmokerFriendly` | 4.88% | 95.12% null |
-| `cubage` | 4.92% | 95.08% null |
-| `yearBuilt` | 53.05% | Borderline coverage, low signal |
-| Contact phone fields | 69.98% | Use billing phone (97.99%) instead |
-| Burst detection | N/A | No impact in experiments |
-| Interaction features | N/A | XGBoost learns automatically |
+2 features: `is_old`, `is_new_building`
 
-> 📉 **175 columns** (60% of dataset) have ≥95% null values and are excluded from feature engineering.
+### Group: `graph_basic`
+
+12 features including: `contact_email_count`, `shared_contact_email_count`, `listing_component_size`, `listing_pagerank`, etc.
+
+### Group: `graph_advanced`
+
+5 features: `degree_total`, `is_isolated`, `unique_identifier_count`, `neighbor_overlap_score`, `avg_neighbor_degree`
+
+### Group: `time_weighted_core`
+
+11 features including: `email_time_spread`, `email_recency_weighted`, `phone_time_spread`, `combined_recency_weighted`, etc.
+
+### Group: `text`
+
+10 features: `description_length`, `description_word_count`, `description_has_url`, etc.
 
 ---
 
-## 4. Training Strategy
+## 6. Graph Structure
+
+### Node Types (6)
+
+| Node Type | ID Field | Count | Features |
+|-----------|----------|-------|----------|
+| **User** | `owner_id` | 133,811 | `account_created_at` |
+| **Listing** | `insertion_id` | 234,458 | All listing features + embeddings |
+| **Email** | Email hash | 130,947 | (constant) |
+| **Phone** | Phone hash | 127,770 | (constant) |
+| **Address** | Composite hash | ~234k | `latitude`, `longitude` |
+| **IP** | IP hash | — | (constant) |
+
+### Edge Types (8)
+
+| Edge | Source → Target | Coverage | Notes |
+|------|-----------------|----------|-------|
+| `posts` | User → Listing | 100% | Primary relationship |
+| `uses` | User → IP | 94.7% | IP tracking |
+| `has_email` | User → Email | 99.98% | User email |
+| `has_contact_email` | Listing → Email | 99.98% | Lister email |
+| `has_billing_email` | Listing → Email | 98.00% | Billing email |
+| `has_phone` | Listing → Phone | ~99% | **Unified** billing+lister (coalesced) |
+| `located_at` | Listing → Address | 99.99% | Property location |
+| `billing_address` | Listing → Address | 98% | Billing address |
+
+> 💡 **Simplification**: Phone edges unified from 2 → 1 by coalescing billing (98%) and lister (70%) phone.
+
+---
+
+## 7. Training Strategy
 
 ### Accumulating Window (Production-Realistic)
 
@@ -184,129 +228,91 @@ Window N: Train on [2023-01-01, current] → Test [next 14 days]
 training:
   initial_window_days: 180  # Start with 6 months
   step_days: 7              # Weekly evaluation
-  max_windows: null         # All windows (or set for debugging)
+  max_windows: null         # All windows
 ```
 
 ---
 
-## 5. Graph Structure
+## 8. Fraud Detection Insights
 
-### Node Types
+### High-Signal Patterns
 
-| Node Type | ID Field | Unique Count | Features |
-|-----------|----------|--------------|----------|
-| **User** | `owner_id` | 133,811 | `account_created_at` |
-| **Listing** | `insertion_id` | 234,458 | All listing features + embeddings |
-| **Email** | Email hash | 130,947 | (constant) |
-| **Phone** | Phone hash | 127,770 | (constant) |
-| **Address** | `Country_Zip_City_Street` | ~234k | `latitude`, `longitude` |
-| **IP** | IP hash | — | (constant) |
+| Pattern | Fraud Rate | Lift | Notes |
+|---------|-----------|------|-------|
+| New account + Invoice payment | 28% | 17.5x | Strongest signal |
+| Isolated listings (no graph connections) | Higher | TBD | Fraudsters avoid networks |
+| Email reuse across listings | Higher | TBD | Fraud rings |
 
-### Edge Types (8 total, simplified)
+### Anti-Patterns (What Doesn't Work)
 
-| Edge | Source → Target | Coverage | Source Field |
-|------|-----------------|----------|--------------|
-| `posts` | User → Listing | 100% | `user_id` |
-| `uses` | User → IP | 94.7% | `meta.ip` |
-| `has_email` | User → Email | 99.98% | `listing.lister.email.hash` |
-| `has_contact_email` | Listing → Email | 99.98% | `listing.lister.email.hash` |
-| `has_billing_email` | Listing → Email | 98.00% | `listing.lister.billing.email.hash` |
-| `has_billing_phone` | Listing → Phone | 97.99% | `listing.lister.billing.phoneData.hash` |
-| `located_at` | Listing → Address | 99.99% | `listing.address.city_hash` + `zip_hash` |
-| `billing_address` | Listing → Address | 98% | `listing.lister.billing.address` |
-
-**Note**: Use billing phone (98% coverage) over contact phone (70%) for graph edges.
+| Feature/Approach | Finding | Reason |
+|------------------|---------|--------|
+| Burst detection | No impact | Fraudsters vary timing |
+| Interaction features | No lift | XGBoost learns these automatically |
+| Sliding windows (for GNN) | Performance drops | GNNs need complete history |
+| Low-coverage exclusion | **Wrong** | Boolean indicators have 100% semantic coverage |
 
 ---
 
-## 6. Model Comparison Framework
+## 9. Feature Configuration Design
 
-### Models
-
-| Model | Type | Command |
-|-------|------|---------|
-| **Seon** | Production Baseline | Pre-computed: `artifacts/seon_baseline.json` |
-| **XGBoost** | Primary Model | `make train` |
-| **GNN Hybrid** | Alternative | `make train-sage` or `make train-hgt` |
-
-### XGBoost (Primary Model)
-
-```bash
-make train  # or: python -m src.models.train features=production
+```yaml
+include_groups:
+  - core_numerical
+  - boolean_all
+  - graph_all
 ```
 
-- Uses Tier 1-3 handcrafted features
-- No GPU required
-- Training: ~15-20 minutes
-- Interpretable via SHAP
+### Available Profiles
 
-### GNN Hybrid (Alternative Approach)
-
-```bash
-make train-sage  # or make train-hgt
-```
-
-- Trains GNN on graph structure
-- Generates 64-dim embeddings
-- Feeds embeddings + tabular to XGBoost
-- GPU required, 2-3 hours training
-
-### Comparison Metrics
-
-| Metric | Description | Target |
-|--------|-------------|--------|
-| AUC-PR | Area under precision-recall curve | >0.70 (beat Seon) |
-| P@100 | Precision at top 100 predictions | >0.75 |
-| Training Time | Wall-clock minutes | <20 min (XGBoost) |
-| Inference Latency | Milliseconds per prediction | <100ms |
+| Profile | Groups Included | Use Case |
+|---------|-----------------|----------|
+| `quick` | `core_numerical`, `boolean_high` | Fast iteration |
+| `standard` | `core_numerical`, `boolean_all`, `graph_all` | Balanced |
+| `production` | All core + graph + time_weighted + text | Best performance |
 
 ---
 
-## 7. MLflow Integration
+## 10. Key Decisions & Rationale
 
-### Experiment Tracking
-
-```python
-# Automatically tracked:
-- Hyperparameters
-- Per-window metrics (AUC-PR, P@100)
-- Aggregate metrics (mean, best)
-- Feature importance
-- Models (registered to Model Registry)
-```
-
-### Model Registry
-
-```bash
-# Compare candidate vs production
-make mlflow-compare-models MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
-
-# Get deployment recommendation
-make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
-```
+| Decision | Rationale | Date |
+|----------|-----------|------|
+| Use billing phone over contact phone | 98% vs 70% coverage | 2025-11-30 |
+| Unify phone edges (coalesce) | Reduce complexity, ~99% coverage | 2025-11-30 |
+| Include `has_elevator` in model | 100% semantic coverage, was incorrectly excluded | 2025-12-01 |
+| Switch to `include_groups` config | Explicit selection prevents silent failures | 2025-12-01 |
+| Add low TRUE rate booleans | Potentially discriminative for fraud detection | 2025-12-01 |
 
 ---
 
-## 8. Key Research Findings
+## Appendix: Field Coverage Reference
 
-### Fraud Pattern Insights
+### Core Identifiers (100% coverage)
 
-1. **Payment Type is Critical**: New accounts + invoice payment = 28% fraud rate (17.5x lift)
-2. **Fraud is Isolated**: Fraudsters avoid creating large networks (breaks GNN homophily assumption)
-3. **Long-Term Patterns**: Fraud infrastructure reused over 12+ months
+- `object_reference` - Listing business ID
+- `owner_id` - User ID
+- `submission_at` - Submission timestamp
+- `account_created_at` - Account creation timestamp
+- `listing_platform` / `user_platform` - Platform brand
 
-### Model Architecture Insights
+### High Coverage Fields (>90%)
 
-1. **Handcrafted features are explicit**: XGBoost sees exact counts directly
-2. **GNNs need complete history**: Sliding windows hurt GNN performance
-3. **XGBoost learns interactions**: Explicit interaction features don't help tree models
+- `listing.offerType` - 100%
+- `listing.lister.email.hash` - 99.98%
+- `listing.address.geoCoordinates` - 99.40%
+- `bundle.tier` - 97.73%
+- `listing.characteristics.numberOfRooms` - 92.71%
 
-### Best Practices
+### Moderate Coverage Fields (50-90%)
 
-1. Use **accumulating windows** for production deployment
-2. Prioritize **billing phone** over contact phone (98% vs 70% coverage)
-3. Exclude **low-coverage features** (<50% coverage) to avoid noise
-4. Focus on **82 high-coverage fields** for feature engineering
-5. Drop **175 unusable columns** (≥95% null) to reduce dimensionality
-6. Use **email hash** (99.98% coverage) as primary contact identifier for graph
-7. Validate **data integrity** before training (no duplicates, no empty IDs)
+- `listing.characteristics.livingSpace` - 84.69%
+- `bundle.period` - 77.26%
+- `listing.lister.phone.hash` - 69.98%
+- `listing.characteristics.yearBuilt` - 53.05%
+
+### Excluded Fields (Truly Unusable)
+
+146 fields with ≥95% null that are NOT boolean indicators. Examples:
+- `listing.valueAddedServices` - 100% null
+- `listing.lister.website` - 100% null
+- `listing.characteristics.cubage` - 95.08% null (numeric, truly missing)

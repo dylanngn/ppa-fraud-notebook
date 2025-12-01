@@ -130,11 +130,29 @@ def _create_listing_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl
         helper.get_col("listing.characteristics.yearBuilt").alias("year_built"),
         helper.get_col("listing.characteristics.floor").alias("floor"),
         helper.get_col("listing.characteristics.numberOfFloors").alias("num_floors"),
-        helper.get_col("listing.characteristics.isNewBuilding").alias("is_new"),
-        helper.get_col("listing.characteristics.hasBalcony").alias("has_balcony"),
-        helper.get_col("listing.characteristics.hasElevator").alias("has_elevator"),
-        helper.get_col("listing.characteristics.hasParking").alias("has_parking"),
-        helper.get_col("listing.characteristics.isOldBuilding").alias("is_old"),
+        # Boolean indicator features (NULL = FALSE semantics = 100% semantic coverage)
+        # High TRUE rate (>40%)
+        helper.get_col("listing.characteristics.hasBalcony").alias("has_balcony"),           # 71.2% TRUE
+        helper.get_col("listing.characteristics.hasParking").alias("has_parking"),           # 55.1% TRUE
+        helper.get_col("listing.characteristics.hasNiceView").alias("has_nice_view"),        # 47.7% TRUE
+        helper.get_col("listing.characteristics.hasGarage").alias("has_garage"),             # 44.2% TRUE
+        helper.get_col("listing.characteristics.isChildFriendly").alias("is_child_friendly"),# 43.5% TRUE
+        helper.get_col("listing.characteristics.isQuiet").alias("is_quiet"),                 # 42.7% TRUE
+        helper.get_col("listing.characteristics.hasElevator").alias("has_elevator"),         # 40.9% TRUE
+        # Moderate TRUE rate (20-40%)
+        helper.get_col("listing.characteristics.hasWashingMachine").alias("has_washing_machine"),  # 32.4% TRUE
+        helper.get_col("listing.characteristics.arePetsAllowed").alias("are_pets_allowed"),        # 28.4% TRUE
+        helper.get_col("listing.characteristics.isWheelchairAccessible").alias("is_wheelchair_accessible"),  # 25.7% TRUE
+        # Low TRUE rate (<20%) - rare but potentially discriminative for fraud detection
+        helper.get_col("listing.characteristics.isOldBuilding").alias("is_old"),             # 16.7% TRUE
+        helper.get_col("listing.characteristics.isNewBuilding").alias("is_new_building"),    # 16.2% TRUE
+        # Very rare TRUE rate (5-15%) - experimental, for ablation studies
+        helper.get_col("listing.characteristics.hasCableTv").alias("has_cable_tv"),          # 14.76% TRUE
+        helper.get_col("listing.characteristics.hasFireplace").alias("has_fireplace"),       # 10.71% TRUE
+        helper.get_col("listing.characteristics.isMinergieGeneral").alias("is_minergie_general"),  # 9.20% TRUE
+        helper.get_col("listing.characteristics.isMinergieCertified").alias("is_minergie_certified"),  # 6.81% TRUE
+        helper.get_col("listing.characteristics.isSmokingAllowed").alias("is_smoking_allowed"),  # 4.88% TRUE
+        helper.get_col("listing.characteristics.hasSwimmingPool").alias("has_swimming_pool"),    # 4.75% TRUE
         # Address fields (use hash columns from anonymization)
         helper.get_col("listing.address.postalCode", "listing.address.postalCode.hash").alias("zip_code"),
         helper.get_col("listing.address.locality", "listing.address.city_hash").alias("city"),

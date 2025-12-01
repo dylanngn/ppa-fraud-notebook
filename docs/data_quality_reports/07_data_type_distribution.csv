@@ -1,8 +1,0 @@
-dtype,count
-String,171
-Boolean,54
-Int64,29
-Float64,20
-Null,12
-"Datetime(time_unit='us', time_zone='UTC')",5
-Int32,1

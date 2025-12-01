@@ -80,18 +80,18 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 Based on data quality analysis (`data_quality_reports/`), we implemented:
 
-1. **Feature Processor Enhancement**: Added `exclude` list support in Hydra config
 2. **Graph Simplification**: Merged phone edges from 2 → 1 (unified billing+lister phone)
-3. **Feature Tiers**: Organized features into CORE, GRAPH, ENHANCED, DEPRECATED
+3. **Feature Groups**: Organized features into explicit groups for ablation (see `constants.py`)
 
 ### Changes Implemented
 
 | Component | Change | Rationale |
 |-----------|--------|-----------|
-| `FeatureProcessor` | Added `from_config()` + `exclude` support | Enable config-driven feature exclusion |
+| `FeatureProcessor` | Added `from_config()` + `include_groups` support | Explicit feature selection (no silent failures) |
+| `constants.py` | Added `FEATURE_GROUPS` dict | Define testable feature groups |
 | `create_artifacts.py` | Unified phone edge (coalesce billing→lister) | Reduce edge types from 9 → 8, maximize coverage |
 | `graph_builder.py` | Updated to use single `has_phone` edge | Simplified graph structure |
-| `conf/features/*.yaml` | Created quick/standard/production profiles | Enable ablation studies |
+| `conf/features/*.yaml` | Created quick/standard/production/ablation profiles | Enable systematic experiments |
 
 ### Validation Steps
 
@@ -108,8 +108,8 @@ print('Phone edges:', data['listing', 'has_phone', 'phone'].edge_index.shape)
 "
 
 # Step 3: Train with different feature profiles
-python -m src.models.train features=quick      # Should exclude deprecated features
-python -m src.models.train features=production # Full features minus deprecated
+python -m src.models.train features=quick      # Uses include_groups: core_numerical, boolean_high
+python -m src.models.train features=production # Uses all feature groups
 ```
 
 ### Expected Results
@@ -118,8 +118,9 @@ python -m src.models.train features=production # Full features minus deprecated
 |--------|--------|-------|--------|
 | Edge types | 9 | 8 | -1 (phone merge) |
 | Phone edge coverage | 70-98% | ~99% | +29% (coalesce) |
-| Feature count (production) | ~50 | ~44 | -6 (deprecated removed) |
-| AUC-PR | ~0.70 | ~0.70 | No regression |
+| Boolean features | 4 | 12 | +8 |
+| Feature groups | N/A | 12 | Explicit group definitions |
+| AUC-PR | ~0.70 | ~0.70 | No regression expected |
 
 ### Decision Branching
 
@@ -128,6 +129,87 @@ Based on validation results:
 - **If AUC-PR drops > 2%**: Revert phone edge merge, investigate
 - **If AUC-PR stable**: Proceed with simplified structure for all experiments
 - **If AUC-PR improves**: Document as finding, update baseline
+
+---
+
+## Experiment 0b: Boolean Feature Group Ablation ⭐ HIGH PRIORITY
+
+**Date**: TBD  
+**Objective**: Test the value of boolean indicator features that were previously excluded  
+**Status**: 🔄 PLANNED (Priority: HIGH)
+
+### Background
+
+Based on data quality analysis (2025-12-01), we discovered that boolean indicator fields use **NULL = FALSE** semantics, meaning they have 100% semantic coverage. This led to:
+
+1. **`has_elevator` was incorrectly excluded** - it has 40.9% TRUE rate, not "60% missing"
+2. **Low TRUE rate booleans may be discriminative** - if fraudsters over/under-claim amenities
+3. **New feature groups created** for systematic testing
+
+### Research Questions
+
+1. Does including `has_elevator` improve model performance?
+2. Do low TRUE rate booleans (<20%) add discriminative power?
+3. Are there boolean features that hurt performance (should be excluded)?
+
+### Feature Groups to Test
+
+| Group | Features | TRUE Rate Range |
+|-------|----------|-----------------|
+| `boolean_high` | 7 features | >40% |
+| `boolean_moderate` | 3 features | 20-40% |
+| `boolean_low` | 2 features | <20% |
+| **Not in model yet** | `hasCableTv`, `hasFireplace`, `isMinergieGeneral`, etc. | 5-15% |
+
+### Methodology
+
+```bash
+# Baseline: No boolean features
+python -m src.models.train \
+  features.include_groups='[core_numerical, graph_all]'
+
+# Test 1: Add high TRUE rate booleans only
+python -m src.models.train \
+  features.include_groups='[core_numerical, boolean_high, graph_all]'
+
+# Test 2: Add all current booleans
+python -m src.models.train \
+  features.include_groups='[core_numerical, boolean_all, graph_all]'
+
+# Test 3: Add low TRUE rate booleans only (test discrimination)
+python -m src.models.train \
+  features.include_groups='[core_numerical, boolean_low, graph_all]'
+```
+
+### Expected Results
+
+| Experiment | Expected AUC-PR | Notes |
+|------------|-----------------|-------|
+| No booleans | ~0.65 | Baseline |
+| + boolean_high | ~0.66 | Common features, moderate lift |
+| + boolean_all | ~0.67 | Current standard |
+| + boolean_low only | ~0.65-0.66 | Testing rare feature value |
+
+### Decision Branching
+
+- **If boolean_low adds > 0.5% AUC-PR**: Expand to include more low TRUE rate features (5-15%)
+- **If boolean_low hurts performance**: Keep only high+moderate groups
+- **If no difference**: Investigate specific features for fraud signal
+
+### Additional Experiments: Not-Yet-Included Booleans
+
+These boolean features are valid (100% semantic coverage) but not yet in the model:
+
+| Feature | TRUE % | Hypothesis |
+|---------|--------|------------|
+| `hasCableTv` | 14.76% | May indicate rental focus |
+| `hasFireplace` | 10.71% | Luxury indicator |
+| `isMinergieGeneral` | 9.20% | Energy certification |
+| `isMinergieCertified` | 6.81% | Verified certification |
+| `isSmokingAllowed` | 4.88% | Rare permission |
+| `hasSwimmingPool` | 4.75% | Luxury, may be over-claimed by fraud |
+
+**Experiment**: Add these as a new group `boolean_rare` and test if they improve fraud detection.
 
 ---
 
@@ -408,9 +490,12 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 | Finding | Impact | Action |
 |---------|--------|--------|
+| **Boolean fields use NULL = FALSE semantics** | 50 fields have 100% semantic coverage | Include in model, test in ablation |
+| `has_elevator` was incorrectly excluded | Lost valid discriminative feature | Re-included (40.9% TRUE rate) |
 | Phone field coverage varies: billing (98%) >> lister (70%) >> viewing (3%) | Noisy phone edges | Unified phone edge with coalesce |
-| `is_new` is 99.99% NULL | Misleading feature | Exclude from training |
+| `is_new` is 0.04% TRUE (almost never set) | Uninformative feature | Exclude from training |
 | Fraudsters avoid direct payment | High-value signal | Prioritize `payment_type` feature |
+| Low TRUE rate booleans may be discriminative | Fraudsters may over/under-claim amenities | Test in Exp 0b |
 
 ### Graph Structure Insights
 
@@ -434,6 +519,7 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 ### Phase 1: Baseline Establishment (Week 1-2)
 - [x] Experiment 0: Feature & graph structure validation (implemented)
+- [ ] **Experiment 0b: Boolean feature group ablation** ⭐ HIGH PRIORITY
 - [ ] Experiment 1: Feature tier ablation
 - [ ] Experiment 2: Model comparison (baseline vs hybrid)
 
@@ -467,7 +553,8 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 ## References
 
-- Project Setup: `docs/knowledge_base.md`
-- Data Quality: `data_quality_reports/data_quality_report.txt`
-- Feature Constants: `src/models/config/constants.py`
-- Configuration: `conf/config.yaml`
+- **Data & Features**: `docs/knowledge_base.md` (source of truth for data quality, feature definitions)
+- **Architecture**: `docs/architecture.md` (project structure, technical design)
+- **Feature Groups**: `src/models/config/constants.py` (FEATURE_GROUPS dict)
+- **Ablation Config**: `conf/features/ablation.yaml` (experiment definitions)
+- **Raw Report**: `data_quality_reports/data_quality_report.txt`

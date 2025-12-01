@@ -54,10 +54,54 @@ def load_flattened_data(data_path: str = "artifacts/raw_insertions.parquet") -> 
         )
 
 
+def is_boolean_indicator_field(column_name: str, dtype: str) -> bool:
+    """
+    Identify boolean indicator fields where NULL semantically means FALSE.
+    
+    These fields represent property characteristics where:
+    - TRUE = the property HAS that feature
+    - NULL/FALSE = the property does NOT have that feature
+    
+    For these fields, NULL is NOT missing data - it's a valid "false" value.
+    """
+    if dtype != "Boolean":
+        return False
+    
+    # Common prefixes for boolean indicator fields
+    indicator_prefixes = ("is", "has", "are", "can", "allow", "permit")
+    
+    # Get the last segment of dot-notation field names
+    field_name = column_name.split(".")[-1]
+    
+    # Check if it starts with any indicator prefix (case-insensitive for first check)
+    field_lower = field_name.lower()
+    for prefix in indicator_prefixes:
+        if field_lower.startswith(prefix):
+            # Verify it's camelCase or snake_case pattern (not just coincidence)
+            # e.g., "isNew" or "is_new", not "island"
+            remainder = field_name[len(prefix):]
+            if remainder and (remainder[0].isupper() or remainder.startswith("_")):
+                return True
+    
+    # Check for specific patterns that indicate boolean indicators
+    indicator_patterns = [
+        "Allowed", "Enabled", "Friendly", "Accessible", "Certified",
+        "Approved", "Selected", "Validated", "Manual"
+    ]
+    for pattern in indicator_patterns:
+        if pattern in field_name:
+            return True
+    
+    return False
+
+
 def calculate_null_stats(df: pl.DataFrame) -> pl.DataFrame:
     """Calculate null percentage and counts for all columns using Polars expressions.
     
     Returns DataFrame sorted by non_null_pct (highest coverage first).
+    
+    Note: For boolean indicator fields (is*, has*, are*, etc.), NULL semantically
+    means FALSE, so these fields have 100% semantic coverage even if null_pct > 0.
     """
     n_rows = len(df)
     
@@ -74,11 +118,17 @@ def calculate_null_stats(df: pl.DataFrame) -> pl.DataFrame:
     # Use Polars expressions to calculate null stats for all columns at once
     stats = []
     for col in df.columns:
-        col_dtype = df[col].dtype
+        col_dtype = str(df[col].dtype)
         null_count = df.select(pl.col(col).is_null().sum()).item()
         null_pct = (null_count / n_rows * 100) if n_rows > 0 else 0.0
         non_null_count = n_rows - null_count
         non_null_pct = 100.0 - null_pct
+        
+        # Check if this is a boolean indicator field (NULL = FALSE semantics)
+        is_indicator = is_boolean_indicator_field(col, col_dtype)
+        
+        # For boolean indicator fields, semantic coverage is 100% (NULL means FALSE)
+        semantic_coverage = 100.0 if is_indicator else non_null_pct
         
         stats.append({
             "column": col,
@@ -86,10 +136,12 @@ def calculate_null_stats(df: pl.DataFrame) -> pl.DataFrame:
             "null_pct": null_pct,
             "non_null_count": non_null_count,
             "non_null_pct": non_null_pct,
-            "dtype": str(col_dtype)
+            "dtype": col_dtype,
+            "is_boolean_indicator": is_indicator,
+            "semantic_coverage": semantic_coverage
         })
     
-    return pl.DataFrame(stats).sort("non_null_pct", descending=True)
+    return pl.DataFrame(stats).sort("semantic_coverage", descending=True)
 
 
 def identify_unusable_fields(null_stats: pl.DataFrame, threshold: float = 95.0) -> pl.DataFrame:
@@ -101,30 +153,77 @@ def identify_unusable_fields(null_stats: pl.DataFrame, threshold: float = 95.0) 
         threshold: Percentage threshold (default 95% null = unusable)
     
     Returns:
-        DataFrame of unusable fields, sorted by non_null_pct ascending (worst coverage first)
+        DataFrame of unusable fields, sorted by semantic_coverage ascending (worst first)
     """
     return (
         null_stats
-        .filter(pl.col("null_pct") >= threshold)
-        .sort("non_null_pct", descending=False)  # Worst coverage first
+        .filter(
+            (pl.col("null_pct") >= threshold) & 
+            (~pl.col("is_boolean_indicator"))
+        )
+        .sort("semantic_coverage", descending=False)  # Worst coverage first
     )
 
 
 def identify_high_coverage_fields(null_stats: pl.DataFrame, threshold: float = 50.0) -> pl.DataFrame:
     """
-    Identify fields with high coverage (below threshold % null).
+    Identify fields with high coverage based on semantic coverage.
+    
+    For boolean indicator fields (is*, has*, etc.), semantic coverage is 100%
+    because NULL means FALSE, not missing data.
+    
+    For other fields, semantic coverage equals non_null_pct.
     
     Args:
         null_stats: DataFrame with null statistics
-        threshold: Maximum null percentage (default <50% null = high coverage)
+        threshold: Minimum semantic coverage percentage (default >=50%)
     
     Returns:
-        DataFrame of high coverage fields, sorted by coverage
+        DataFrame of high coverage fields, sorted by semantic_coverage
     """
     return (
         null_stats
-        .filter(pl.col("null_pct") < threshold)
-        .sort("non_null_pct", descending=True)
+        .filter(pl.col("semantic_coverage") >= (100.0 - threshold))
+        .sort("semantic_coverage", descending=True)
+    )
+
+
+def analyze_boolean_indicator_fields(null_stats: pl.DataFrame) -> pl.DataFrame:
+    """
+    Analyze boolean indicator fields where NULL semantically means FALSE.
+    
+    These fields have 100% semantic coverage because:
+    - TRUE = the property HAS that feature (explicitly set)
+    - NULL = the property does NOT have that feature (implicitly false)
+    
+    Returns:
+        DataFrame of boolean indicator fields with their true/null distribution
+    """
+    indicator_fields = null_stats.filter(pl.col("is_boolean_indicator"))
+    
+    if len(indicator_fields) == 0:
+        return pl.DataFrame({
+            "column": [],
+            "true_count": [],
+            "true_pct": [],
+            "null_as_false_count": [],
+            "null_as_false_pct": [],
+            "dtype": []
+        })
+    
+    # Rename columns for clarity
+    return (
+        indicator_fields
+        .select([
+            pl.col("column"),
+            pl.col("non_null_count").alias("true_count"),
+            pl.col("non_null_pct").alias("true_pct"),
+            pl.col("null_count").alias("null_as_false_count"),
+            pl.col("null_pct").alias("null_as_false_pct"),
+            pl.col("dtype"),
+            pl.lit(100.0).alias("semantic_coverage")
+        ])
+        .sort("true_pct", descending=True)  # Sort by how often the feature is present
     )
 
 
@@ -405,6 +504,7 @@ def generate_text_report(
     null_stats: pl.DataFrame,
     unusable: pl.DataFrame,
     high_coverage: pl.DataFrame,
+    boolean_indicator_analysis: pl.DataFrame,
     contact_analysis: Dict[str, pl.DataFrame],
     type_analysis: pl.DataFrame,
     numeric_analysis: pl.DataFrame,
@@ -423,6 +523,7 @@ def generate_text_report(
         null_stats: Null statistics for all fields
         unusable: Unusable fields DataFrame
         high_coverage: High coverage fields DataFrame (ALL fields, not limited)
+        boolean_indicator_analysis: Boolean indicator fields (NULL = FALSE semantics)
         contact_analysis: Dictionary with phone, email, address analyses
         type_analysis: Data type distribution
         numeric_analysis: Numeric field statistics
@@ -446,8 +547,9 @@ def generate_text_report(
     report_lines.append("\n" + "=" * 80)
     report_lines.append("SUMMARY STATISTICS")
     report_lines.append("=" * 80)
-    report_lines.append(f"\nUnusable Fields (>={null_threshold_unusable}% null): {len(unusable)}")
-    report_lines.append(f"High Coverage Fields (<{null_threshold_high_coverage}% null): {len(high_coverage)}")
+    report_lines.append(f"\nBoolean Indicator Fields (NULL = FALSE): {len(boolean_indicator_analysis)}")
+    report_lines.append(f"Unusable Fields (>={null_threshold_unusable}% null, excl. indicators): {len(unusable)}")
+    report_lines.append(f"High Coverage Fields (>={100-null_threshold_high_coverage}% semantic coverage): {len(high_coverage)}")
     report_lines.append(f"Total Fields Analyzed: {len(null_stats)}")
     
     # Unusable fields
@@ -462,13 +564,25 @@ def generate_text_report(
     
     # High coverage fields - LIST ALL, NOT JUST TOP ONES
     report_lines.append("\n" + "=" * 80)
-    report_lines.append(f"HIGH COVERAGE FIELDS (<{null_threshold_high_coverage}% NULL)")
+    report_lines.append(f"HIGH COVERAGE FIELDS (>={100-null_threshold_high_coverage}% SEMANTIC COVERAGE)")
     report_lines.append("=" * 80)
     if len(high_coverage) > 0:
-        report_lines.append(f"\nAll {len(high_coverage)} fields with high coverage (sorted by coverage, highest first):")
+        report_lines.append(f"\nAll {len(high_coverage)} fields with high semantic coverage (sorted by coverage, highest first):")
         report_lines.append(format_dataframe_table(high_coverage))  # No limit - show all
     else:
         report_lines.append("\nNo high coverage fields found.")
+    
+    # Boolean indicator fields (NULL = FALSE)
+    report_lines.append("\n" + "=" * 80)
+    report_lines.append("BOOLEAN INDICATOR FIELDS (NULL = FALSE SEMANTICS)")
+    report_lines.append("=" * 80)
+    report_lines.append("\nThese fields use NULL to indicate FALSE (feature not present).")
+    report_lines.append("They have 100% semantic coverage regardless of null_pct.")
+    if len(boolean_indicator_analysis) > 0:
+        report_lines.append(f"\nFound {len(boolean_indicator_analysis)} boolean indicator fields:")
+        report_lines.append(format_dataframe_table(boolean_indicator_analysis))
+    else:
+        report_lines.append("\nNo boolean indicator fields found.")
     
     # Phone fields analysis
     report_lines.append("\n" + "=" * 80)
@@ -592,6 +706,16 @@ def generate_report(
     else:
         print(f"  - No high coverage fields found (threshold: <{null_threshold_high_coverage}% null)")
     
+    # Analyze boolean indicator fields (is*, has*, etc. where NULL = FALSE)
+    print("\nAnalyzing boolean indicator fields (NULL = FALSE semantics)...")
+    boolean_indicator_analysis = analyze_boolean_indicator_fields(null_stats)
+    if len(boolean_indicator_analysis) > 0:
+        boolean_path = output_path / "02b_boolean_indicator_fields.csv"
+        boolean_indicator_analysis.write_csv(boolean_path)
+        print(f"  ✓ Saved: {boolean_path} ({len(boolean_indicator_analysis)} fields)")
+    else:
+        print(f"  - No boolean indicator fields found")
+    
     # Analyze contact fields
     print("\nAnalyzing contact fields (phones, emails, addresses)...")
     contact_analysis = analyze_contact_fields(df)
@@ -661,6 +785,7 @@ def generate_report(
         null_stats=null_stats,
         unusable=unusable,
         high_coverage=high_coverage,
+        boolean_indicator_analysis=boolean_indicator_analysis,
         contact_analysis=contact_analysis,
         type_analysis=type_analysis,
         numeric_analysis=numeric_analysis,
@@ -677,7 +802,8 @@ def generate_report(
     print(f"\n{'=' * 80}")
     print("SUMMARY:")
     print(f"  - Total fields analyzed: {len(null_stats)}")
-    print(f"  - Unusable fields (>={null_threshold_unusable}% null): {len(unusable)}")
+    print(f"  - Boolean indicator fields (NULL=FALSE): {len(boolean_indicator_analysis)}")
+    print(f"  - Unusable fields (>={null_threshold_unusable}% null, excl. indicators): {len(unusable)}")
     print(f"  - High coverage fields (<{null_threshold_high_coverage}% null): {len(high_coverage)}")
     print(f"  - Phone fields: {len(contact_analysis['phones'])}")
     print(f"  - Email fields: {len(contact_analysis['emails'])}")

@@ -51,32 +51,43 @@ def compute_time_weighted_features(df: pl.DataFrame, cutoff_date: datetime, conf
 
 @FeatureRegistry.register("interaction")
 def compute_interaction_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """Compute interaction features."""
-    # For interaction features, we need graph features to already be in the dataframe
-    # The FeatureProcessor will ensure they're computed in order
+    """
+    Compute interaction features.
     
-    # Check if required graph feature columns exist
-    required_cols = ["shared_contact_email_count", "shared_contact_phone_count"]
-    has_required = all(col in df.columns for col in required_cols)
+    NOTE: Interaction features are DEPRECATED for model training (Exp 10 showed
+    XGBoost learns these automatically). They are kept for explainability/rules.
     
-    if not has_required:
-        # If graph features aren't in the dataframe yet, skip interaction features
-        # This can happen if interaction is requested without graph features
-        import logging
-        logging.warning("Interaction features skipped - graph features not available in dataframe")
+    Requires: graph and advanced_graph categories must be computed first.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Check if required graph feature columns exist in the dataframe
+    required_cols = ["shared_contact_email_count", "shared_contact_phone_count", "listing_component_size"]
+    missing = [col for col in required_cols if col not in df.columns]
+    
+    if missing:
+        logger.warning(f"Interaction features skipped - missing required columns: {missing}. "
+                      f"Ensure 'graph' and 'advanced_graph' categories are computed first.")
         return df
     
-    # Call the original function but pass None for the separate dataframes
-    # since the features are already joined into the main df
+    # Extract graph feature columns for the generator
+    graph_cols = ["insertion_id", "shared_contact_email_count", "shared_contact_phone_count",
+                  "listing_component_size", "listing_pagerank"]
+    graph_cols = [c for c in graph_cols if c in df.columns]
+    graph_features_df = df.select(graph_cols)
+    
+    advanced_cols = ["insertion_id", "is_isolated", "degree_total"]
+    advanced_cols = [c for c in advanced_cols if c in df.columns]
+    advanced_features_df = df.select(advanced_cols)
+    
     from src.features import generators as gen_module
     
-    # Extract just the insertion_id and graph feature columns for the call
-    # This is a workaround - ideally we'd refactor interaction_features to work directly with the df
     interaction_df = gen_module.interaction_features.generate_interaction_features(
         output_path=None,
         cutoff_date=cutoff_date,
-        graph_features_df=None,  # Pass None - it will recompute if needed
-        advanced_features_df=None
+        graph_features_df=graph_features_df,
+        advanced_features_df=advanced_features_df
     )
     
     if interaction_df is None:

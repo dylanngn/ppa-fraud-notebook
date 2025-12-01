@@ -1,5 +1,5 @@
 # Production Profile - Best performance for deployment
-# Uses all proven features: Tier 1 (core) + Tier 2 (graph) + Tier 3 (enhanced)
+# Uses all proven features: Tier 1 (core) + Tier 1b (boolean) + Tier 2 (graph) + Tier 3 (enhanced)
 # Expected: ~25min training, ~0.70+ AUC-PR
 
 defaults:
@@ -8,7 +8,7 @@ defaults:
 profile: production
 description: "Best performance for production deployment - all proven features"
 
-# All feature categories (except interaction which XGBoost learns automatically)
+# Feature categories to compute (generators to run)
 categories:
   - base
   - graph
@@ -16,34 +16,18 @@ categories:
   - time_weighted
   - text
 
-# Exclude deprecated/ineffective features
-exclude:
-  # Low coverage features
-  - is_new               # 99.99% NULL
-  - has_elevator         # ~60% NULL
+# Feature groups to INCLUDE (explicit, no exclusions)
+# See src/models/config/constants.py for group definitions
+include_groups:
+  # Tier 1: Core numerical features
+  - core_numerical
   
-  # Burst detection (Exp 9: no significant impact)
-  - email_is_burst
-  - phone_is_burst
-  - any_burst
-  - email_is_dormant_reactivation
-  - phone_is_dormant_reactivation
-  - any_dormant_reactivation
+  # Tier 1b: Boolean indicators (100% semantic coverage, NULL = FALSE)
+  - boolean_all        # All 12 boolean features
   
-  # Interaction features (Exp 10: XGBoost learns these automatically)
-  # Keep in pipeline for rule-based flagging, exclude from model training
-  - new_account_high_email_reuse
-  - new_account_high_phone_reuse
-  - new_account_high_reuse_any
-  - new_account_invoice_payment
-  - very_new_account_invoice
-  - is_small_listing
-  - new_account_small_listing
-  - in_large_component
-  - new_account_large_component
-  - new_account_isolated
-  - account_age_risk_score
-  - email_reuse_intensity
-  - component_risk_score
-  - suspicious_combo_score
-
+  # Tier 2: Graph-derived features
+  - graph_all          # Basic + advanced graph features
+  
+  # Tier 3: Enhanced features
+  - time_weighted_core # Proven time-weighted features
+  - text               # Text analysis features
