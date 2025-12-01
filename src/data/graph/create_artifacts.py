@@ -6,6 +6,14 @@ This module creates the parquet files used by both:
 - XGBoost models (via graph_features.py)
 
 The input data should already be flattened and anonymized (from fetch_raw_insertions).
+
+Entity Identification (Source of Truth):
+- Listing: `object_reference` → aliased to `insertion_id`
+- User: `owner_id` → aliased to `user_id`
+
+Note: User-listing relationship is established via:
+    i.listing->'legacy'->>'personId' = u.owner_id
+This is handled in the ETL extract query (src/data/etl/extract.py).
 """
 import logging
 import os
@@ -28,8 +36,7 @@ NODE_FILES = {
     "address": os.path.join(ARTIFACTS_DIR, "nodes_address.parquet"),
 }
 
-# Edge file paths (SIMPLIFIED - Phase 2 cleanup)
-# CHANGE (2025-11-30): Merged contact_phone + billing_phone into single "listing_phone" edge
+# Edge file paths
 EDGE_FILES = {
     "user_posts": os.path.join(ARTIFACTS_DIR, "edges_user_posts_listing.parquet"),
     "user_ip": os.path.join(ARTIFACTS_DIR, "edges_user_uses_ip.parquet"),
@@ -41,21 +48,18 @@ EDGE_FILES = {
     "listing_billing_addr": os.path.join(ARTIFACTS_DIR, "edges_listing_billing_addr.parquet"),
 }
 
-# Email columns with coverage info (from data quality analysis 2025-11-30)
+# Email columns with coverage info
 EMAIL_COLS = [
     "listing.lister.email.hash",           # 99.97% coverage - PRIMARY
     "listing.lister.billing.email.hash",   # 98.00% coverage - GOOD
 ]
 
-# Phone columns with coverage info (SIMPLIFIED - Phase 2 cleanup)
+# Phone columns with coverage info
 # Coverage varies significantly - use billing phone as primary, coalesce with lister phone
 #   billing.phoneDay.hash: 97.99% coverage - BEST (PRIMARY)
 #   lister.phone.hash:     69.98% coverage - MODERATE (FALLBACK)
 #   viewing.phone.hash:     3.41% coverage - SKIP (too sparse)
 #   inquiry.phone.hash:     0.11% coverage - SKIP (too sparse)
-#
-# CHANGE (2025-11-30): Merged contact_phone and billing_phone into single "primary_phone" edge
-# This simplifies the graph from 9 edge types to 8, using coalesce to prefer billing phone
 PHONE_COL_PRIMARY = "listing.lister.billing.phoneDay.hash"   # 98% coverage
 PHONE_COL_FALLBACK = "listing.lister.phone.hash"              # 70% coverage
 
@@ -96,7 +100,7 @@ class ColumnHelper:
             return pl.lit(None).cast(pl.Utf8)
 
 
-def _create_user_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
+def _create_user_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.DataFrame:
     """Create user nodes."""
     return df_listings.select([
         pl.col("owner_id").alias("user_id"),
@@ -363,7 +367,7 @@ def _create_all_edges(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[
         df_listings, helper, "object_reference", "listing.lister.billing.email.hash"
     )
     
-    # Listing-phone edges (UNIFIED - Phase 2 simplification)
+    # Listing-phone edges
     # Use coalesce to prefer billing phone (98% coverage) over lister phone (70% coverage)
     edges_listing_phone = df_listings.select([
         pl.col("object_reference").alias("source"),
@@ -392,7 +396,7 @@ def _create_all_edges(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[
     return (
         edges_user_posts, edges_user_ip, edges_user_email,
         edges_listing_contact_email, edges_listing_billing_email,
-        edges_listing_phone,  # Unified phone edge (simplified from 2 edges)
+        edges_listing_phone,  # Unified phone edge
         edges_listing_located_at, edges_listing_billing_addr
     )
 
@@ -406,7 +410,7 @@ def _save_artifacts(
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     
     node_names = ["user", "listing", "ip", "email", "phone", "address"]
-    # Edge names (SIMPLIFIED - Phase 2: merged phone edges)
+    # Edge names
     edge_names = [
         "user_posts", "user_ip", "user_email",
         "listing_contact_email", "listing_billing_email",

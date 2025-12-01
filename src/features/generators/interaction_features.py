@@ -21,7 +21,6 @@ Features engineered:
 import logging
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 import polars as pl
 
@@ -31,14 +30,10 @@ from src.features.utils import ensure_artifact, ARTIFACTS_DIR
 
 LISTING_NODES = ARTIFACTS_DIR / "nodes_listing.parquet"
 USER_NODES = ARTIFACTS_DIR / "nodes_user.parquet"
-GRAPH_FEATURES = ARTIFACTS_DIR / "listing_graph_features.parquet"
-ADVANCED_FEATURES = ARTIFACTS_DIR / "listing_advanced_features.parquet"
-OUTPUT_PATH = ARTIFACTS_DIR / "listing_interaction_features.parquet"
 
 
 def generate_interaction_features(
     output_path: Optional[Path] = None,
-    cutoff_date: Optional[datetime] = None,
     graph_features_df: Optional[pl.DataFrame] = None,
     advanced_features_df: Optional[pl.DataFrame] = None
 ) -> pl.DataFrame:
@@ -50,8 +45,6 @@ def generate_interaction_features(
     
     Args:
         output_path: Optional path to save features. If None, returns DataFrame without saving.
-        cutoff_date: If provided, only use graph features computed with data before this date.
-                     This prevents temporal leakage. If None, uses all data.
         graph_features_df: Pre-computed graph features DataFrame.
                           Must have 'insertion_id' column.
         advanced_features_df: Pre-computed advanced features DataFrame.

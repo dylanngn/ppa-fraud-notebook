@@ -1,17 +1,15 @@
 """
 XGBoost trainer with accumulating window.
 """
-import os
 import time
 import logging
 import polars as pl
 import pandas as pd
 import xgboost as xgb
 import mlflow
-from mlflow.models import infer_signature, evaluate
+from mlflow.models import infer_signature
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from pathlib import Path
 
 from src.models.xgboost.utils import (
     get_optimal_tree_method,

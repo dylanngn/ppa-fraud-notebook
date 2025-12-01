@@ -3,7 +3,6 @@ Main training entry point using Hydra.
 """
 import hydra
 from omegaconf import DictConfig
-import polars as pl
 import logging
 
 from src.models.xgboost.trainer import train_accumulating_window

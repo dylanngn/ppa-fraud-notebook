@@ -4,7 +4,7 @@ Handles saving and loading of chunks and assembling the final dataset.
 """
 import os
 import polars as pl
-from typing import Dict, List
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)

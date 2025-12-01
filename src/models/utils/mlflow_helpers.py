@@ -6,12 +6,11 @@ Provides utilities for:
 - Dependency management
 - Input example creation
 """
-from typing import Optional, Dict, Any, Union
+from typing import Any, Dict, Optional
 import numpy as np
 import torch
-import mlflow
 from mlflow.models import infer_signature, ModelSignature
-from mlflow.types import Schema, ColSpec, TensorSpec
+from mlflow.types import Schema, TensorSpec
 
 
 def create_gnn_signature(
@@ -145,15 +144,6 @@ def get_model_dependencies() -> Dict[str, Any]:
         
         return {"pip_requirements": ml_packages}
     except FileNotFoundError:
-        # Fall back to minimal requirements if file not found
-        return {
-            "pip_requirements": [
-                "torch>=2.9.0",
-                "torch-geometric>=2.7.0",
-                "xgboost>=3.1.0",
-                "numpy>=2.0.0",
-                "pandas>=2.3.0",
-                "polars>=1.35.0",
-            ]
-        }
-
+       raise FileNotFoundError("requirements.txt not found")
+    except Exception as e:
+        raise Exception(f"Failed to get model dependencies: {e}")

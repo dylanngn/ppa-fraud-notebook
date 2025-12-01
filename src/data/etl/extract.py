@@ -2,9 +2,7 @@
 Data extraction module.
 Handles fetching data from the database in chunks.
 """
-import os
 import polars as pl
-from datetime import datetime
 from typing import Optional
 import logging
 
@@ -25,7 +23,6 @@ def build_chunk_query(schema: str, start_date: str, end_date: str) -> str:
     return f"""
     SELECT 
         i.object_reference,
-        i.user_id,
         i.user_ip_address,
         i.listing::text as listing_json,
         i.fraud_flag,
@@ -47,7 +44,7 @@ def build_chunk_query(schema: str, start_date: str, end_date: str) -> str:
         WHERE status_from = 'DRAFT' AND status_to = 'PENDING_APPROVAL'
         GROUP BY insertion_id
     ) sh ON i.id = sh.insertion_id
-    LEFT JOIN {schema}.users u ON i.user_id = u.id
+    LEFT JOIN {schema}.users u ON i.listing->'legacy'->>'personId' = u.owner_id
     WHERE sh.transition_timestamp >= '{start_date}' 
     AND sh.transition_timestamp < '{end_date}'
     AND i.platform <> 're.smg'

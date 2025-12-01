@@ -9,7 +9,14 @@ from src.features import generators
 
 @FeatureRegistry.register("graph")
 def compute_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """Compute basic graph features."""
+    """
+    Compute basic graph features.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
+    """
     graph_df = generators.graph_features.generate_graph_features(
         output_path=None,
         cutoff_date=cutoff_date
@@ -27,7 +34,14 @@ def compute_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any 
 
 @FeatureRegistry.register("advanced_graph")
 def compute_advanced_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """Compute advanced graph features."""
+    """
+    Compute advanced graph features.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
+    """
     advanced_df = generators.advanced_graph_features.generate_advanced_features(
         output_path=None,
         cutoff_date=cutoff_date
@@ -39,7 +53,14 @@ def compute_advanced_graph_features(df: pl.DataFrame, cutoff_date: datetime, con
 
 @FeatureRegistry.register("time_weighted")
 def compute_time_weighted_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """Compute time-weighted features."""
+    """
+    Compute time-weighted features.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
+    """
     time_df = generators.time_weighted_features.generate_time_weighted_features(
         output_path=None,
         cutoff_date=cutoff_date
@@ -58,6 +79,11 @@ def compute_interaction_features(df: pl.DataFrame, cutoff_date: datetime, config
     XGBoost learns these automatically). They are kept for explainability/rules.
     
     Requires: graph and advanced_graph categories must be computed first.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -85,7 +111,6 @@ def compute_interaction_features(df: pl.DataFrame, cutoff_date: datetime, config
     
     interaction_df = gen_module.interaction_features.generate_interaction_features(
         output_path=None,
-        cutoff_date=cutoff_date,
         graph_features_df=graph_features_df,
         advanced_features_df=advanced_features_df
     )

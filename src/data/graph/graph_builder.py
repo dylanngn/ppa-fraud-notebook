@@ -31,8 +31,6 @@ from datetime import datetime
 from typing import Optional
 from sentence_transformers import SentenceTransformer
 
-# Coverage thresholds for feature inclusion
-MIN_FEATURE_COVERAGE = 0.5  # Require at least 50% non-null values
 
 def load_node_mapping(df, id_col, node_type):
     """
@@ -214,7 +212,6 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     lang_matrix = np.concatenate(lang_feats, axis=1)
 
     # Numerical + Boolean Features
-    # Note: Boolean features are cast to Int8 (0/1) and treated as numerical
     num_feats = df_listing.select([
         # Core numerical
         "price_rent_gross", "price_buy", "living_space", "rooms",
@@ -440,7 +437,7 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     add_edge("edges_listing_contact_email.parquet", "source", "target", "listing", "email", "has_contact_email", time_source_col="source", edge_type="listing_to_target")
     add_edge("edges_listing_billing_email.parquet", "source", "target", "listing", "email", "has_billing_email", time_source_col="source", edge_type="listing_to_target")
     
-    # 5. Listing -> Has -> Phone (UNIFIED - Phase 2 simplification)
+    # 5. Listing -> Has -> Phone
     # Single phone edge using coalesced billing+lister phone for ~99% coverage
     src_map, dst_map = maps["listing"], maps["phone"]
     add_edge("edges_listing_phone.parquet", "source", "target", "listing", "phone", "has_phone", time_source_col="source", edge_type="listing_to_target")

@@ -10,7 +10,6 @@ import hydra
 import mlflow
 import optuna
 import polars as pl
-import xgboost as xgb
 from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)

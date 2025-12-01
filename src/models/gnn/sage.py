@@ -7,7 +7,6 @@ Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations
 import logging
 import os
 from datetime import datetime
-from typing import Optional
 
 import hydra
 import mlflow
@@ -17,7 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
-from torch_geometric.nn import SAGEConv, Linear, to_hetero
+from torch_geometric.nn import Linear, SAGEConv, to_hetero
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,8 @@ from src.models.utils.mlflow_helpers import (
     get_model_dependencies
 )
 from src.utils.metrics import calculate_metrics
-from src.data.graph.schema import get_metadata, GRAPH_METADATA
+from src.data.graph.schema import get_metadata
+from src.data.graph.graph_builder import build_graph
 from src.data.loader import load_data
 
 
@@ -116,7 +116,6 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     # Build or load graph
     if not os.path.exists("artifacts/graph.pt"):
         logger.info("Graph not found. Building full graph...")
-        from src.data.graph.graph_builder import build_graph
         data = build_graph(cutoff_date=None)  # Build full graph for initial training
     else:
         data = torch.load("artifacts/graph.pt", weights_only=False)
@@ -131,10 +130,7 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     if len(valid_timestamps) == 0:
         valid_timestamps = timestamps
         
-    min_time = valid_timestamps.min()
-    max_time = valid_timestamps.max()
     split_time = np.percentile(valid_timestamps, split_percent * 100)
-    split_date = datetime.fromtimestamp(split_time / 1e9)
 
     # Create training subgraph
     train_data = filter_graph_by_time(data, split_time)

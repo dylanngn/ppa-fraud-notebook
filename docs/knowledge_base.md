@@ -177,6 +177,13 @@ Features are organized into explicit groups for ablation experiments. See `src/m
 
 ## 6. Graph Structure
 
+### Entity Identification (Source of Truth)
+
+| Entity | Raw Column | Graph Alias | Join Logic |
+|--------|------------|-------------|------------|
+| **Listing** | `i.object_reference` | `insertion_id` | Primary key |
+| **User** | `u.owner_id` | `user_id` | Joined via `i.listing->'legacy'->>'personId' = u.owner_id` |
+
 ### Node Types (6)
 
 | Node Type | ID Field | Count | Features |
@@ -289,11 +296,17 @@ include_groups:
 
 ### Core Identifiers (100% coverage)
 
-- `object_reference` - Listing business ID
-- `owner_id` - User ID
+- `object_reference` - Listing business ID → aliased to `insertion_id` in graph artifacts
+- `owner_id` - User ID → aliased to `user_id` in graph artifacts
 - `submission_at` - Submission timestamp
 - `account_created_at` - Account creation timestamp
 - `listing_platform` / `user_platform` - Platform brand
+
+> ⚠️ **User-Listing Relationship**: The true connection between listings and users is:
+> ```sql
+> i.listing->'legacy'->>'personId' = u.owner_id
+> ```
+> This joins on the `personId` inside the listing JSON to the user's `owner_id`, NOT on `insertions.user_id`.
 
 ### High Coverage Fields (>90%)
 

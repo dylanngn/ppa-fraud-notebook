@@ -19,7 +19,6 @@ from src.features.utils import (
 
 EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parquet"
 EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
-OUTPUT_PATH = ARTIFACTS_DIR / "listing_advanced_features.parquet"
 
 
 def _calculate_isolation_scores(listing_ids: List[int], 

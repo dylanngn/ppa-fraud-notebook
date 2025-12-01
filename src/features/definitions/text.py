@@ -11,6 +11,11 @@ from src.models.config.constants import TEXT_FEATURE_COLUMNS
 def compute_text_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
     """
     Compute text features from listing descriptions.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
     """
     if "description_text" not in df.columns:
         # Return empty features if column missing
@@ -70,9 +75,6 @@ def compute_text_features(df: pl.DataFrame, cutoff_date: datetime, config: Any =
     text_features = text_features.select(["insertion_id"] + text_cols)
     
     # Join back to original dataframe
-    # Note: The registry contract expects returning the full dataframe with new features
-    # But here we computed a subset. We should join it.
-    
     # Fill nulls with 0
     numerical_cols = [col for col in text_features.columns if col != "insertion_id"]
     text_features = text_features.with_columns([

@@ -1,10 +1,6 @@
 """
 Seon Baseline Evaluation Module
 
-SIMPLIFIED VERSION (2025-11-30):
-Seon is a static baseline - run evaluation ONCE and store results.
-No need to re-run for every model comparison.
-
 Usage:
     # Generate static baseline (run once after ETL)
     python -m src.utils.evaluate_seon
@@ -18,7 +14,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import numpy as np
 import polars as pl

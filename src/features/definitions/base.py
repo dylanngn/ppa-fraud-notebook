@@ -10,6 +10,11 @@ from src.features.registry import FeatureRegistry
 def compute_base_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
     """
     Add base tabular features that don't depend on graph structure.
+    
+    Args:
+        df: Input DataFrame with raw listing data
+        cutoff_date: Temporal cutoff for feature computation
+        config: Reserved for future per-category configuration (currently unused)
     """
     # 1. Account Age
     if "submission_at" in df.columns and "account_created_at" in df.columns:

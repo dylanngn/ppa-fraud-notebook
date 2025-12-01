@@ -36,7 +36,6 @@ from src.features.utils import (
 
 EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parquet"
 EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
-OUTPUT_PATH = ARTIFACTS_DIR / "listing_time_weighted_features.parquet"
 
 # Chunk size for processing
 CHUNK_SIZE = 10000

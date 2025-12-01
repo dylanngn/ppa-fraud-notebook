@@ -7,7 +7,6 @@ Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations
 import logging
 import os
 from datetime import datetime
-from typing import Optional
 
 import hydra
 import mlflow
@@ -16,7 +15,6 @@ import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mlflow.models import infer_signature
 from omegaconf import DictConfig, OmegaConf
 from torch_geometric.nn import HGTConv, Linear
 
@@ -32,6 +30,7 @@ from src.models.utils.mlflow_helpers import (
 )
 from src.utils.metrics import calculate_metrics
 from src.data.graph.schema import get_metadata, GRAPH_METADATA
+from src.data.graph.graph_builder import build_graph
 from src.data.loader import load_data
 
 
@@ -172,7 +171,6 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
     # Build or load graph
     if not os.path.exists("artifacts/graph.pt"):
         logger.info("Graph not found. Building full graph...")
-        from src.data.graph.graph_builder import build_graph
         data = build_graph(cutoff_date=None)  # Build full graph for initial training
     else:
         data = torch.load("artifacts/graph.pt", weights_only=False)
@@ -187,10 +185,7 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
     if len(valid_timestamps) == 0:
         valid_timestamps = timestamps
         
-    min_time = valid_timestamps.min()
-    max_time = valid_timestamps.max()
     split_time = np.percentile(valid_timestamps, split_percent * 100)
-    split_date = datetime.fromtimestamp(split_time / 1e9)
 
     # Create training subgraph
     train_data, train_edge_times = filter_graph_by_time(data, split_time, return_edge_times=True)
@@ -469,9 +464,6 @@ def create_hgt_embedding_generator():
             row["insertion_id"]: idx 
             for idx, row in enumerate(df_listing_filtered.iter_rows(named=True))
         }
-        
-        # Convert train_end to nanoseconds timestamp for edge time filtering
-        train_end_ns = int(train_end.timestamp() * 1e9)
         
         # Prepare edge times for temporal encoding
         filtered_edge_times = {}

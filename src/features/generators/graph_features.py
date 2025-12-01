@@ -21,7 +21,6 @@ EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parque
 EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
 EDGE_USER_POSTS_LISTING = ARTIFACTS_DIR / "edges_user_posts_listing.parquet"
 EDGE_USER_IP = ARTIFACTS_DIR / "edges_user_uses_ip.parquet"
-OUTPUT_PATH = ARTIFACTS_DIR / "listing_graph_features.parquet"
 
 
 def _clip_zero(expr: pl.Expr) -> pl.Expr:
@@ -154,8 +153,10 @@ class DisjointSet:
 
 def _component_sizes(listing_ids: List[int],
                      email_edges: Optional[pl.DataFrame],
-                     phone_edges: Optional[pl.DataFrame],
-                     cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
+                     phone_edges: Optional[pl.DataFrame]) -> Optional[pl.DataFrame]:
+    """
+    Compute connected component sizes for listings.
+    """
     if not listing_ids:
         return None
 
@@ -189,8 +190,10 @@ def _component_sizes(listing_ids: List[int],
 
 def _pagerank_feature(listing_ids: List[int],
                       email_edges: Optional[pl.DataFrame],
-                      phone_edges: Optional[pl.DataFrame],
-                      cutoff_date: Optional[datetime] = None) -> Optional[pl.DataFrame]:
+                      phone_edges: Optional[pl.DataFrame]) -> Optional[pl.DataFrame]:
+    """
+    Compute PageRank scores for listings in the bipartite graph.
+    """
     try:
         import networkx as nx
     except ImportError:
@@ -291,11 +294,11 @@ def generate_graph_features(
     if user_features is not None:
         feature_frames.append(user_features)
 
-    component_sizes = _component_sizes(listing_ids, contact_email_edges, contact_phone_edges, cutoff_date=cutoff_date)
+    component_sizes = _component_sizes(listing_ids, contact_email_edges, contact_phone_edges)
     if component_sizes is not None:
         feature_frames.append(component_sizes)
 
-    pagerank_feature = _pagerank_feature(listing_ids, contact_email_edges, contact_phone_edges, cutoff_date=cutoff_date)
+    pagerank_feature = _pagerank_feature(listing_ids, contact_email_edges, contact_phone_edges)
     if pagerank_feature is not None:
         feature_frames.append(pagerank_feature)
 

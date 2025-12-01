@@ -301,8 +301,6 @@ def anonymize_address(
         - zip_hash: Hash of postal code
         - city_hash: Hash of city
         - street_hash: Hash of street
-    
-    Note: This preserves the existing address_id format while adding component-level hashing.
     """
     salt = get_salt("address")
     

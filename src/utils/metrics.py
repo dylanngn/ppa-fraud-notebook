@@ -5,7 +5,7 @@ All evaluation metrics should be computed through this module to ensure consiste
 """
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
-from typing import Dict, Optional
+from typing import Dict
 
 
 def calculate_metrics(
