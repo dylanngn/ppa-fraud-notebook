@@ -435,23 +435,27 @@ See `docs/mlops_review.md` for detailed implementation guidance.
 
 ## Execution Flow
 
+All commands use Hydra for configuration. Run from project root.
+
 ```bash
 # 1. Data Pipeline (one-time setup)
-make etl                 # Extract from DB → artifacts/raw_insertions.parquet
-make build-graph         # Create graph → artifacts/nodes_*.parquet, edges_*.parquet
-make seon-baseline       # Compute Seon metrics → artifacts/seon_baseline.json
+python -m src.data.pipeline                    # Extract from DB → artifacts/raw_insertions.parquet
+python -m src.data.graph.create_artifacts      # Create graph → artifacts/nodes_*.parquet, edges_*.parquet
+python -m src.utils.evaluate_seon              # Compute Seon metrics → artifacts/seon_baseline.json
 
 # 2. Model Training
-make train              # XGBoost with production features
-make train-quick        # XGBoost with core features (fast)
-make train-sage         # GNN hybrid (SAGE)
-make train-hgt          # GNN hybrid (HGT)
+python -m src.models.train features=production # XGBoost with production features
+python -m src.models.train features=quick      # XGBoost with core features (fast)
+python -m src.models.gnn.sage                  # GNN hybrid (SAGE)
+python -m src.models.gnn.hgt                   # GNN hybrid (HGT)
 
 # 3. Hyperparameter Optimization
-make optimize-xgboost   # Optuna search for XGBoost
+python -m src.models.hyperopt.xgboost          # Optuna search for XGBoost
 
 # 4. Model Comparison
-make mlflow-compare-models MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
+python -m src.utils.mlflow_model_comparison compare \
+  --model-name fraud-detection-xgboost \
+  --candidate-run-id <RUN_ID>
 ```
 
 ---

@@ -13,10 +13,13 @@ import logging
 from omegaconf import DictConfig
 from src.features.registry import FeatureRegistry
 from src.models.config.constants import FEATURE_GROUPS
-# Import definitions to register them
-import src.features.definitions.base
-import src.features.definitions.graph
-import src.features.definitions.text
+
+# Side-effect imports: these register feature generators via @FeatureRegistry.register()
+# The modules use decorators that run at import time to populate the registry.
+# Without these imports, FeatureRegistry.list_categories() would return empty.
+import src.features.definitions.base  # noqa: F401 - registers "base" category
+import src.features.definitions.graph  # noqa: F401 - registers "graph", "advanced_graph", "time_weighted"
+import src.features.definitions.text  # noqa: F401 - registers "text" category
 
 logger = logging.getLogger(__name__)
 

@@ -15,4 +15,5 @@ outputs
 mlruns
 artifacts
 **.db
+**.log
 

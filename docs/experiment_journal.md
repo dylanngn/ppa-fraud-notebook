@@ -2,17 +2,23 @@
 
 ## Research Overview
 
-**Topic**: Graph-Based Feature Engineering for Real Estate Fraud Detection: A Data Mining Approach
+**Topic**: Fraud Detection in Online Real Estate Marketplaces Using a Hybrid Graph and Gradient Boosting Model
 
-**Research Questions**:
-1. How can graph-derived features improve fraud detection in sparse, heterophilic networks?
-2. Is it more efficient to use handcrafted graph features or GNN-produced embeddings alongside tabular features for XGBoost-based fraud detection?
-3. What is the optimal balance between model complexity, training time, and predictive performance?
+**Research Questions** (aligned with thesis proposal):
 
-**Core Framework**: Continuous Fraud Detection with XGBoost
+1. **RQ1**: What novel relational indicators of fraud can be identified in a real-estate marketplace dataset using graph-based analysis?
+2. **RQ2**: How can a hybrid GNN + XGBoost architecture be designed to effectively model these indicators for automated fraud detection?
+3. **RQ3**: To what extent does periodic retraining maintain the model's predictive performance against concept drift over sequential time windows?
+4. **RQ4**: How can Explainable AI (SHAP) translate the model's predictions into actionable, human-understandable insights for fraud analysts?
+
+**Practical Consideration** (complements RQ2):
+- What is the optimal balance between model complexity, training time, and predictive performance for production deployment?
+
+**Core Framework**: Hybrid GNN-XGBoost with Accumulating Window Training
 - XGBoost serves as the final decision-maker
 - Features can come from: (a) tabular data, (b) handcrafted graph statistics, or (c) GNN embeddings
-- All experiments use accumulating (expanding) window training for production realism
+- Accumulating window training serves as passive concept drift adaptation
+- SHAP provides both global feature importance and local prediction explanations
 
 ---
 
@@ -33,24 +39,27 @@ seed: 42
 
 ### Execution Commands
 
+All commands use Hydra for configuration. Run from project root.
+
 ```bash
 # Data Pipeline (run once)
-make etl                    # Extract, transform, load data
-make build-graph            # Build PyTorch Geometric graph
-make seon-baseline          # Generate static Seon baseline (one-time)
+python -m src.data.pipeline                    # Extract, transform, load data
+python -m src.data.graph.create_artifacts      # Create graph artifacts (nodes/edges parquet)
+python -m src.utils.evaluate_seon              # Generate static Seon baseline (one-time)
 
 # Model Training (all use accumulating windows + MLflow tracking)
-make train                  # XGBoost with production features (primary model)
-make train-quick            # XGBoost with core features only (fast iteration)
-make train-sage             # SAGE GNN hybrid (alternative)
-make train-hgt              # HGT GNN hybrid (alternative)
+python -m src.models.train features=production # XGBoost with production features
+python -m src.models.train features=quick      # XGBoost with core features (fast iteration)
+python -m src.models.gnn.sage                  # SAGE GNN hybrid (builds graph.pt if needed)
+python -m src.models.gnn.hgt                   # HGT GNN hybrid (builds graph.pt if needed)
 
-# Hyperparameter Optimization
-make optimize-xgboost       # Optimize XGBoost params
-make optimize-pytorch MODEL_TYPE=sage  # Optimize GNN params
+# Hyperparameter Optimization (Optuna-based)
+python -m src.models.hyperopt.xgboost                    # Optimize XGBoost params
+python -m src.models.hyperopt.pytorch gnn.model_type=sage # Optimize SAGE GNN params
+python -m src.models.hyperopt.pytorch gnn.model_type=hgt  # Optimize HGT GNN params
 
 # Analysis
-make data-quality-report    # Generate coverage analysis
+python -m src.utils.data_quality_report        # Generate coverage analysis
 ```
 
 ### MLflow Tracking
@@ -61,11 +70,19 @@ All experiments are automatically tracked in MLflow:
 - Artifacts: Models, embeddings, feature importance
 
 ```bash
-# Compare models (XGBoost registered as fraud-detection-xgboost)
-make mlflow-compare-models MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
+# Compare candidate model vs production
+python -m src.utils.mlflow_model_comparison compare \
+  --model-name fraud-detection-xgboost \
+  --candidate-run-id <RUN_ID>
 
 # Get deployment recommendation
-make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
+python -m src.utils.mlflow_model_comparison recommend \
+  --model-name fraud-detection-xgboost \
+  --candidate-run-id <RUN_ID>
+
+# Analyze model drift
+python -m src.utils.mlflow_model_comparison drift \
+  --model-name fraud-detection-xgboost
 ```
 
 ---
@@ -80,8 +97,9 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 Based on data quality analysis (`data_quality_reports/`), we implemented:
 
-2. **Graph Simplification**: Merged phone edges from 2 → 1 (unified billing+lister phone)
-3. **Feature Groups**: Organized features into explicit groups for ablation (see `constants.py`)
+1. **Graph Simplification**: Merged phone edges from 2 → 1 (unified billing+lister phone)
+2. **Feature Groups**: Organized features into explicit groups for ablation (see `constants.py`)
+3. **Boolean Semantics**: Discovered NULL = FALSE semantics for boolean fields (100% semantic coverage)
 
 ### Changes Implemented
 
@@ -96,20 +114,23 @@ Based on data quality analysis (`data_quality_reports/`), we implemented:
 ### Validation Steps
 
 ```bash
-# Step 1: Rebuild graph with simplified structure
-make build-graph
+# Step 1: Rebuild graph artifacts (parquet files only)
+python -m src.data.graph.create_artifacts
 
-# Step 2: Verify graph statistics
+# Step 2: Verify parquet artifacts exist
+ls -la artifacts/nodes_*.parquet artifacts/edges_*.parquet
+
+# Step 3: Build PyG graph and verify structure
 python -c "
-import torch
-data = torch.load('artifacts/graph.pt')
+from src.data.graph.graph_builder import build_graph
+data = build_graph()  # Creates artifacts/graph.pt
 print('Edge types:', data.edge_types)
 print('Phone edges:', data['listing', 'has_phone', 'phone'].edge_index.shape)
 "
 
-# Step 3: Train with different feature profiles
-python -m src.models.train features=quick      # Uses include_groups: core_numerical, boolean_high
-python -m src.models.train features=production # Uses all feature groups
+# Step 4: Train with different feature profiles
+python -m src.models.train features=quick      # core_numerical + boolean_high
+python -m src.models.train features=production # All feature groups
 ```
 
 ### Expected Results
@@ -132,202 +153,143 @@ Based on validation results:
 
 ---
 
-## Experiment 0b: Boolean Feature Group Ablation ⭐ HIGH PRIORITY
+## Experiment 1: Feature Ablation Study (RQ1)
 
 **Date**: TBD  
-**Objective**: Test the value of boolean indicator features that were previously excluded  
-**Status**: 🔄 PLANNED (Priority: HIGH)
+**Objective**: Identify which feature groups contribute to fraud detection performance  
+**Status**: 🔄 PLANNED  
+**Answers**: RQ1 (novel relational indicators)
 
-### Background
+### Hypothesis
 
-Based on data quality analysis (2025-12-01), we discovered that boolean indicator fields use **NULL = FALSE** semantics, meaning they have 100% semantic coverage. This led to:
+Graph-derived features provide significant improvement over tabular-only baselines, demonstrating the value of relational indicators for fraud detection.
 
-1. **`has_elevator` was incorrectly excluded** - it has 40.9% TRUE rate, not "60% missing"
-2. **Low TRUE rate booleans may be discriminative** - if fraudsters over/under-claim amenities
-3. **New feature groups created** for systematic testing
+### Feature Tiers
 
-### Research Questions
-
-1. Does including `has_elevator` improve model performance?
-2. Do low TRUE rate booleans (<20%) add discriminative power?
-3. Are there boolean features that hurt performance (should be excluded)?
-
-### Feature Groups to Test
-
-| Group | Features | TRUE Rate Range |
-|-------|----------|-----------------|
-| `boolean_high` | 7 features | >40% |
-| `boolean_moderate` | 3 features | 20-40% |
-| `boolean_low` | 2 features | <20% |
-| **Not in model yet** | `hasCableTv`, `hasFireplace`, `isMinergieGeneral`, etc. | 5-15% |
+| Tier | Features | Coverage | Description |
+|------|----------|----------|-------------|
+| **Tier 1a** | `account_age_days`, `payment_type`, `bundle_tier`, `log_price`, `latitude/longitude`, `offer_type`, `living_space`, `rooms` | >80% | Core numerical features |
+| **Tier 1b** | `has_balcony`, `has_parking`, `has_elevator`, etc. | 100% (semantic) | Boolean indicators (NULL = FALSE) |
+| **Tier 2** | `shared_contact_email_count`, `listing_component_size`, `listing_pagerank`, etc. | Computed | **Handcrafted graph statistics** |
+| **Tier 3** | `email_time_spread`, `email_recency_weighted`, text features | Computed | Time-weighted & text features |
 
 ### Methodology
 
 ```bash
-# Baseline: No boolean features
-python -m src.models.train \
-  features.include_groups='[core_numerical, graph_all]'
+# Tier 1 only (no graph features) - Baseline
+python -m src.models.train features=quick
 
-# Test 1: Add high TRUE rate booleans only
-python -m src.models.train \
-  features.include_groups='[core_numerical, boolean_high, graph_all]'
+# Tier 1 + Tier 2 (add graph features)
+python -m src.models.train features=standard
 
-# Test 2: Add all current booleans
-python -m src.models.train \
-  features.include_groups='[core_numerical, boolean_all, graph_all]'
+# Full production (all tiers)
+python -m src.models.train features=production
 
-# Test 3: Add low TRUE rate booleans only (test discrimination)
-python -m src.models.train \
-  features.include_groups='[core_numerical, boolean_low, graph_all]'
+# Boolean ablation (optional sub-experiment)
+python -m src.models.train features=ablation +features.experiment=no_booleans
+python -m src.models.train features=ablation +features.experiment=tier1_with_boolean_all
 ```
 
 ### Expected Results
 
-| Experiment | Expected AUC-PR | Notes |
-|------------|-----------------|-------|
-| No booleans | ~0.65 | Baseline |
-| + boolean_high | ~0.66 | Common features, moderate lift |
-| + boolean_all | ~0.67 | Current standard |
-| + boolean_low only | ~0.65-0.66 | Testing rare feature value |
+| Configuration | Expected AUC-PR | Delta | Key Insight |
+|---------------|-----------------|-------|-------------|
+| Tier 1 only (tabular) | ~0.59 | - | Baseline without graph |
+| + Boolean features | ~0.61 | +2% | Boolean indicators add moderate value |
+| + Graph features (Tier 2) | ~0.67 | +6% | **Graph features are critical** |
+| + Time/Text (Tier 3) | ~0.70 | +3% | Enhanced features provide lift |
 
-### Decision Branching
+### Analysis for RQ1
 
-- **If boolean_low adds > 0.5% AUC-PR**: Expand to include more low TRUE rate features (5-15%)
-- **If boolean_low hurts performance**: Keep only high+moderate groups
-- **If no difference**: Investigate specific features for fraud signal
-
-### Additional Experiments: Not-Yet-Included Booleans
-
-These boolean features are valid (100% semantic coverage) but not yet in the model:
-
-| Feature | TRUE % | Hypothesis |
-|---------|--------|------------|
-| `hasCableTv` | 14.76% | May indicate rental focus |
-| `hasFireplace` | 10.71% | Luxury indicator |
-| `isMinergieGeneral` | 9.20% | Energy certification |
-| `isMinergieCertified` | 6.81% | Verified certification |
-| `isSmokingAllowed` | 4.88% | Rare permission |
-| `hasSwimmingPool` | 4.75% | Luxury, may be over-claimed by fraud |
-
-**Experiment**: Add these as a new group `boolean_rare` and test if they improve fraud detection.
-
----
-
-## Experiment 1: Baseline Feature Analysis
-
-**Date**: TBD  
-**Objective**: Establish baseline performance with tabular-only features  
-**Status**: 🔄 PLANNED
-
-### Hypothesis
-Base tabular features alone can achieve reasonable fraud detection, but graph-derived features will provide significant improvement.
-
-### Methodology
-
-```bash
-# Train with different feature profiles
-python -m src.models.train features=quick      # Tier 1 only
-python -m src.models.train features=standard   # Tier 1 + Tier 2
-python -m src.models.train features=production # All tiers
-```
-
-### Feature Tiers (from data quality analysis)
-
-| Tier | Features | Coverage | Description |
-|------|----------|----------|-------------|
-| **Tier 1** | `account_age_days`, `payment_type`, `bundle_tier`, `log_price`, `latitude/longitude`, `offer_type`, `living_space`, `rooms` | >80% | Core tabular features |
-| **Tier 2** | `shared_contact_email_count`, `listing_component_size`, `listing_pagerank`, etc. | Computed | Handcrafted graph statistics |
-| **Tier 3** | `email_time_spread`, `email_recency_weighted`, text features | Computed | Time-weighted & text features |
-
-### Expected Metrics
-
-| Configuration | Expected AUC-PR | Training Time |
-|---------------|-----------------|---------------|
-| Tier 1 only | ~0.59 | ~10 min |
-| Tier 1 + Tier 2 | ~0.67 | ~15 min |
-| Full (all tiers) | ~0.70 | ~20 min |
+Document which **graph-derived features** have highest SHAP importance:
+- `shared_contact_email_count` → Fraud ring detection
+- `listing_component_size` → Network connectivity
+- `user_listing_count` → User behavior patterns
 
 ### Results
 *To be filled after experiment*
 
 ### Decision Branching
 
-Based on Experiment 1 results:
-
-- **If Tier 2 adds < 5% AUC-PR**: Investigate graph feature computation, may need tuning
-- **If Tier 2 adds > 10% AUC-PR**: Graph features confirmed valuable, prioritize graph quality
-- **If Tier 3 adds < 1% AUC-PR**: Consider removing time-weighted features for simplicity
+- **If Tier 2 adds < 5% AUC-PR**: Investigate graph feature computation
+- **If Tier 2 adds > 8% AUC-PR**: Graph features confirmed as primary contribution
+- **If Tier 3 adds < 1% AUC-PR**: Consider removing for simplicity
 
 ---
 
-## Experiment 2: Model Comparison - Handcrafted vs GNN Features
+## Experiment 2: Hybrid Architecture Comparison (RQ2)
 
 **Date**: TBD  
-**Objective**: Compare efficiency of handcrafted graph features vs GNN embeddings  
-**Status**: 🔄 PLANNED
+**Objective**: Compare hybrid GNN-XGBoost architecture against alternatives  
+**Status**: 🔄 PLANNED  
+**Answers**: RQ2 (hybrid architecture design)
 
 ### Research Question
-Is it more efficient (in terms of time, complexity, performance, scalability) to:
-- **Option A**: Compute handcrafted graph statistics (degree, PageRank, component size) and feed to XGBoost
-- **Option B**: Train GNN to produce embeddings, then feed embeddings + tabular features to XGBoost
+
+How does a hybrid GNN + XGBoost architecture compare to:
+- XGBoost with handcrafted graph features (no GNN)
+- Pure GNN approaches
+- Production baseline (Seon)
 
 ### Models to Compare
 
-| Model | Description | Features | Baseline |
-|-------|-------------|----------|----------|
-| **Seon** | Production system (binary classifier) | Rule-based | ✅ Production Baseline |
-| **XGBoost** | Our primary model with handcrafted features | Tabular + Graph Statistics | Candidate |
-| **SAGE Hybrid** | GraphSAGE embeddings + XGBoost | Tabular + 64-dim embeddings | Candidate |
-| **HGT Hybrid** | Heterogeneous Graph Transformer + XGBoost | Tabular + 64-dim embeddings | Candidate |
+| Model | Architecture | Features | Category |
+|-------|--------------|----------|----------|
+| **Seon** | Rule-based | Heuristics | Production Baseline |
+| **XGBoost (tabular)** | XGBoost | Tabular only | Ablation Baseline |
+| **XGBoost (+ graph)** | XGBoost | Tabular + Handcrafted Graph | Main Model |
+| **SAGE Hybrid** | SAGE → XGBoost | Tabular + 64-dim embeddings | GNN Hybrid |
+| **HGT Hybrid** | HGT → XGBoost | Tabular + 64-dim embeddings | GNN Hybrid |
 
 ### Methodology
 
 ```bash
-# Step 1: Train XGBoost with handcrafted features
-make train  # or: python -m src.models.train features=production
+# Baseline: XGBoost with tabular only
+python -m src.models.train features=quick
 
-# Step 2: Train SAGE hybrid
-make train-sage
+# Main model: XGBoost with handcrafted graph features
+python -m src.models.train features=production
 
-# Step 3: Train HGT hybrid  
-make train-hgt
+# GNN Hybrid: SAGE embeddings + XGBoost
+python -m src.models.gnn.sage
+
+# GNN Hybrid: HGT embeddings + XGBoost
+python -m src.models.gnn.hgt
 ```
 
 ### Evaluation Criteria
 
 | Criterion | Metric | Target |
 |-----------|--------|--------|
-| **Performance** | AUC-PR, P@100 | Higher is better |
+| **Performance** | AUC-PR, P@100, F1 | Higher is better |
 | **Training Time** | Wall-clock minutes | Lower is better |
-| **Complexity** | Lines of code, dependencies | Lower is better |
-| **Scalability** | Memory usage, batch support | Lower memory, batch support |
+| **Complexity** | GPU required, dependencies | Lower is better |
 | **Interpretability** | SHAP compatibility | Full is better |
 
 ### Expected Results
 
-| Model | AUC-PR | P@100 | Training Time | GPU Required |
-|-------|--------|-------|---------------|--------------|
-| Seon (Prod Baseline) | ~0.50 | ~0.60 | N/A | No |
-| XGBoost | ~0.70 | ~0.77 | ~15 min | No |
-| SAGE Hybrid | ~0.64 | ~0.75 | ~2-3 hrs | Yes |
-| HGT Hybrid | ~0.64 | ~0.75 | ~2-3 hrs | Yes |
+| Model | AUC-PR | P@100 | Training Time | GPU |
+|-------|--------|-------|---------------|-----|
+| Seon (Prod) | ~0.50 | ~0.60 | N/A | No |
+| XGBoost (tabular) | ~0.59 | ~0.65 | ~10 min | No |
+| XGBoost (+ graph) | ~0.70 | ~0.77 | ~15 min | No |
+| SAGE Hybrid | ~0.68 | ~0.75 | ~2-3 hrs | Yes |
+| HGT Hybrid | ~0.68 | ~0.75 | ~2-3 hrs | Yes |
 
-### Analysis Framework
+### Analysis for RQ2
 
-1. **Performance Gap**: If |AUC-PR_xgboost - AUC-PR_gnn| < 0.02, XGBoost wins on simplicity
-2. **Cost-Benefit**: Training time × (cloud GPU cost) vs performance improvement
-3. **Production Viability**: Batch inference support, model serving complexity
+1. **Performance Gap**: If handcrafted ≈ GNN embeddings, handcrafted wins on simplicity
+2. **Efficiency**: Training time × GPU cost vs performance improvement
+3. **Interpretability**: Handcrafted features are directly interpretable via SHAP
 
 ### Results
 *To be filled after experiment*
 
 ### Decision Branching
 
-Based on Experiment 2 results:
-
-- **If GNN outperforms by > 5%**: Invest in GNN optimization, consider hybrid production
-- **If GNN underperforms or matches**: Use handcrafted features, document GNN limitations
-- **If training time > 4 hrs**: Consider GNN architecture simplification or sampling
+- **If GNN outperforms by > 3%**: Consider GNN for production
+- **If GNN matches or underperforms**: Use handcrafted features, document GNN limitations
+- **If training time > 4 hrs**: GNN not viable for frequent retraining
 
 ---
 
@@ -341,7 +303,10 @@ Based on Experiment 2 results:
 
 ```bash
 # Run hyperparameter optimization (Optuna-based)
-make optimize-xgboost
+python -m src.models.hyperopt.xgboost
+
+# Optional: Configure optimization parameters
+python -m src.models.hyperopt.xgboost hyperopt.n_trials=50 hyperopt.n_windows=5
 ```
 
 ### Search Space
@@ -376,99 +341,144 @@ objective = 0.7 * auc_pr + 0.3 * precision_at_100
 
 ---
 
-## Experiment 4: Temporal Window Analysis
+## Experiment 4: Concept Drift & Retraining Evaluation (RQ3)
 
 **Date**: TBD  
-**Objective**: Find optimal training window strategy  
-**Status**: 🔄 PLANNED
+**Objective**: Validate that periodic retraining mitigates concept drift  
+**Status**: 🔄 PLANNED  
+**Answers**: RQ3 (periodic retraining effectiveness)
 
 ### Research Question
-What is the optimal training window configuration for continuous fraud detection?
 
-### Window Strategies
-
-| Strategy | Description | Use Case |
-|----------|-------------|----------|
-| **Accumulating** | Train on [start, t], test on [t, t+14] | Production deployment |
-| **Sliding** | Train on [t-90, t], test on [t, t+14] | Memory-constrained |
-| **Fixed** | Train on [t-365, t], test on [t, t+14] | Long-term patterns |
+To what extent does accumulating window (periodic retraining) maintain model performance compared to a static model that degrades over time?
 
 ### Methodology
 
-```yaml
-# conf/model/xgboost.yaml - Modify training settings
-training:
-  initial_window_days: 180    # Try: 90, 180, 365
-  step_days: 7                # Try: 7, 14, 28
-  max_windows: null
+**Part A: Accumulating Window (WITH Retraining)**
+```
+Window 1: Train [Month 1-3] → Test [Month 4] → AUC-PR₁
+Window 2: Train [Month 1-4] → Test [Month 5] → AUC-PR₂  (model updated)
+Window 3: Train [Month 1-5] → Test [Month 6] → AUC-PR₃  (model updated)
+...
 ```
 
-### Expected Findings
-- **Accumulating window** expected to perform best for fraud detection
-- **Longer initial window** (180+ days) captures more fraud patterns
-- **Step size** of 7-14 days balances evaluation granularity and speed
+**Part B: Static Model (WITHOUT Retraining)**
+```
+Static: Train [Month 1-3] → Test [Month 4] → AUC-PR₁
+Static: Use Month 3 model → Test [Month 5] → AUC-PR₂  (same model, no update)
+Static: Use Month 3 model → Test [Month 6] → AUC-PR₃  (same model, no update)
+...
+```
+
+```bash
+# Part A: Normal accumulating window training
+python -m src.models.train features=production
+
+# Part B: Train once, evaluate on all future windows (manual analysis)
+# Use MLflow to compare window-by-window performance
+```
+
+### Expected Results
+
+| Window | Test Period | WITH Retraining | WITHOUT Retraining | Degradation |
+|--------|-------------|-----------------|-------------------|-------------|
+| 1 | Month 4 | 0.70 | 0.70 | 0% |
+| 2 | Month 5 | 0.69 | 0.67 | -3% |
+| 3 | Month 6 | 0.69 | 0.64 | -6% |
+| 4 | Month 7 | 0.68 | 0.60 | -10% |
+| 5 | Month 8 | 0.68 | 0.55 | -15% |
+
+### Analysis for RQ3
+
+1. **Degradation Rate**: Calculate % AUC-PR drop per month without retraining
+2. **Stability**: Show that periodic retraining maintains performance within ±2%
+3. **Recommendation**: Suggest optimal retraining frequency (weekly/monthly)
+
+### Metrics to Track
+
+| Metric | Description |
+|--------|-------------|
+| `auc_pr_with_retrain` | Performance per window with accumulating updates |
+| `auc_pr_static` | Performance per window using initial model |
+| `degradation_rate` | % drop per month without retraining |
+| `stability_variance` | Variance of AUC-PR across windows with retraining |
 
 ### Results
 *To be filled after experiment*
 
 ---
 
-## Experiment 5: Feature Importance & SHAP Analysis
+## Experiment 5: Explainability Analysis (RQ4)
 
 **Date**: TBD  
-**Objective**: Understand which features drive fraud predictions  
-**Status**: 🔄 PLANNED
+**Objective**: Generate actionable insights using SHAP  
+**Status**: 🔄 PLANNED  
+**Answers**: RQ4 (XAI for actionable insights)
 
 ### Methodology
 
 1. Train production model with full features
-2. Extract SHAP values from MLflow artifacts
-3. Analyze feature importance distribution
-4. Identify potential new features from error cases
+2. Generate SHAP explanations (global + local)
+3. Create case studies for analyst review
+4. Document actionable insights
 
-### Expected Top Features
+### Part A: Global Feature Importance
 
-Based on data quality analysis and fraud patterns:
+```python
+import shap
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
 
-| Rank | Feature | Hypothesis |
-|------|---------|------------|
-| 1 | `payment_type` | Fraudsters avoid direct payment (28% fraud rate for new+invoice) |
-| 2 | `account_age_days` | New accounts are higher risk |
-| 3 | `shared_contact_email_count` | Email reuse indicates fraud rings |
-| 4 | `listing_component_size` | Connected fraud networks |
-| 5 | `email_time_spread` | Temporal patterns in email reuse |
+# Global summary plot
+shap.summary_plot(shap_values, X_test, feature_names=feature_names)
+```
 
-### Analysis Outputs
-- SHAP summary plot
-- Feature interaction matrix
-- False negative analysis (missed fraud cases)
+### Part B: Local Case Studies (3-5 examples)
+
+For each flagged fraud case, generate:
+- Top 5 contributing features
+- Direction of contribution (increases/decreases fraud probability)
+- Analyst-friendly explanation
+
+| Case | Top Features | Explanation |
+|------|--------------|-------------|
+| Case 1 | `payment_type=INVOICE`, `account_age_days=2` | New account using invoice payment (high risk pattern) |
+| Case 2 | `shared_email_count=15`, `component_size=23` | Part of large fraud ring sharing contact info |
+| Case 3 | `listing_pagerank=0.001`, `user_listing_count=1` | Isolated listing with no network connections |
+
+### Expected Top Features (Hypothesis)
+
+| Rank | Feature | Hypothesis | Category |
+|------|---------|------------|----------|
+| 1 | `payment_type` | Fraudsters avoid direct payment | Tabular |
+| 2 | `account_age_days` | New accounts are higher risk | Tabular |
+| 3 | `shared_contact_email_count` | Email reuse indicates fraud rings | **Graph** |
+| 4 | `listing_component_size` | Connected fraud networks | **Graph** |
+| 5 | `email_time_spread` | Temporal patterns in email reuse | Time |
+
+### Analysis for RQ4
+
+1. **Feature Ranking**: Which features are most predictive?
+2. **Graph Feature Value**: Are graph features in top 10?
+3. **Actionable Insights**: What patterns should analysts look for?
+
+### Deliverables
+
+- [ ] SHAP summary plot (global importance)
+- [ ] SHAP dependence plots (top 5 features)
+- [ ] 3-5 local case study explanations
+- [ ] Written insights for analyst consumption
 
 ### Results
 *To be filled after experiment*
 
 ---
 
-## Experiment 6: Production Deployment Simulation
+## Experiment 6: Production Readiness Validation
 
 **Date**: TBD  
-**Objective**: Validate model performance in production-like conditions  
+**Objective**: Validate model meets production requirements  
 **Status**: 🔄 PLANNED
-
-### Methodology
-
-1. Use most recent data window as holdout test set
-2. Measure inference latency (now tracked per-window in MLflow)
-3. Compare against Seon static baseline
-4. Validate model serving workflow
-
-```bash
-# Compare with Seon baseline (pre-computed)
-from src.utils.evaluate_seon import get_seon_metrics_for_comparison
-seon_metrics = get_seon_metrics_for_comparison()
-
-# Get deployment recommendation
-make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDATE_RUN_ID=xxx
-```
 
 ### Success Criteria
 
@@ -476,8 +486,31 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 |--------|--------|-----------|
 | AUC-PR | >0.70 | Better than initial baseline |
 | P@100 | >0.75 | 3 out of 4 flagged listings are fraud |
-| Inference latency | <100ms | Real-time scoring |
-| Precision vs Seon | >2x | Reduce false positives |
+| Inference latency | <100ms | Real-time scoring capability |
+| vs Seon | >2x precision | Significant improvement over production |
+
+### Methodology
+
+```bash
+# Compare with Seon baseline (pre-computed)
+python -c "
+from src.utils.evaluate_seon import get_seon_metrics_for_comparison
+seon_metrics = get_seon_metrics_for_comparison()
+print(seon_metrics)
+"
+
+# Get deployment recommendation
+python -m src.utils.mlflow_model_comparison recommend \
+  --model-name fraud-detection-xgboost \
+  --candidate-run-id <RUN_ID>
+```
+
+### Latency Measurement
+
+Latency is automatically tracked per-window in MLflow:
+- `latency_mean_ms`: Average inference time
+- `latency_p95_ms`: 95th percentile latency
+- `latency_per_sample_ms`: Per-prediction latency
 
 ### Results
 *To be filled after experiment*
@@ -490,12 +523,10 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 | Finding | Impact | Action |
 |---------|--------|--------|
-| **Boolean fields use NULL = FALSE semantics** | 50 fields have 100% semantic coverage | Include in model, test in ablation |
+| **Boolean fields use NULL = FALSE semantics** | 50 fields have 100% semantic coverage | Include in model |
 | `has_elevator` was incorrectly excluded | Lost valid discriminative feature | Re-included (40.9% TRUE rate) |
-| Phone field coverage varies: billing (98%) >> lister (70%) >> viewing (3%) | Noisy phone edges | Unified phone edge with coalesce |
-| `is_new` is 0.04% TRUE (almost never set) | Uninformative feature | Exclude from training |
+| Phone field coverage varies | Noisy phone edges | Unified phone edge with coalesce |
 | Fraudsters avoid direct payment | High-value signal | Prioritize `payment_type` feature |
-| Low TRUE rate booleans may be discriminative | Fraudsters may over/under-claim amenities | Test in Exp 0b |
 
 ### Graph Structure Insights
 
@@ -517,19 +548,18 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 ## Roadmap
 
-### Phase 1: Baseline Establishment (Week 1-2)
-- [x] Experiment 0: Feature & graph structure validation (implemented)
-- [ ] **Experiment 0b: Boolean feature group ablation** ⭐ HIGH PRIORITY
-- [ ] Experiment 1: Feature tier ablation
-- [ ] Experiment 2: Model comparison (baseline vs hybrid)
+### Phase 1: Feature Engineering & Baselines (Week 1-2)
+- [x] Experiment 0: Feature & graph structure validation
+- [ ] Experiment 1: Feature ablation study (RQ1)
+- [ ] Experiment 2: Hybrid architecture comparison (RQ2)
 
-### Phase 2: Optimization (Week 3-4)
+### Phase 2: Optimization & Validation (Week 3-4)
 - [ ] Experiment 3: Hyperparameter optimization
-- [ ] Experiment 4: Window strategy optimization
+- [ ] Experiment 4: Concept drift evaluation (RQ3)
 
-### Phase 3: Analysis & Deployment (Week 5-6)
-- [ ] Experiment 5: SHAP analysis
-- [ ] Experiment 6: Production simulation
+### Phase 3: Explainability & Deployment (Week 5-6)
+- [ ] Experiment 5: SHAP analysis (RQ4)
+- [ ] Experiment 6: Production readiness validation
 
 ### Success Metrics
 
@@ -544,10 +574,10 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 
 ## Research Contributions
 
-1. **Framework**: Continuous fraud detection with accumulating window training
-2. **Comparison**: Handcrafted graph features vs GNN embeddings (efficiency analysis)
-3. **Findings**: When graph features outperform GNNs in sparse, heterophilic networks
-4. **Best Practices**: Feature engineering guidelines for fraud detection
+1. **Novel Relational Indicators (RQ1)**: Identification and validation of graph-derived features for real estate fraud detection
+2. **Hybrid Architecture (RQ2)**: Comparison of handcrafted graph features vs GNN embeddings for XGBoost-based fraud detection
+3. **Concept Drift Mitigation (RQ3)**: Validation of accumulating window training as passive concept drift adaptation
+4. **Explainable Fraud Detection (RQ4)**: SHAP-based insights for operational fraud analysts
 
 ---
 
@@ -557,4 +587,4 @@ make mlflow-deployment-recommendation MODEL_NAME=fraud-detection-xgboost CANDIDA
 - **Architecture**: `docs/architecture.md` (project structure, technical design)
 - **Feature Groups**: `src/models/config/constants.py` (FEATURE_GROUPS dict)
 - **Ablation Config**: `conf/features/ablation.yaml` (experiment definitions)
-- **Raw Report**: `data_quality_reports/data_quality_report.txt`
+- **Research Proposal**: `docs/NguyenHoangMinh_ResearchProposal.md`
