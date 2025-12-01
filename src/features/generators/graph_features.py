@@ -18,7 +18,7 @@ from src.features.utils import (
 )
 
 EDGE_LISTING_CONTACT_EMAIL = ARTIFACTS_DIR / "edges_listing_contact_email.parquet"
-EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_contact_phone.parquet"
+EDGE_LISTING_CONTACT_PHONE = ARTIFACTS_DIR / "edges_listing_phone.parquet"
 EDGE_USER_POSTS_LISTING = ARTIFACTS_DIR / "edges_user_posts_listing.parquet"
 EDGE_USER_IP = ARTIFACTS_DIR / "edges_user_uses_ip.parquet"
 
