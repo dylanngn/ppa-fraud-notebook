@@ -1,4 +1,3 @@
-mlruns
 .venv
 .env
 
@@ -12,8 +11,8 @@ __pycache__/
 # System
 .DS_Store
 
-outputs/
-mlruns/
-artifacts/
-fraud-detection-mlflow.db
+outputs
+mlruns
+artifacts
+**.db
 
