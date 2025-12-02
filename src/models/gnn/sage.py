@@ -5,6 +5,7 @@ Optimized SAGE (GraphSAGE) implementation for fraud detection.
 Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
 """
 import logging
+import pickle
 from datetime import datetime
 
 import hydra
@@ -25,16 +26,12 @@ GRAPH_PT = resolve_path("artifacts/graph.pt")
 MODEL_SAGE_BEST = resolve_path("artifacts/model_sage_best.pt")
 EMBEDDINGS_SAGE = resolve_path("artifacts/embeddings_sage.pt")
 NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
+MAPPINGS_PKL = resolve_path("artifacts/mappings.pkl")
 
 from src.models.xgboost.trainer import train_accumulating_window
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
-from src.models.utils.mlflow_helpers import (
-    create_gnn_signature,
-    create_input_example_for_gnn,
-    get_model_dependencies
-)
+from src.models.utils.mlflow_helpers import get_model_dependencies
 from src.utils.metrics import calculate_metrics
-from src.data.graph.schema import get_metadata
 from src.data.graph.graph_builder import build_graph
 from src.data.loader import load_data
 
@@ -241,47 +238,26 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         mlflow.log_artifact(str(EMBEDDINGS_SAGE))
         
         # Register GNN model to Model Registry
+        # 
+        # NOTE: GNN models cannot have MLflow signatures because:
+        # 1. GNN inputs are Dict[str, Tensor] (x_dict, edge_index_dict)
+        # 2. MLflow PyTorch flavor doesn't support Dict input types
+        # 3. Attempting to create a signature causes: "The PyTorch flavor does not support List or Dict input types"
+        #
+        # This is fine because:
+        # - GNN models aren't served via MLflow serving (graph structure required)
+        # - Use embeddings file (embeddings_sage.pt) for inference instead
+        # - The model IS logged and CAN be loaded, just without signature metadata
+        #
+        # The warning "Model logged without a signature" is expected and benign.
         try:
-            model.eval()
-            with torch.no_grad():
-                # Create sample input (using first few nodes)
-                sample_x_dict = {k: v[:5] if v.numel() > 0 else v for k, v in train_data.x_dict.items()}
-                sample_edge_index_dict = {}
-                for edge_type, edge_index in train_data.edge_index_dict.items():
-                    if edge_index.numel() > 0:
-                        # Take first few edges
-                        sample_edge_index_dict[edge_type] = edge_index[:, :min(10, edge_index.size(1))]
-                    else:
-                        sample_edge_index_dict[edge_type] = edge_index
-                
-                # Get sample output
-                sample_output = model(sample_x_dict, sample_edge_index_dict)
-                if isinstance(sample_output, dict):
-                    sample_output = sample_output['listing']
-                
-                # Create input example using helper (properly serializable)
-                input_example = create_input_example_for_gnn(
-                    sample_x_dict, 
-                    sample_edge_index_dict, 
-                    edge_time_dict=None,  # SAGE doesn't use edge times
-                    max_nodes=5,
-                    max_edges=10
-                )
-                output_example = sample_output.cpu().numpy() if isinstance(sample_output, torch.Tensor) else sample_output
-                
-                # Create signature using helper (handles complex GNN inputs)
-                signature = create_gnn_signature(input_example, output_example)
-            
-            # Get explicit dependencies
             deps = get_model_dependencies()
             
             model_info = mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name="gnn_model",
                 registered_model_name="fraud-detection-gnn-sage",
-                signature=signature,
-                input_example=input_example,
-                **deps,  # Add explicit dependencies
+                **deps,
                 metadata={
                     "model_type": "GraphSAGE (SAGE)",
                     "task": "fraud_detection",
@@ -291,15 +267,8 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
                     "out_channels": 64,
                     "num_layers": 2,
                     "training_epochs": epochs,
+                    "inference_note": "Use embeddings_sage.pt for inference, not MLflow serving",
                 },
-                params={
-                    "hidden_channels": 64,
-                    "out_channels": 64,
-                    "num_layers": 2,
-                    "learning_rate": 0.001,
-                    "epochs": epochs,
-                    "split_percent": split_percent,
-                }
             )
             # Ensure we return a string URI, not ModelInfo object
             gnn_model_uri = model_info.model_uri if hasattr(model_info, 'model_uri') else str(model_info)
@@ -342,22 +311,8 @@ def create_sage_embedding_generator():
     
     device = get_device()
     
-    # Get metadata from schema
-    metadata = get_metadata()
-    
-    # Initialize model
-    model = SAGEWrapper(
-        metadata=metadata,
-        hidden_channels=64,
-        out_channels=64,
-        num_layers=2,
-    ).to(device)
-    
-    # Load trained weights
-    model.load_state_dict(torch.load(MODEL_SAGE_BEST, weights_only=False))
-    model.eval()
-    
     # Load full graph ONCE (cached for all windows)
+    # IMPORTANT: Must load graph FIRST to get correct metadata with reverse edges
     logger.info("Loading full graph for embedding generation (cached for all windows)...")
     if GRAPH_PT.exists():
         full_graph = torch.load(GRAPH_PT, weights_only=False)
@@ -365,11 +320,34 @@ def create_sage_embedding_generator():
         logger.info("Graph not found. Building full graph...")
         full_graph = build_graph(cutoff_date=None)
     
-    # Load full listing data for ID mapping
-    df_listing_full = pl.read_parquet(NODES_LISTING)
-    df_listing_full = df_listing_full.with_columns(
-        pl.col("submission_at").cast(pl.Datetime("ns"))
-    )
+    # Get metadata from the actual graph (includes reverse edges from T.ToUndirected())
+    metadata = full_graph.metadata()
+    
+    # Initialize model with the correct metadata
+    model = SAGEWrapper(
+        metadata=metadata,
+        hidden_channels=64,
+        out_channels=64,
+        num_layers=2,
+    ).to(device)
+    
+    # Load trained weights (trained with same metadata including reverse edges)
+    model.load_state_dict(torch.load(MODEL_SAGE_BEST, weights_only=False))
+    model.eval()
+    
+    # Load the EXACT mapping used when graph was built
+    # This is critical: graph node indices are determined by graph_builder.py,
+    # and Polars unique() may reorder rows. Using mappings.pkl guarantees correctness.
+    if not MAPPINGS_PKL.exists():
+        raise FileNotFoundError(
+            f"Mappings file not found at {MAPPINGS_PKL}. Run 'python -m src.data.graph.build' first."
+        )
+    
+    with open(MAPPINGS_PKL, "rb") as f:
+        maps = pickle.load(f)
+    
+    listing_id_to_idx = maps["listing"]
+    logger.info(f"Loaded listing_id → graph index mapping with {len(listing_id_to_idx)} entries from mappings.pkl")
     
     def generate_embeddings_for_window(train_data, test_data, train_end):
         """
@@ -387,16 +365,8 @@ def create_sage_embedding_generator():
         cutoff_ns = int(train_end.timestamp() * 1e9)
         
         # Filter graph by time using cached full graph
+        # Note: filter_graph_by_time filters EDGES but keeps ALL nodes with same indices
         filtered_data = filter_graph_by_time(full_graph, cutoff_ns)
-        
-        # Create listing_id to index mapping for this filtered graph
-        df_listing_filtered = df_listing_full.filter(
-            pl.col("submission_at") < train_end
-        )
-        listing_id_to_idx = {
-            row["insertion_id"]: idx 
-            for idx, row in enumerate(df_listing_filtered.iter_rows(named=True))
-        }
         
         filtered_data = filtered_data.to(device)
         
@@ -408,6 +378,14 @@ def create_sage_embedding_generator():
             z_listing = z_listing['listing']
         
         embeddings = z_listing.cpu().numpy()
+        logger.info(f"Generated embeddings shape: {embeddings.shape}")
+        
+        # Clean up GPU memory after embedding generation
+        del filtered_data, z_listing
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
         
         # Create embedding DataFrame
         embed_cols = [f"embed_{i}" for i in range(embeddings.shape[1])]
@@ -416,9 +394,14 @@ def create_sage_embedding_generator():
         train_insertion_ids = train_data["insertion_id"].to_list()
         test_insertion_ids = test_data["insertion_id"].to_list()
         
-        # Get indices for train and test listings
+        # Get indices for train and test listings (using FULL graph mapping)
         train_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in train_insertion_ids]
         test_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in test_insertion_ids]
+        
+        # Log index mapping stats
+        train_found = sum(1 for idx in train_indices if idx >= 0)
+        test_found = sum(1 for idx in test_indices if idx >= 0)
+        logger.info(f"Index mapping: train {train_found}/{len(train_indices)}, test {test_found}/{len(test_indices)}")
         
         # Extract embeddings for train and test
         train_embeddings = []
@@ -437,6 +420,11 @@ def create_sage_embedding_generator():
             else:
                 # Listing not in graph, use zero embeddings
                 test_embeddings.append([0.0] * len(embed_cols))
+        
+        # Log non-zero embedding stats
+        non_zero_train = sum(1 for emb in train_embeddings if any(abs(v) > 1e-10 for v in emb))
+        non_zero_test = sum(1 for emb in test_embeddings if any(abs(v) > 1e-10 for v in emb))
+        logger.info(f"Non-zero embeddings: train {non_zero_train}/{len(train_embeddings)}, test {non_zero_test}/{len(test_embeddings)}")
         
         # Create DataFrames
         train_embeddings_df = pl.DataFrame({

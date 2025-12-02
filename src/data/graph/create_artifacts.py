@@ -7,9 +7,13 @@ This module creates the parquet files used by both:
 
 The input data should already be flattened and anonymized (from fetch_raw_insertions).
 
+Entity Naming Convention:
+    - External name: listing_id (used in logs, configs, documentation)
+    - Internal storage: insertion_id (database object_reference field)
+    
 Entity Identification (Source of Truth):
-- Listing: `object_reference` → aliased to `insertion_id`
-- User: `owner_id` → aliased to `user_id`
+    - Listing: `object_reference` → stored as `insertion_id` (internal), shown as `listing_id` (external)
+    - User: `owner_id` → aliased to `user_id`
 
 Note: User-listing relationship is established via:
     i.listing->'legacy'->>'personId' = u.owner_id

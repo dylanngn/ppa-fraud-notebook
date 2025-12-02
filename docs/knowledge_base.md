@@ -179,9 +179,14 @@ Features are organized into explicit groups for ablation experiments. See `src/m
 
 ### Entity Identification (Source of Truth)
 
-| Entity | Raw Column | Graph Alias | Join Logic |
-|--------|------------|-------------|------------|
-| **Listing** | `i.object_reference` | `insertion_id` | Primary key |
+**Naming Convention:**
+- **External name**: `listing_id` (used in logs, configs, documentation)
+- **Internal storage**: `insertion_id` (database field, parquet column)
+- **Graph indexing**: 0..N-1 based on FULL dataframe order (critical for GNN embedding lookup)
+
+| Entity | Raw Column | Internal Alias | Join Logic |
+|--------|------------|----------------|------------|
+| **Listing** | `i.object_reference` | `insertion_id` | Primary key (externally called `listing_id`) |
 | **User** | `u.owner_id` | `user_id` | Joined via `i.listing->'legacy'->>'personId' = u.owner_id` |
 
 ### Node Types (6)

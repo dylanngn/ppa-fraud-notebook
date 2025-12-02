@@ -3,7 +3,7 @@ defaults:
   - data: default
   - features: baseline
   - model: xgboost
-  # Enable colored logging (install: pip install hydra-colorlog)
+  # Enable colored logging
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 

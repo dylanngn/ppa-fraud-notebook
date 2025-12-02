@@ -3,10 +3,19 @@ XGBoost trainer with accumulating window.
 """
 import time
 import logging
+import warnings
 import polars as pl
 import pandas as pd
 import xgboost as xgb
 import mlflow
+
+# Suppress MLflow's integer column warning - XGBoost natively handles missing values
+# and we convert int columns to float64 anyway
+warnings.filterwarnings(
+    "ignore",
+    message=".*Inferred schema contains integer column.*",
+    category=UserWarning
+)
 from mlflow.models import infer_signature
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -38,7 +47,8 @@ def train_accumulating_window(
     df: pl.DataFrame,
     config: DictConfig,
     max_windows: Optional[int] = None,
-    embedding_generator: Optional[EmbeddingGenerator] = None
+    embedding_generator: Optional[EmbeddingGenerator] = None,
+    skip_mlflow_run: bool = False
 ) -> Dict[str, Any]:
     """
     Train XGBoost with accumulating window and MLflow tracking.
@@ -52,6 +62,8 @@ def train_accumulating_window(
         embedding_generator: Optional callback for per-window embedding generation.
             Signature: (train_data, test_data, train_end) -> (train_embed_df, test_embed_df, embed_cols)
             The embedding DataFrames should have 'insertion_id' as join key.
+        skip_mlflow_run: If True, skip creating MLflow parent run (use when already
+            inside an MLflow run context, e.g., during hyperparameter optimization)
         
     Returns:
         Dictionary with run info and metrics
@@ -75,15 +87,21 @@ def train_accumulating_window(
     end_date = df["submission_at"].max()
     target = "is_fraud"
     
-    # Setup MLflow
-    setup_mlflow(experiment_name)
+    # Setup MLflow (only if creating our own run)
+    if not skip_mlflow_run:
+        setup_mlflow(experiment_name)
     
-    # Start parent run
+    # Start parent run (or use nullcontext if already in a run)
     training_start_time = time.time()
-    with mlflow.start_run(
-        run_name=f"{model_name}_accumulating_{datetime.now().strftime('%Y%m%d_%H%M')}",
-        tags={"model_type": model_name, "training_mode": "accumulating_window"}
-    ) as parent_run:
+    from contextlib import nullcontext
+    run_context = (
+        nullcontext() if skip_mlflow_run 
+        else mlflow.start_run(
+            run_name=f"{model_name}_accumulating_{datetime.now().strftime('%Y%m%d_%H%M')}",
+            tags={"model_type": model_name, "training_mode": "accumulating_window"}
+        )
+    )
+    with run_context as parent_run:
         
         # Log configuration
         mlflow.log_params({
@@ -111,10 +129,13 @@ def train_accumulating_window(
         window_idx = 0
         best_auc_pr = 0
         best_run_id = None
+        best_model_uri = None
         
         while current_date + test_size <= end_date:
             train_end = current_date
             test_end = current_date + test_size
+            
+            logger.info(f"Window {window_idx}: training up to {train_end.date()}, testing {train_end.date()} → {test_end.date()}")
             
             # ACCUMULATING WINDOW: Use ALL data from start to train_end
             train_data = df.filter(pl.col("submission_at") < train_end)
@@ -143,6 +164,17 @@ def train_accumulating_window(
                         train_data, test_data, train_end
                     )
                     
+                    if not embed_cols:
+                        logger.warning("Embedding generator returned empty embed_cols!")
+                    else:
+                        logger.info(f"Embedding generator returned {len(embed_cols)} columns")
+                    
+                    # Check for non-zero embeddings before join
+                    if embed_cols and len(train_embed_df) > 0:
+                        sample_col = embed_cols[0]
+                        non_zero_train = (train_embed_df[sample_col].abs() > 1e-10).sum()
+                        logger.info(f"Train embeddings: {non_zero_train}/{len(train_embed_df)} non-zero in {sample_col}")
+                    
                     # Join embeddings with feature data
                     train_data = train_data.join(
                         train_embed_df, on="insertion_id", how="left"
@@ -150,6 +182,13 @@ def train_accumulating_window(
                     test_data = test_data.join(
                         test_embed_df, on="insertion_id", how="left"
                     )
+                    
+                    # Check join success
+                    if embed_cols:
+                        sample_col = embed_cols[0]
+                        null_count_train = train_data[sample_col].null_count()
+                        null_count_test = test_data[sample_col].null_count()
+                        logger.info(f"After join - train nulls: {null_count_train}/{len(train_data)}, test nulls: {null_count_test}/{len(test_data)}")
                     
                     # Fill any missing embeddings with zeros
                     for col in embed_cols:
@@ -160,10 +199,11 @@ def train_accumulating_window(
                             pl.col(col).fill_null(0.0)
                         )
                     
-                    logger.info(f"Added {len(embed_cols)} embedding features")
+                    logger.info(f"Added {len(embed_cols)} embedding features to feature set")
                     
                 except Exception as e:
-                    logger.warning(f"Embedding generation failed: {e}. Continuing without embeddings.")
+                    logger.error(f"Embedding generation failed: {e}", exc_info=True)
+                    logger.warning("Continuing without embeddings due to error above.")
                     embed_cols = []
             
             # Convert to pandas
@@ -252,15 +292,15 @@ def train_accumulating_window(
                 model.fit(X_train, y_train)
                 
                 # Log model
+                # Note: input_example skipped due to categorical column serialization issues
+                # with MLflow's serving validation. Signature provides schema documentation.
                 signature = infer_signature(X_train.head(100), model.predict(X_train[:100]))
-                input_example = X_train.head(5).copy()
                 
                 deps = get_model_dependencies()
-                mlflow.xgboost.log_model(
+                model_info = mlflow.xgboost.log_model(
                     xgb_model=model,
-                    artifact_path="model",
+                    name="model",
                     signature=signature,
-                    input_example=input_example,
                     **deps
                 )
                 
@@ -281,10 +321,13 @@ def train_accumulating_window(
                     "latency_per_sample_ms": latency_metrics.get("latency_per_sample_ms", 0),
                 })
                 
+                logger.info(f"  → AUC-PR: {metrics['auc_pr']:.4f}, AUC-ROC: {metrics['auc_roc']:.4f}, P@100: {metrics['p@100']:.4f}")
+                
                 # Track best model
                 if metrics["auc_pr"] > best_auc_pr:
                     best_auc_pr = metrics["auc_pr"]
                     best_run_id = window_run.info.run_id
+                    best_model_uri = model_info.model_uri
                 
                 results.append({
                     "window_idx": window_idx,
@@ -303,6 +346,8 @@ def train_accumulating_window(
         training_time_minutes = (time.time() - training_start_time) / 60.0
         mlflow.set_tag("training_time_minutes", f"{training_time_minutes:.2f}")
         
+        logger.info(f"Training complete: {len(results)} windows in {training_time_minutes:.1f} min")
+        
         if results:
             results_df = pl.DataFrame(results)
             mean_auc_pr = float(results_df["auc_pr"].mean())
@@ -315,16 +360,30 @@ def train_accumulating_window(
                 "num_windows": float(len(results)),
             })
             
-            # Register best model
-            if best_run_id is not None:
-                ModelRegistry.register_model(
-                    run_id=best_run_id,
-                    model_name=f"fraud-detection-{model_name}",
+            logger.info(f"Results: Mean AUC-PR={mean_auc_pr:.4f}, Best AUC-PR={best_auc_pr:.4f}")
+            
+            # Register best model using direct model URI (avoids artifact path issues)
+            if best_model_uri is not None:
+                registered_model = mlflow.register_model(
+                    model_uri=best_model_uri,
+                    name=f"fraud-detection-{model_name}"
+                )
+                # Update description
+                client = mlflow.tracking.MlflowClient()
+                client.update_model_version(
+                    name=registered_model.name,
+                    version=registered_model.version,
                     description=f"Mean AUC-PR: {mean_auc_pr:.4f}, Best: {best_auc_pr:.4f}"
                 )
+                logger.info(f"Registered {registered_model.name} version {registered_model.version}")
+        
+        # Get run ID (handle case where we skipped creating our own run)
+        run_id = parent_run.info.run_id if parent_run else (
+            mlflow.active_run().info.run_id if mlflow.active_run() else None
+        )
         
         return {
-            "run_id": parent_run.info.run_id,
+            "run_id": run_id,
             "best_run_id": best_run_id,
             "results": results,
             "mean_auc_pr": mean_auc_pr if results else 0,

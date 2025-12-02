@@ -10,8 +10,7 @@ Follows MLflow best practices for model lifecycle management.
 """
 import argparse
 import json
-from typing import Dict, List, Optional
-import mlflow
+from typing import Dict
 from mlflow.tracking import MlflowClient
 
 

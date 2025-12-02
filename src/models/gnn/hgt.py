@@ -5,6 +5,7 @@ Optimized HGT (Heterogeneous Graph Transformer) with RTE implementation for frau
 Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
 """
 import logging
+import pickle
 from datetime import datetime
 
 import hydra
@@ -25,17 +26,12 @@ GRAPH_PT = resolve_path("artifacts/graph.pt")
 MODEL_HGT_BEST = resolve_path("artifacts/model_hgt_best.pt")
 EMBEDDINGS_HGT = resolve_path("artifacts/embeddings_hgt.pt")
 NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
+MAPPINGS_PKL = resolve_path("artifacts/mappings.pkl")
 
 from src.models.xgboost.trainer import train_accumulating_window
-from src.features.definitions.base import compute_base_features
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
-from src.models.utils.mlflow_helpers import (
-    create_gnn_signature,
-    create_input_example_for_gnn,
-    get_model_dependencies
-)
+from src.models.utils.mlflow_helpers import get_model_dependencies
 from src.utils.metrics import calculate_metrics
-from src.data.graph.schema import get_metadata
 from src.data.graph.graph_builder import build_graph
 from src.data.loader import load_data
 
@@ -318,53 +314,26 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
         mlflow.log_artifact(str(EMBEDDINGS_HGT))
         
         # Register GNN model to Model Registry
+        # 
+        # NOTE: GNN models cannot have MLflow signatures because:
+        # 1. GNN inputs are Dict[str, Tensor] (x_dict, edge_index_dict, edge_time_dict)
+        # 2. MLflow PyTorch flavor doesn't support Dict input types
+        # 3. Attempting to create a signature causes: "The PyTorch flavor does not support List or Dict input types"
+        #
+        # This is fine because:
+        # - GNN models aren't served via MLflow serving (graph structure required)
+        # - Use embeddings file (embeddings_hgt.pt) for inference instead
+        # - The model IS logged and CAN be loaded, just without signature metadata
+        #
+        # The warning "Model logged without a signature" is expected and benign.
         try:
-            model.eval()
-            with torch.no_grad():
-                # Create sample input (using first few nodes)
-                sample_x_dict = {k: v[:5] if v.numel() > 0 else v for k, v in train_data.x_dict.items()}
-                sample_edge_index_dict = {}
-                sample_edge_times = {}
-                for edge_type, edge_index in train_data.edge_index_dict.items():
-                    if edge_index.numel() > 0:
-                        # Take first few edges
-                        sample_edge_index_dict[edge_type] = edge_index[:, :min(10, edge_index.size(1))]
-                        if edge_type in train_edge_times_device and train_edge_times_device[edge_type] is not None:
-                            sample_edge_times[edge_type] = train_edge_times_device[edge_type][:min(10, train_edge_times_device[edge_type].size(0))]
-                        else:
-                            sample_edge_times[edge_type] = None
-                    else:
-                        sample_edge_index_dict[edge_type] = edge_index
-                        sample_edge_times[edge_type] = None
-                
-                # Get sample output
-                sample_output = model(sample_x_dict, sample_edge_index_dict, sample_edge_times)
-                if isinstance(sample_output, dict):
-                    sample_output = sample_output['listing']
-                
-                # Create input example using helper (properly serializable)
-                input_example = create_input_example_for_gnn(
-                    sample_x_dict, 
-                    sample_edge_index_dict, 
-                    sample_edge_times,
-                    max_nodes=5,
-                    max_edges=10
-                )
-                output_example = sample_output.cpu().numpy() if isinstance(sample_output, torch.Tensor) else sample_output
-                
-                # Create signature using helper (handles complex GNN inputs)
-                signature = create_gnn_signature(input_example, output_example)
-            
-            # Get explicit dependencies
             deps = get_model_dependencies()
             
             gnn_model_uri = mlflow.pytorch.log_model(
                 pytorch_model=model,
                 name="gnn_model",
                 registered_model_name="fraud-detection-gnn-hgt",
-                signature=signature,
-                input_example=input_example,
-                **deps,  # Add explicit dependencies
+                **deps,
                 metadata={
                     "model_type": "HGT (Heterogeneous Graph Transformer)",
                     "task": "fraud_detection",
@@ -376,17 +345,8 @@ def train_hgt_embeddings(epochs=30, split_percent=0.8, window_days=90, step_days
                     "num_layers": 2,
                     "num_heads": 4,
                     "training_epochs": epochs,
+                    "inference_note": "Use embeddings_hgt.pt for inference, not MLflow serving",
                 },
-                params={
-                    "hidden_channels": 64,
-                    "out_channels": 64,
-                    "num_layers": 2,
-                    "num_heads": 4,
-                    "learning_rate": 0.001,
-                    "epochs": epochs,
-                    "split_percent": split_percent,
-                    "rte_enabled": True,
-                }
             )
         except Exception:
             # Try alternative: register from autologged model
@@ -413,6 +373,9 @@ def create_hgt_embedding_generator():
     Creates an embedding generator function for per-window embedding generation.
     This ensures temporal fairness by filtering the graph before generating embeddings.
     
+    OPTIMIZATION: Loads full graph once, then filters by time per window
+    (instead of rebuilding the entire graph for each window).
+    
     Returns:
         Callback function(train_data, test_data, train_end) -> (train_embeddings_df, test_embeddings_df, embed_cols)
     """
@@ -422,13 +385,21 @@ def create_hgt_embedding_generator():
             "HGT model not found. Run train_hgt_embeddings() first."
         )
     
-    # Load model (graph will be built dynamically per window)
     device = get_device()
     
-    # Get metadata from schema (no graph loading needed!)
-    metadata = get_metadata()
+    # Load full graph ONCE (cached for all windows)
+    # IMPORTANT: Must load graph FIRST to get correct metadata with reverse edges
+    logger.info("Loading full graph for embedding generation (cached for all windows)...")
+    if GRAPH_PT.exists():
+        full_graph = torch.load(GRAPH_PT, weights_only=False)
+    else:
+        logger.info("Graph not found. Building full graph...")
+        full_graph = build_graph(cutoff_date=None)
     
-    # Initialize model
+    # Get metadata from the actual graph (includes reverse edges from T.ToUndirected())
+    metadata = full_graph.metadata()
+    
+    # Initialize model with the correct metadata
     model = HGTWrapper(
         metadata=metadata,
         hidden_channels=64,
@@ -437,9 +408,23 @@ def create_hgt_embedding_generator():
         num_layers=2,
     ).to(device)
     
-    # Load trained weights
+    # Load trained weights (trained with same metadata including reverse edges)
     model.load_state_dict(torch.load(MODEL_HGT_BEST, weights_only=False))
     model.eval()
+    
+    # Load the EXACT mapping used when graph was built
+    # This is critical: graph node indices are determined by graph_builder.py,
+    # and Polars unique() may reorder rows. Using mappings.pkl guarantees correctness.
+    if not MAPPINGS_PKL.exists():
+        raise FileNotFoundError(
+            f"Mappings file not found at {MAPPINGS_PKL}. Run 'python -m src.data.graph.build' first."
+        )
+    
+    with open(MAPPINGS_PKL, "rb") as f:
+        maps = pickle.load(f)
+    
+    listing_id_to_idx = maps["listing"]
+    logger.info(f"Loaded listing_id → graph index mapping with {len(listing_id_to_idx)} entries from mappings.pkl")
     
     def generate_embeddings_for_window(train_data, test_data, train_end):
         """
@@ -453,34 +438,18 @@ def create_hgt_embedding_generator():
         Returns:
             (train_embeddings_df, test_embeddings_df, embed_cols)
         """
-        # Build graph dynamically with temporal filtering
-        # This ensures only edges between entities that existed before train_end are included
-        filtered_data = build_graph(cutoff_date=train_end)
+        # Convert train_end to nanoseconds timestamp for filtering
+        cutoff_ns = int(train_end.timestamp() * 1e9)
         
-        # Create listing_id to index mapping for this filtered graph
-        df_listing_filtered = pl.read_parquet(NODES_LISTING)
-        df_listing_filtered = df_listing_filtered.with_columns(
-            pl.col("submission_at").cast(pl.Datetime("ns"))
+        # Filter graph by time using cached full graph
+        # Note: filter_graph_by_time filters EDGES but keeps ALL nodes with same indices
+        filtered_data, filtered_edge_times = filter_graph_by_time(
+            full_graph, cutoff_ns, return_edge_times=True
         )
-        df_listing_filtered = df_listing_filtered.filter(
-            pl.col("submission_at") < train_end
-        )
-        listing_id_to_idx = {
-            row["insertion_id"]: idx 
-            for idx, row in enumerate(df_listing_filtered.iter_rows(named=True))
-        }
-        
-        # Prepare edge times for temporal encoding
-        filtered_edge_times = {}
-        for edge_type in filtered_data.edge_index_dict.keys():
-            if 'timestamp' in filtered_data[edge_type]:
-                filtered_edge_times[edge_type] = filtered_data[edge_type].timestamp
-            else:
-                filtered_edge_times[edge_type] = None
         
         filtered_data = filtered_data.to(device)
         
-        # Move edge times to device
+        # Move edge times to device for temporal encoding
         filtered_edge_times_device = {
             k: v.to(device) if v is not None else None 
             for k, v in filtered_edge_times.items()
@@ -494,10 +463,20 @@ def create_hgt_embedding_generator():
                 filtered_edge_times_device
             )
         
+        logger.debug(f"Generated embeddings shape: {z_listing.shape if hasattr(z_listing, 'shape') else 'dict'}")
+        
+        # Clean up GPU memory after embedding generation
+        del filtered_data, filtered_edge_times_device
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        
         if isinstance(z_listing, dict):
             z_listing = z_listing['listing']
         
         embeddings = z_listing.cpu().numpy()
+        logger.info(f"Generated embeddings shape: {embeddings.shape}")
         
         # Create embedding DataFrame
         embed_cols = [f"embed_{i}" for i in range(embeddings.shape[1])]
@@ -506,9 +485,14 @@ def create_hgt_embedding_generator():
         train_insertion_ids = train_data["insertion_id"].to_list()
         test_insertion_ids = test_data["insertion_id"].to_list()
         
-        # Get indices for train and test listings
+        # Get indices for train and test listings (using FULL graph mapping)
         train_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in train_insertion_ids]
         test_indices = [listing_id_to_idx.get(insertion_id, -1) for insertion_id in test_insertion_ids]
+        
+        # Log index mapping stats
+        train_found = sum(1 for idx in train_indices if idx >= 0)
+        test_found = sum(1 for idx in test_indices if idx >= 0)
+        logger.info(f"Index mapping: train {train_found}/{len(train_indices)}, test {test_found}/{len(test_indices)}")
         
         # Extract embeddings for train and test
         train_embeddings = []
@@ -527,6 +511,11 @@ def create_hgt_embedding_generator():
             else:
                 # Listing not in graph, use zero embeddings
                 test_embeddings.append([0.0] * len(embed_cols))
+        
+        # Log non-zero embedding stats
+        non_zero_train = sum(1 for emb in train_embeddings if any(abs(v) > 1e-10 for v in emb))
+        non_zero_test = sum(1 for emb in test_embeddings if any(abs(v) > 1e-10 for v in emb))
+        logger.info(f"Non-zero embeddings: train {non_zero_train}/{len(train_embeddings)}, test {non_zero_test}/{len(test_embeddings)}")
         
         # Create DataFrames
         train_embeddings_df = pl.DataFrame({
@@ -575,14 +564,15 @@ def main(cfg: DictConfig):
     # Step 3: Load base data (without embeddings - they'll be generated per window)
     df = load_data()
     
-    # Step 4: Add base tabular features
-    df = compute_base_features(df, cutoff_date=datetime.now(), config=None)
+    # NOTE: Base features are computed by FeatureProcessor inside trainer.py
+    # per-window with the correct temporal cutoff. Removed duplicate call here
+    # that used datetime.now() which was semantically incorrect.
     
-    # Step 5: Override model name for hybrid
+    # Step 4: Override model name for hybrid
     hybrid_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     hybrid_cfg.model.name = "hybrid_hgt"
     
-    # Step 6: Train hybrid model with per-window embeddings
+    # Step 5: Train hybrid model with per-window embeddings
     result = train_accumulating_window(
         df,
         config=hybrid_cfg,

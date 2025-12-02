@@ -82,7 +82,8 @@ def create_xgboost_objective(
                 result = train_accumulating_window(
                     df=df,
                     config=trial_config,
-                    max_windows=n_windows  # Limit windows for faster optimization
+                    max_windows=n_windows,  # Limit windows for faster optimization
+                    skip_mlflow_run=True  # Already inside MLflow run context
                 )
                 
                 if not result.get("results"):
