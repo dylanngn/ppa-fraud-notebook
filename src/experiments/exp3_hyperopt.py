@@ -1,6 +1,10 @@
 """
+Experiment 3: Hyperparameter Optimization
+
 Hyperparameter optimization for XGBoost models using Optuna and MLflow.
 Follows MLflow best practices for hyperparameter tuning.
+
+Run with: python -m src.experiments.exp3_hyperopt experiment_name=xgboost-hyperopt
 """
 import logging
 from datetime import datetime
@@ -191,19 +195,21 @@ def optimize_xgboost_hyperparameters(
     }
 
 
-@hydra.main(version_base=None, config_path="../../../conf", config_name="config")
+@hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def main(cfg: DictConfig):
     """
-    Hyperparameter optimization for XGBoost models using Optuna.
+    Experiment 3: Hyperparameter Optimization
     
-    Tunes XGBoost hyperparameters to maximize: 0.7 * AUC-PR + 0.3 * P@100
+    Run with: python -m src.experiments.exp3_hyperopt experiment_name=xgboost-hyperopt
     """
     # Get optimization parameters from config or use defaults
     n_trials = cfg.get("hyperopt", {}).get("n_trials", 100)
     n_windows = cfg.get("hyperopt", {}).get("n_windows", 5)
     timeout_minutes = cfg.get("hyperopt", {}).get("timeout_minutes", None)
     
-    logger.info(f"Starting XGBoost hyperparameter optimization...")
+    logger.info("="*60)
+    logger.info("EXPERIMENT 3: HYPERPARAMETER OPTIMIZATION")
+    logger.info("="*60)
     logger.info(f"  Experiment: {cfg.experiment_name}")
     logger.info(f"  Trials: {n_trials}")
     logger.info(f"  Windows per trial: {n_windows}")
@@ -225,3 +231,4 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
     main()
+

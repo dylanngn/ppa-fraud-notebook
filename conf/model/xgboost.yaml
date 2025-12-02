@@ -1,20 +1,27 @@
 # XGBoost configuration
 # This is our PRIMARY model - not a baseline (Seon is the baseline)
+# Parameters optimized via Optuna (Experiment 3, 2025-12-02)
 defaults:
   - _self_
 
 name: "xgboost"
 
-# XGBoost hyperparameters
+# XGBoost hyperparameters (optimized via hyperopt)
 params:
   objective: "binary:logistic"
   eval_metric: "aucpr"
-  n_estimators: 500
-  max_depth: 6
-  learning_rate: 0.1
+  n_estimators: 300          # Optimized: was 500
+  max_depth: 9               # Optimized: was 6
+  learning_rate: 0.1477      # Optimized: was 0.1
+  min_child_weight: 15       # Optimized: was 1 (default)
+  subsample: 0.832           # Optimized: was 1.0 (default)
+  colsample_bytree: 0.800    # Optimized: was 1.0 (default)
+  gamma: 0.104               # Optimized: was 0 (default)
+  reg_alpha: 9.92            # Optimized: was 0 (default) - L1 regularization
+  reg_lambda: 9.03           # Optimized: was 1.0 (default) - L2 regularization
   n_jobs: -1
   random_state: 42
-  tree_method: "auto" # Will be resolved to hist or gpu_hist in code
+  tree_method: "auto"        # Will be resolved to hist or gpu_hist in code
 
 # Training loop settings
 training:
