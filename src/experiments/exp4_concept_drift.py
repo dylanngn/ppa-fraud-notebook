@@ -8,7 +8,7 @@ Compares:
 Research Question: To what extent does periodic retraining maintain the model's
 predictive performance against concept drift over sequential time windows?
 
-Run with: python -m src.experiments.exp4_concept_drift experiment_name=concept-drift-rq3 features=production
+Run with: python -m src.experiments.exp4_concept_drift experiment_name=concept-drift-rq3
 """
 import logging
 import time
@@ -273,7 +273,7 @@ def main(cfg: DictConfig):
     """
     Experiment 4: Concept Drift Evaluation
     
-    Run with: python -m src.experiments.exp4_concept_drift experiment_name=concept-drift-rq3 features=production
+    Run with: python -m src.experiments.exp4_concept_drift experiment_name=concept-drift-rq3
     """
     logger.info("="*60)
     logger.info("EXPERIMENT 4: CONCEPT DRIFT EVALUATION (RQ3)")

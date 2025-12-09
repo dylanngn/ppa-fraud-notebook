@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - data: default
-  - features: baseline
+  - features: auto  # Changed from baseline to auto (Exp 9 validated)
   - model: xgboost
   # Enable colored logging
   - override hydra/job_logging: colorlog

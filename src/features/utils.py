@@ -1,7 +1,7 @@
 """
 Utility functions for feature engineering and temporal filtering.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -132,8 +132,17 @@ def filter_edges_by_time(
     if "listing_id" in edges.columns and "source" not in edges.columns:
         edges = edges.rename({"listing_id": "source"})
     
-    # Get listing timestamps
-    listing_times = listings_df.select(["insertion_id", "submission_at"])
+    # Get listing timestamps (convert to timezone-naive for comparison)
+    listing_times = listings_df.select([
+        "insertion_id", 
+        pl.col("submission_at").dt.replace_time_zone(None).alias("submission_at")
+    ])
+    
+    # Ensure cutoff_date is timezone-naive for comparison
+    if cutoff_date.tzinfo is not None:
+        cutoff_naive = cutoff_date.replace(tzinfo=None)
+    else:
+        cutoff_naive = cutoff_date
     
     if edge_type == "listing_to_target":
         # source is listing_id
@@ -144,7 +153,7 @@ def filter_edges_by_time(
             how="left"
         )
         filtered = edges_with_time.filter(
-            pl.col("submission_at") < cutoff_date
+            pl.col("submission_at") < cutoff_naive
         ).select(["source", "target"])
         
     elif edge_type == "target_to_listing":
@@ -156,7 +165,7 @@ def filter_edges_by_time(
             how="left"
         )
         filtered = edges_with_time.filter(
-            pl.col("submission_at") < cutoff_date
+            pl.col("submission_at") < cutoff_naive
         ).select(["source", "target"])
         
     elif edge_type == "listing_to_listing":
@@ -176,8 +185,8 @@ def filter_edges_by_time(
         ).rename({"submission_at": "target_time"})
         
         filtered = edges_with_both_times.filter(
-            (pl.col("source_time") < cutoff_date) &
-            (pl.col("target_time") < cutoff_date)
+            (pl.col("source_time") < cutoff_naive) &
+            (pl.col("target_time") < cutoff_naive)
         ).select(["source", "target"])
     else:
         raise ValueError(f"Unknown edge_type: {edge_type}")

@@ -6,7 +6,7 @@ Answers practical business questions before production deployment:
 2. At what operating point should we deploy?
 3. What is the business value?
 
-Run with: python -m src.experiments.exp6_business_value experiment_name=business-value-eval features=production
+Run with: python -m src.experiments.exp6_business_value experiment_name=business-value-eval
 """
 import logging
 from datetime import datetime
@@ -280,7 +280,7 @@ def main(cfg: DictConfig):
     """
     Experiment 6: Business Value Evaluation
     
-    Run with: python -m src.experiments.exp6_business_value experiment_name=business-value-eval features=production
+    Run with: python -m src.experiments.exp6_business_value experiment_name=business-value-eval
     """
     logger.info("="*60)
     logger.info("EXPERIMENT 6: BUSINESS VALUE EVALUATION")

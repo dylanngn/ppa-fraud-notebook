@@ -6,6 +6,12 @@ SINGLE SOURCE OF TRUTH for graph schema.
 Builds a heterogeneous graph from node/edge parquet artifacts for GNN training.
 To change the graph structure (add/remove nodes or edges), modify this file.
 
+Column Naming Strategy (2025-12-09):
+    nodes_listing.parquet contains ALL raw ETL columns.
+    This module reads raw column names (e.g., "listing.prices.rent.gross")
+    and transforms them locally for GNN feature computation.
+    This avoids aliasing in create_artifacts.py and keeps a single naming convention.
+
 Entity Naming Convention:
     - External name: listing_id (used in logs, configs, documentation)
     - Internal storage: insertion_id (database object_reference field)
@@ -96,12 +102,24 @@ def generate_embeddings(df_listings):
 
     model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
     
-    # Handle null descriptions
-    if "description_text" not in df_listings.columns:
-        logger.warning("description_text not found. Using empty strings.")
-        texts = [""] * len(df_listings)
+    # Coalesce description from multiple language columns (raw ETL names)
+    description_cols = [
+        "listing.localization.de.text.description",
+        "listing.localization.en.text.description",
+        "listing.localization.fr.text.description",
+        "listing.localization.it.text.description",
+        "listing.descriptions.description",
+    ]
+    available_cols = [c for c in description_cols if c in df_listings.columns]
+    
+    if available_cols:
+        df_listings = df_listings.with_columns(
+            pl.coalesce([pl.col(c) for c in available_cols]).fill_null("").alias("description_text")
+        )
+        texts = df_listings["description_text"].to_list()
     else:
-        texts = df_listings["description_text"].fill_null("").to_list()
+        logger.warning("No description columns found. Using empty strings.")
+        texts = [""] * len(df_listings)
     
     embeddings = model.encode(texts, show_progress_bar=True, batch_size=32)
     
@@ -156,54 +174,49 @@ def build_graph(cutoff_date: Optional[datetime] = None):
     listing_map, df_listing = load_node_mapping(df_listing, "insertion_id", "listing")
     
     # Features: Price, Size, Rooms, OfferType, Characteristics, Bundle, Payment, Location
-    # Handle Nulls - with correct semantic interpretation
+    # Uses raw ETL column names directly from nodes_listing.parquet
     df_listing = df_listing.with_columns([
         # High coverage numerical features (>80%)
-        pl.col("price_rent_gross").fill_null(0),
-        pl.col("price_buy").fill_null(0),
-        pl.col("living_space").fill_null(0),
-        pl.col("rooms").fill_null(0),
+        pl.col("listing.prices.rent.gross").fill_null(0).alias("price_rent_gross"),
+        pl.col("listing.prices.buy.price").fill_null(0).alias("price_buy"),
+        pl.col("listing.characteristics.livingSpace").fill_null(0).alias("living_space"),
+        pl.col("listing.characteristics.numberOfRooms").fill_null(0).alias("rooms"),
         
         # High coverage categorical (>95%)
-        pl.col("offer_type").fill_null("RENT"),
+        pl.col("listing.offerType").fill_null("RENT").alias("offer_type"),
         
         # Bundle features (77-98% coverage)
-        pl.col("bundle_period").fill_null(7),
-        pl.col("bundle_tier").fill_null("basic").str.to_lowercase(),
-        pl.col("payment_type").fill_null("INVOICE"),
+        pl.col("bundle.period").fill_null(7).alias("bundle_period"),
+        pl.col("bundle.tier").fill_null("basic").str.to_lowercase().alias("bundle_tier"),
+        pl.col("listing.lister.billing.payment.paymentType").fill_null("INVOICE").alias("payment_type"),
         
         # Location (99.4% coverage)
-        pl.col("latitude").fill_null(0.0),
-        pl.col("longitude").fill_null(0.0),
+        pl.col("listing.address.geoCoordinates.latitude").fill_null(0.0).alias("latitude"),
+        pl.col("listing.address.geoCoordinates.longitude").fill_null(0.0).alias("longitude"),
         
         # Metadata (100% coverage)
         pl.col("customer_segment").fill_null("unknown").str.to_lowercase(),
-        pl.col("language").fill_null("de").str.to_lowercase(),
+        pl.col("listing.localization.primary").fill_null("de").str.to_lowercase().alias("language"),
         
         # Boolean indicator features (NULL = FALSE semantics = 100% semantic coverage)
-        # These are correctly filled with False - NULL means "feature not present"
-        # High TRUE rate (>40%)
-        pl.col("has_balcony").fill_null(False).cast(pl.Int8),           # 71.2% TRUE
-        pl.col("has_parking").fill_null(False).cast(pl.Int8),           # 55.1% TRUE
-        pl.col("has_nice_view").fill_null(False).cast(pl.Int8),         # 47.7% TRUE
-        pl.col("has_garage").fill_null(False).cast(pl.Int8),            # 44.2% TRUE
-        pl.col("is_child_friendly").fill_null(False).cast(pl.Int8),     # 43.5% TRUE
-        pl.col("is_quiet").fill_null(False).cast(pl.Int8),              # 42.7% TRUE
-        pl.col("has_elevator").fill_null(False).cast(pl.Int8),          # 40.9% TRUE
-        # Moderate TRUE rate (20-40%)
-        pl.col("has_washing_machine").fill_null(False).cast(pl.Int8),   # 32.4% TRUE
-        pl.col("are_pets_allowed").fill_null(False).cast(pl.Int8),      # 28.4% TRUE
-        pl.col("is_wheelchair_accessible").fill_null(False).cast(pl.Int8),  # 25.7% TRUE
-        # Low TRUE rate (<20%) - rare but potentially discriminative
-        pl.col("is_old").fill_null(False).cast(pl.Int8),                # 16.7% TRUE
-        pl.col("is_new_building").fill_null(False).cast(pl.Int8),       # 16.2% TRUE
-        # Very rare TRUE rate (5-15%) - experimental, for ablation studies
-        pl.col("has_cable_tv").fill_null(False).cast(pl.Int8),          # 14.76% TRUE
-        pl.col("has_fireplace").fill_null(False).cast(pl.Int8),         # 10.71% TRUE
-        pl.col("is_minergie_general").fill_null(False).cast(pl.Int8),   # 9.20% TRUE
-        pl.col("is_minergie_certified").fill_null(False).cast(pl.Int8), # 6.81% TRUE
-        pl.col("is_smoking_allowed").fill_null(False).cast(pl.Int8),    # 4.88% TRUE
-        pl.col("has_swimming_pool").fill_null(False).cast(pl.Int8),     # 4.75% TRUE
+        pl.col("listing.characteristics.hasBalcony").fill_null(False).cast(pl.Int8).alias("has_balcony"),
+        pl.col("listing.characteristics.hasParking").fill_null(False).cast(pl.Int8).alias("has_parking"),
+        pl.col("listing.characteristics.hasNiceView").fill_null(False).cast(pl.Int8).alias("has_nice_view"),
+        pl.col("listing.characteristics.hasGarage").fill_null(False).cast(pl.Int8).alias("has_garage"),
+        pl.col("listing.characteristics.isChildFriendly").fill_null(False).cast(pl.Int8).alias("is_child_friendly"),
+        pl.col("listing.characteristics.isQuiet").fill_null(False).cast(pl.Int8).alias("is_quiet"),
+        pl.col("listing.characteristics.hasElevator").fill_null(False).cast(pl.Int8).alias("has_elevator"),
+        pl.col("listing.characteristics.hasWashingMachine").fill_null(False).cast(pl.Int8).alias("has_washing_machine"),
+        pl.col("listing.characteristics.arePetsAllowed").fill_null(False).cast(pl.Int8).alias("are_pets_allowed"),
+        pl.col("listing.characteristics.isWheelchairAccessible").fill_null(False).cast(pl.Int8).alias("is_wheelchair_accessible"),
+        pl.col("listing.characteristics.isOldBuilding").fill_null(False).cast(pl.Int8).alias("is_old"),
+        pl.col("listing.characteristics.isNewBuilding").fill_null(False).cast(pl.Int8).alias("is_new_building"),
+        pl.col("listing.characteristics.hasCableTv").fill_null(False).cast(pl.Int8).alias("has_cable_tv"),
+        pl.col("listing.characteristics.hasFireplace").fill_null(False).cast(pl.Int8).alias("has_fireplace"),
+        pl.col("listing.characteristics.isMinergieGeneral").fill_null(False).cast(pl.Int8).alias("is_minergie_general"),
+        pl.col("listing.characteristics.isMinergieCertified").fill_null(False).cast(pl.Int8).alias("is_minergie_certified"),
+        pl.col("listing.characteristics.isSmokingAllowed").fill_null(False).cast(pl.Int8).alias("is_smoking_allowed"),
+        pl.col("listing.characteristics.hasSwimmingPool").fill_null(False).cast(pl.Int8).alias("has_swimming_pool"),
     ])
     
     # One-hot encode offer_type (RENT=0, BUY=1)
@@ -240,14 +253,10 @@ def build_graph(cutoff_date: Optional[datetime] = None):
         "price_rent_gross", "price_buy", "living_space", "rooms",
         "bundle_period", "latitude", "longitude",
         # Boolean indicators (NULL = FALSE, 100% semantic coverage)
-        # High TRUE rate (>40%)
         "has_balcony", "has_parking", "has_nice_view", "has_garage",
         "is_child_friendly", "is_quiet", "has_elevator",
-        # Moderate TRUE rate (20-40%)
         "has_washing_machine", "are_pets_allowed", "is_wheelchair_accessible",
-        # Low TRUE rate (<20%)
         "is_old", "is_new_building",
-        # Very rare TRUE rate (5-15%)
         "has_cable_tv", "has_fireplace", "is_minergie_general",
         "is_minergie_certified", "is_smoking_allowed", "has_swimming_pool"
     ]).to_numpy()

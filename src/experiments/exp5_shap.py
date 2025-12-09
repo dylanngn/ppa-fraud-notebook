@@ -10,7 +10,7 @@ This experiment generates:
 3. Feature interaction analysis
 4. Case studies for fraud analyst review
 
-Run with: python -m src.experiments.exp5_shap experiment_name=shap-explainability-rq4 features=production
+Run with: python -m src.experiments.exp5_shap experiment_name=shap-explainability-rq4
 """
 import logging
 import pickle
@@ -354,7 +354,7 @@ def main(cfg: DictConfig):
     """
     Experiment 5: SHAP Explainability Analysis (RQ4)
     
-    Run with: python -m src.experiments.exp5_shap experiment_name=shap-explainability-rq4 features=production
+    Run with: python -m src.experiments.exp5_shap experiment_name=shap-explainability-rq4
     """
     logger.info("="*60)
     logger.info("EXPERIMENT 5: SHAP EXPLAINABILITY ANALYSIS (RQ4)")

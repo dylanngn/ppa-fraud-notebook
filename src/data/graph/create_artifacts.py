@@ -3,16 +3,19 @@ Creates graph artifacts (nodes and edges) from flattened and anonymized data.
 
 This module creates the parquet files used by both:
 - GNN models (via graph_builder.py)
-- XGBoost models (via graph_features.py)
+- XGBoost models (via graph_features.py for graph-derived features)
 
-The input data should already be flattened and anonymized (from fetch_raw_insertions).
+Listing Node Strategy (2025-12-09):
+    nodes_listing.parquet contains ALL columns from raw_insertions.parquet.
+    This ensures consistency with XGBoost auto mode and fairness between models.
+    Feature filtering for GNN is done in graph_builder.py.
 
 Entity Naming Convention:
     - External name: listing_id (used in logs, configs, documentation)
     - Internal storage: insertion_id (database object_reference field)
     
 Entity Identification (Source of Truth):
-    - Listing: `object_reference` → stored as `insertion_id` (internal), shown as `listing_id` (external)
+    - Listing: `object_reference` → stored as `insertion_id` (internal)
     - User: `owner_id` → aliased to `user_id`
 
 Note: User-listing relationship is established via:
@@ -105,7 +108,6 @@ class ColumnHelper:
         else:
             return pl.lit(None).cast(pl.Utf8)
 
-
 def _create_user_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.DataFrame:
     """Create user nodes."""
     return df_listings.select([
@@ -115,84 +117,22 @@ def _create_user_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.D
     ]).drop_nulls(subset=["user_id"]).unique(subset=["user_id"])
 
 
-def _create_listing_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
-    """Create listing nodes with all relevant fields."""
-    platform_col = pl.coalesce([
-        helper.get_col("listing_platform"),
-        helper.get_col("user_platform")
-    ]).alias("platform")
+def _create_listing_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.DataFrame:
+    """
+    Create listing nodes with ALL fields from raw_insertions.
     
-    fraud_flag_col = helper.get_col("fraud_flag")
-    is_fraud_col = fraud_flag_col.is_not_null().alias("is_fraud")
-    first_published_col = helper.get_col("first_published_date")
+    Passes through all columns for consistency with XGBoost auto mode.
+    Downstream code (graph_builder.py) uses raw ETL column names directly.
     
-    return df_listings.select([
+    Only adds essential derived columns:
+    - insertion_id: alias of object_reference (graph ID)
+    - user_id: alias of owner_id (graph relationship)
+    - is_fraud: derived boolean from fraud_flag
+    """
+    return df_listings.with_columns([
         pl.col("object_reference").alias("insertion_id"),
         pl.col("owner_id").alias("user_id"),
-        pl.col("account_created_at"),
-        platform_col,
-        helper.get_col("listing.offerType").alias("offer_type"),
-        helper.get_col("listing.prices.buy.price").alias("price_buy"),
-        helper.get_col("listing.prices.rent.gross").alias("price_rent_gross"),
-        helper.get_col("listing.prices.rent.net").alias("price_rent_net"),
-        helper.get_col("listing.characteristics.livingSpace").alias("living_space"),
-        helper.get_col("listing.characteristics.numberOfRooms").alias("rooms"),
-        helper.get_col("listing.characteristics.yearBuilt").alias("year_built"),
-        helper.get_col("listing.characteristics.floor").alias("floor"),
-        helper.get_col("listing.characteristics.numberOfFloors").alias("num_floors"),
-        # Boolean indicator features (NULL = FALSE semantics = 100% semantic coverage)
-        # High TRUE rate (>40%)
-        helper.get_col("listing.characteristics.hasBalcony").alias("has_balcony"),           # 71.2% TRUE
-        helper.get_col("listing.characteristics.hasParking").alias("has_parking"),           # 55.1% TRUE
-        helper.get_col("listing.characteristics.hasNiceView").alias("has_nice_view"),        # 47.7% TRUE
-        helper.get_col("listing.characteristics.hasGarage").alias("has_garage"),             # 44.2% TRUE
-        helper.get_col("listing.characteristics.isChildFriendly").alias("is_child_friendly"),# 43.5% TRUE
-        helper.get_col("listing.characteristics.isQuiet").alias("is_quiet"),                 # 42.7% TRUE
-        helper.get_col("listing.characteristics.hasElevator").alias("has_elevator"),         # 40.9% TRUE
-        # Moderate TRUE rate (20-40%)
-        helper.get_col("listing.characteristics.hasWashingMachine").alias("has_washing_machine"),  # 32.4% TRUE
-        helper.get_col("listing.characteristics.arePetsAllowed").alias("are_pets_allowed"),        # 28.4% TRUE
-        helper.get_col("listing.characteristics.isWheelchairAccessible").alias("is_wheelchair_accessible"),  # 25.7% TRUE
-        # Low TRUE rate (<20%) - rare but potentially discriminative for fraud detection
-        helper.get_col("listing.characteristics.isOldBuilding").alias("is_old"),             # 16.7% TRUE
-        helper.get_col("listing.characteristics.isNewBuilding").alias("is_new_building"),    # 16.2% TRUE
-        # Very rare TRUE rate (5-15%) - experimental, for ablation studies
-        helper.get_col("listing.characteristics.hasCableTv").alias("has_cable_tv"),          # 14.76% TRUE
-        helper.get_col("listing.characteristics.hasFireplace").alias("has_fireplace"),       # 10.71% TRUE
-        helper.get_col("listing.characteristics.isMinergieGeneral").alias("is_minergie_general"),  # 9.20% TRUE
-        helper.get_col("listing.characteristics.isMinergieCertified").alias("is_minergie_certified"),  # 6.81% TRUE
-        helper.get_col("listing.characteristics.isSmokingAllowed").alias("is_smoking_allowed"),  # 4.88% TRUE
-        helper.get_col("listing.characteristics.hasSwimmingPool").alias("has_swimming_pool"),    # 4.75% TRUE
-        # Address fields (use hash columns from anonymization)
-        helper.get_col("listing.address.postalCode", "listing.address.postalCode.hash").alias("zip_code"),
-        helper.get_col("listing.address.locality", "listing.address.city_hash").alias("city"),
-        helper.get_col("listing.address.street", "listing.address.street_hash").alias("street"),
-        helper.get_col("listing.address.country", "listing.address.country_hash").alias("country"),
-        helper.get_col("listing.address.region").alias("region"),
-        helper.get_col("listing.address.geoCoordinates.latitude").alias("latitude"),
-        helper.get_col("listing.address.geoCoordinates.longitude").alias("longitude"),
-        helper.get_col("bundle.period").alias("bundle_period"),
-        helper.get_col("bundle.tier").alias("bundle_tier"),
-        helper.get_col("listing.lister.billing.payment.paymentType").alias("payment_type"),
-        pl.col("customer_segment"),
-        helper.get_col("listing.localization.primary").alias("language"),
-        # Feature Discovery Pipeline - Approved Candidates (2025-12-03)
-        helper.get_col("listing.prices.rent.interval").alias("rent_interval"),       # corr=0.374
-        helper.get_col("listing.platforms").alias("platforms"),                       # corr=0.284
-        helper.get_col("listing.lister.billing.language").alias("billing_language"),  # corr=0.263
-        # Description - coalesce multiple language options
-        pl.coalesce([
-            helper.get_col("listing.localization.de.text.description"),
-            helper.get_col("listing.localization.en.text.description"),
-            helper.get_col("listing.localization.fr.text.description"),
-            helper.get_col("listing.localization.it.text.description"),
-            helper.get_col("listing.descriptions.description")
-        ]).alias("description_text"),
-        is_fraud_col,
-        pl.col("submission_at"),
-        helper.get_col("auto_approval_criteria.criteria.seonApproved").alias("seon_approved"),
-        fraud_flag_col,
-        first_published_col
+        pl.col("fraud_flag").is_not_null().alias("is_fraud"),
     ]).unique(subset=["insertion_id"])
 
 

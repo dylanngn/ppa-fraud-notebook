@@ -8,7 +8,7 @@ Note: This is for TABULAR data schema, not graph schema.
 For graph structure, see src/data/graph/schema.py
 """
 import pandera.polars as pa
-from pandera.polars import Column, Check
+from pandera.polars import Column
 import polars as pl
 from typing import Optional
 import logging
@@ -38,15 +38,11 @@ class RawInsertionsSchema(pa.DataFrameModel):
     is_fraud: bool = pa.Field(nullable=False, description="Fraud label (target variable)")
     
     # === Core Features (High Coverage) ===
-    # These should be present but may have some nulls
     account_created_at: Optional[pl.Datetime] = pa.Field(nullable=True, description="Account creation timestamp")
     
     class Config:
-        # Allow extra columns not defined in schema
         strict = False
-        # Coerce types where possible
         coerce = True
-        # Name for error messages
         name = "RawInsertionsSchema"
 
 
@@ -54,23 +50,17 @@ class RawInsertionsSchema(pa.DataFrameModel):
 # FEATURE SCHEMA (Training Input)
 # =============================================================================
 
-def create_feature_schema(include_graph: bool = True, include_text: bool = True):
+def create_feature_schema(include_graph: bool = True):
     """
     Create a dynamic feature schema based on enabled feature groups.
     
     Args:
         include_graph: Include graph-derived features
-        include_text: Include text features
         
     Returns:
-        Pandera DataFrameModel class for validation
+        Pandera DataFrameSchema for validation
     """
-    from src.models.config.constants import (
-        TIER1_CORE_FEATURES,
-        TIER1_BOOLEAN_FEATURES,
-        TIER2_GRAPH_FEATURES,
-        TEXT_FEATURE_COLUMNS,
-    )
+    from src.models.config.constants import GRAPH_FEATURES, CATEGORICAL_FEATURES
     
     # Build column definitions dynamically
     columns = {
@@ -79,25 +69,13 @@ def create_feature_schema(include_graph: bool = True, include_text: bool = True)
         "is_fraud": Column(bool, nullable=False),
     }
     
-    # Core numerical features
-    for feat in TIER1_CORE_FEATURES:
-        if feat in ["payment_type", "bundle_tier", "offer_type"]:
-            columns[feat] = Column(str, nullable=True)
-        else:
-            columns[feat] = Column(float, nullable=True)
-    
-    # Boolean features
-    for feat in TIER1_BOOLEAN_FEATURES:
-        columns[feat] = Column(bool, nullable=True)
+    # Categorical features
+    for feat in CATEGORICAL_FEATURES:
+        columns[feat] = Column(str, nullable=True)
     
     # Graph features
     if include_graph:
-        for feat in TIER2_GRAPH_FEATURES:
-            columns[feat] = Column(float, nullable=True)
-    
-    # Text features
-    if include_text:
-        for feat in TEXT_FEATURE_COLUMNS:
+        for feat in GRAPH_FEATURES:
             columns[feat] = Column(float, nullable=True)
     
     return pa.DataFrameSchema(columns, strict=False, coerce=True)
@@ -116,11 +94,7 @@ def validate_raw_insertions(df: pl.DataFrame, raise_on_error: bool = False) -> d
         raise_on_error: If True, raise exception on validation failure
         
     Returns:
-        Dictionary with validation results:
-            - valid: bool
-            - errors: list of error messages
-            - warnings: list of warnings
-            - stats: basic statistics
+        Dictionary with validation results
     """
     result = {
         "valid": True,
@@ -156,7 +130,7 @@ def validate_raw_insertions(df: pl.DataFrame, raise_on_error: bool = False) -> d
             result["valid"] = False
             result["errors"].append(f"Column '{col}' has {null_count} null values (should be 0)")
     
-    # Check fraud rate is reasonable (between 0.1% and 50%)
+    # Check fraud rate is reasonable
     fraud_rate = df.select(pl.col("is_fraud").mean()).item()
     result["stats"]["fraud_rate"] = fraud_rate
     if fraud_rate < 0.001:
@@ -174,9 +148,8 @@ def validate_raw_insertions(df: pl.DataFrame, raise_on_error: bool = False) -> d
         raise ValueError(f"Schema validation failed: {result['errors']}")
     
     logger.info(f"Schema validation: {'PASSED' if result['valid'] else 'FAILED'}")
-    if result["warnings"]:
-        for warning in result["warnings"]:
-            logger.warning(warning)
+    for warning in result["warnings"]:
+        logger.warning(warning)
     
     return result
 
@@ -211,4 +184,3 @@ def validate_features(df: pl.DataFrame, expected_features: list[str]) -> dict:
         logger.warning(f"Missing features: {result['missing_features']}")
     
     return result
-

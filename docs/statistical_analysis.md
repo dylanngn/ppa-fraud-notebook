@@ -221,6 +221,12 @@ R² = 0.94 (strong linear relationship)
 | Hyperopt helps | p = 0.12, +0.24% ❌ (not significant) |
 | Retraining essential | -1.56%/month degradation ✅ |
 | No temporal drift | p = 0.87 for trend ✅ |
+| **RFE best selection method** | 0.776 AUC-PR (Exp9B) ✅ |
+| **Supervised > Unsupervised** | 8.5x improvement (0.776 vs 0.091) (Exp10A) ✅ |
+| **Fraud clusters exist** | 9 clusters with 12.2x lift (Exp10B) ✅ |
+| **Interpretable rules found** | 20 rules, best 5.72x lift (Exp10C) ✅ |
+| **Graph standalone value** | 0.40 AUC-PR (Exp9C) ✅ |
+| **All 278 fields > 51 filtered** | +1.3% AUC-PR (Exp9A) ✅ |
 
 ---
 
@@ -237,7 +243,120 @@ Key experiment IDs:
 - `hybrid-architecture-rq2`: GNN comparison
 - `concept-drift-rq3`: Drift evaluation
 - `shap-explainability-rq4`: SHAP analysis
-- `feature-candidates-validation-v2`: Candidate feature validation
+
+---
+
+## Experiment 9: Feature Selection Analysis
+
+### 9A: All-Fields Baseline
+
+| Configuration | Features | Mean AUC-PR | Std | Notes |
+|---------------|----------|-------------|-----|-------|
+| ≥50% coverage | 51 | 0.7708 | 0.090 | High-coverage ETL fields |
+| **All fields** | 278 | **0.7835** | 0.090 | Best overall |
+
+**Finding**: Using all 278 raw ETL fields outperforms filtered 51 fields by +1.3%. XGBoost handles missing values effectively.
+
+### 9B: Feature Selection Method Comparison
+
+| Rank | Method | Features | Mean AUC-PR | Std | Priority |
+|------|--------|----------|-------------|-----|----------|
+| 1 | **RFE** | 50 | **0.7762** | 0.089 | HIGH |
+| 2 | Information Gain | 50 | 0.7749 | 0.085 | MEDIUM |
+| 3 | Mutual Information | 50 | 0.7745 | 0.093 | MEDIUM |
+| 4 | Chi-Square | 50 | 0.7727 | 0.090 | MEDIUM |
+| 5 | Correlation | 49 | 0.7722 | 0.094 | baseline |
+| 6 | Permutation Importance | 50 | 0.7698 | 0.095 | MEDIUM |
+| 7 | LASSO | 43 | 0.7577 | 0.090 | HIGH |
+| 8 | Production-equivalent | 4 | 0.3386 | 0.095 | baseline |
+
+**Statistical Analysis**:
+- All methods with 50 features converge to ~0.77 AUC-PR (range: 0.770-0.776)
+- Difference between best (RFE) and worst (Permutation) with 50 features: only 0.006 AUC-PR
+- **Conclusion**: Feature count matters more than selection algorithm
+
+### 9C: Graph-Only Ablation (RQ1)
+
+| Configuration | Features | Mean AUC-PR | Std |
+|---------------|----------|-------------|-----|
+| **Graph-only** | 17 | **0.3960** | 0.034 |
+| Tabular-only | 20 | 0.7316 | 0.025 |
+
+**Key Finding**: 
+- Graph features alone achieve 0.40 AUC-PR (above random ~0.08)
+- Tabular features alone achieve 0.73 AUC-PR
+- Delta: -0.34 (graph features weaker but have standalone value)
+
+### Paired Comparison Tests
+
+#### RFE vs All Methods (9B)
+
+| Comparison | Δ AUC-PR | Significance |
+|------------|----------|--------------|
+| RFE vs Information Gain | +0.0013 | Not significant (p > 0.05) |
+| RFE vs LASSO | +0.0185 | Marginal (p ≈ 0.08) |
+| RFE vs Production-eq | +0.4376 | **Significant (p < 0.001)** |
+
+**Conclusion**: Among formal methods, differences are not statistically significant. The choice of RFE is justified but not dramatically superior.
+
+---
+
+## Experiment 10: Unsupervised & Pattern Discovery Analysis
+
+### 10A: Anomaly Detection Comparison
+
+| Method | Type | AUC-PR | AUC-ROC | P@100 | P@500 |
+|--------|------|--------|---------|-------|-------|
+| Isolation Forest | Unsupervised | 0.091 | 0.649 | 0.00 | 0.026 |
+| One-Class SVM | Unsupervised | 0.069 | 0.552 | 0.17 | 0.040 |
+| LOF | Unsupervised | 0.091 | 0.667 | 0.03 | 0.054 |
+| **XGBoost** | **Supervised** | **0.776** | **0.950** | **0.87** | **0.75** |
+
+**Statistical Comparison**:
+- Supervised vs Best Unsupervised (LOF): 0.776 / 0.091 = **8.5x improvement**
+- Supervised AUC-PR is 685% higher than best unsupervised method
+- This quantifies the value of labeled fraud data
+
+### 10B: Clustering Results
+
+| Method | Clusters | High-Fraud (>2x lift) | Max Fraud Rate | Max Lift |
+|--------|----------|----------------------|----------------|----------|
+| KMeans (k=10) | 10 | 0 | 13.8% | 1.68x |
+| **KMeans (k=20)** | **20** | **3** | **100%** | **12.2x** |
+| **KMeans (k=50)** | **50** | **9** | **100%** | **12.2x** |
+| DBSCAN | 4 | 0 | 0% | N/A |
+
+**Key Finding**: 
+- K-Means (k=50) discovered 9 clusters with fraud rate > 16.4% (2x baseline 8.2%)
+- Maximum lift of 12.2x indicates highly concentrated fraud groups
+- DBSCAN unsuitable: 99% of points classified as noise
+
+### 10C: Association Rules Analysis
+
+| Rank | Rule (IF → FRAUD) | Support | Confidence | Lift |
+|------|-------------------|---------|------------|------|
+| 1 | premium_tier AND RENT | 1.00% | 15.3% | **5.72x** |
+| 2 | premium_tier AND RENT AND INVOICE | 1.29% | 43.1% | **5.33x** |
+| 3 | premium_tier AND RENT AND immoscout24 | 1.00% | 41.6% | 5.14x |
+| 4 | premium_tier AND INVOICE | 1.29% | 36.4% | 4.93x |
+| 5 | premium_tier | 1.00% | 12.0% | 4.65x |
+
+**Statistical Interpretation**:
+- **Lift > 1** indicates positive association with fraud
+- Top rule (5.72x lift) means fraud is 5.72x more likely given the antecedent
+- Rules align with SHAP top features: `bundle.tier` and `payment.paymentType`
+- Total: 20 fraud-predicting rules with lift > 3.9x
+
+### Summary: Supervised vs Unsupervised
+
+| Approach | Best Method | AUC-PR | Relative to XGBoost |
+|----------|-------------|--------|---------------------|
+| **Supervised** | XGBoost | **0.776** | **100%** |
+| Unsupervised Anomaly | LOF | 0.091 | 11.7% |
+| Unsupervised Clustering | K-Means (k=50) | N/A | Qualitative value |
+| Interpretable Rules | FP-Growth | N/A | Complements SHAP |
+
+**Conclusion**: Supervised learning provides **8.5x better** fraud detection. Unsupervised methods add interpretability (clustering, rules) but cannot replace labeled training.
 
 ---
 

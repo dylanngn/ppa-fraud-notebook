@@ -1,5 +1,7 @@
 """
 Graph feature definitions.
+
+Computes all graph-derived features (basic + advanced) in a single category.
 """
 import polars as pl
 from datetime import datetime
@@ -7,16 +9,22 @@ from typing import Any
 from src.features.registry import FeatureRegistry
 from src.features import generators
 
+
 @FeatureRegistry.register("graph")
 def compute_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
     """
-    Compute basic graph features.
+    Compute ALL graph features (basic + advanced).
+    
+    Generates 17 features:
+    - Basic (12): contact reuse, user behavior, component analysis
+    - Advanced (5): degree, isolation, neighbor overlap, pagerank
     
     Args:
         df: Input DataFrame with raw listing data
         cutoff_date: Temporal cutoff for feature computation
-        config: Reserved for future per-category configuration (currently unused)
+        config: Reserved for future configuration (currently unused)
     """
+    # Basic graph features
     graph_df = generators.graph_features.generate_graph_features(
         output_path=None,
         cutoff_date=cutoff_date
@@ -30,43 +38,16 @@ def compute_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any 
         for c in graph_df.columns
     ])
     
-    return df.join(graph_df, on="insertion_id", how="left")
-
-@FeatureRegistry.register("advanced_graph")
-def compute_advanced_graph_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """
-    Compute advanced graph features.
+    df = df.join(graph_df, on="insertion_id", how="left")
     
-    Args:
-        df: Input DataFrame with raw listing data
-        cutoff_date: Temporal cutoff for feature computation
-        config: Reserved for future per-category configuration (currently unused)
-    """
+    # Advanced graph features
     advanced_df = generators.advanced_graph_features.generate_advanced_features(
         output_path=None,
         cutoff_date=cutoff_date
     )
     if advanced_df is None:
         raise ValueError("Failed to generate advanced graph features")
-        
-    return df.join(advanced_df, on="insertion_id", how="left")
-
-@FeatureRegistry.register("time_weighted")
-def compute_time_weighted_features(df: pl.DataFrame, cutoff_date: datetime, config: Any = None) -> pl.DataFrame:
-    """
-    Compute time-weighted features.
     
-    Args:
-        df: Input DataFrame with raw listing data
-        cutoff_date: Temporal cutoff for feature computation
-        config: Reserved for future per-category configuration (currently unused)
-    """
-    time_df = generators.time_weighted_features.generate_time_weighted_features(
-        output_path=None,
-        cutoff_date=cutoff_date
-    )
-    if time_df is None:
-        raise ValueError("Failed to generate time-weighted features")
-        
-    return df.join(time_df, on="insertion_id", how="left")
-
+    df = df.join(advanced_df, on="insertion_id", how="left")
+    
+    return df

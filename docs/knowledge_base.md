@@ -126,52 +126,42 @@ All 50 boolean indicator fields with their TRUE rates (sorted by frequency):
 
 ---
 
-## 5. Feature Groups & Configuration
+## 5. Feature Configuration (Simplified)
 
-Features are organized into explicit groups for ablation experiments. See `src/models/config/constants.py` for definitions.
+Features are now **auto-selected** from ETL output. See `src/models/config/constants.py` for exclusions.
 
-### Group: `core_numerical` (Always Include)
+### Category: `base` (Auto-Selected)
 
-| Feature | Coverage | Source | Description |
-|---------|----------|--------|-------------|
-| `account_age_days` | 100% | Derived | Days since account creation |
-| `payment_type` | 98% | `bundle.paymentType` | DIRECT vs INVOICE |
-| `bundle_tier` | 97.7% | `bundle.tier` | basic, premium, top |
-| `bundle_period` | 77.25% | `bundle.period` | Duration in days |
-| `log_price` | 80% | Derived | Log-transformed price |
-| `latitude` | 99.4% | `listing.address.geoCoordinates.latitude` | Property latitude |
-| `longitude` | 99.4% | `listing.address.geoCoordinates.longitude` | Property longitude |
-| `offer_type` | 100% | `listing.offerType` | BUY vs RENT |
-| `living_space` | 84.7% | `listing.characteristics.livingSpace` | Square meters |
-| `rooms` | 92.7% | `listing.characteristics.numberOfRooms` | Room count |
+All columns from `raw_insertions.parquet` are included **except**:
+- ID columns: `object_reference`, `owner_id`, `insertion_id`, `user_id`
+- Target/labels: `is_fraud`, `fraud_flag`, `seon_approved`
+- Timestamps: `submission_at`, `first_published_date`, `account_created_at`
+- Hash columns: `*_hash`, `*_hashes`
+- Text: `description_text`
 
-### Group: `boolean_high` (>40% TRUE rate)
+This auto-selection includes:
+- All numerical features (prices, coordinates, living space, rooms, etc.)
+- All boolean indicators (NULL = FALSE semantics)
+- Categorical features (offer_type, bundle_tier, payment_type, etc.)
 
-7 features: `has_balcony`, `has_parking`, `has_nice_view`, `has_garage`, `is_child_friendly`, `is_quiet`, `has_elevator`
+### Category: `graph` (Explicit Computation)
 
-### Group: `boolean_moderate` (20-40% TRUE rate)
+17 graph-derived features computed from edge relationships:
 
-3 features: `has_washing_machine`, `are_pets_allowed`, `is_wheelchair_accessible`
+| Feature | Description |
+|---------|-------------|
+| `contact_email_count` | Listings sharing contact email |
+| `shared_contact_email_count` | Other users with same email |
+| `listing_component_size` | Size of connected component |
+| `listing_pagerank` | PageRank centrality |
+| `listing_degree` | Total edge connections |
+| `degree_total` | Sum of all edge types |
+| `is_isolated` | No graph connections |
+| `unique_identifier_count` | Distinct identifiers used |
+| `neighbor_overlap_score` | Similarity to neighbors |
+| ... | (see `constants.py` for full list) |
 
-### Group: `boolean_low` (<20% TRUE rate)
-
-2 features: `is_old`, `is_new_building`
-
-### Group: `graph_basic`
-
-12 features including: `contact_email_count`, `shared_contact_email_count`, `listing_component_size`, `listing_pagerank`, etc.
-
-### Group: `graph_advanced`
-
-5 features: `degree_total`, `is_isolated`, `unique_identifier_count`, `neighbor_overlap_score`, `avg_neighbor_degree`
-
-### Group: `time_weighted_core`
-
-11 features including: `email_time_spread`, `email_recency_weighted`, `phone_time_spread`, `combined_recency_weighted`, etc.
-
-### Group: `text`
-
-10 features: `description_length`, `description_word_count`, `description_has_url`, etc.
+> **Note**: Experiment 9 validated that auto-selection (all columns) matches manually-curated feature sets in AUC-PR performance, justifying this simplification.
 
 ---
 
@@ -269,19 +259,21 @@ training:
 ## 9. Feature Configuration Design
 
 ```yaml
-include_groups:
-  - core_numerical
-  - boolean_all
-  - graph_all
+# conf/features/auto.yaml (default)
+categories:
+  - base   # Auto-selects all ETL columns (minus exclusions)
+  - graph  # Computes graph-derived features
 ```
 
-### Available Profiles
+### Configuration Approach
 
-| Profile | Groups Included | Use Case |
-|---------|-----------------|----------|
-| `quick` | `core_numerical`, `boolean_high` | Fast iteration |
-| `standard` | `core_numerical`, `boolean_all`, `graph_all` | Balanced |
-| `production` | All core + graph + time_weighted + text | Best performance |
+| Aspect | Design | Rationale |
+|--------|--------|-----------|
+| Tabular features | Auto-select all | Experiment 9 showed no benefit to manual curation |
+| Graph features | Explicit compute | Requires edge data, computed on-demand |
+| Exclusions | Defined in constants.py | IDs, labels, hashes, timestamps |
+
+> This simplified approach eliminates the need for multiple feature profiles while maintaining the same AUC-PR performance.
 
 ---
 
@@ -294,22 +286,18 @@ include_groups:
 | Include `has_elevator` in model | 100% semantic coverage, was incorrectly excluded | 2025-12-01 |
 | Switch to `include_groups` config | Explicit selection prevents silent failures | 2025-12-01 |
 | Add low TRUE rate booleans | Potentially discriminative for fraud detection | 2025-12-01 |
-| Remove interaction features | XGBoost learns these automatically (Exp 10); eliminates dependency ordering issue | 2025-12-01 |
+| Remove interaction features | XGBoost learns these automatically; eliminates dependency ordering issue | 2025-12-01 |
+| Simplify to auto feature selection | Experiment 9 validated that auto-selection matches manual curation | 2025-12-09 |
+| Remove time_weighted & text features | Marginal impact (<0.5% AUC-PR); reduces complexity | 2025-12-09 |
+| Merge graph & advanced_graph | Single `graph` category for all graph-derived features | 2025-12-09 |
 
 ### ⚠️ Technical Debt: Feature Category Ordering
 
-**Status**: Deferred (acceptable for experiment phase)
+**Status**: Resolved
 
-**Context**: The `FeatureRegistry` executes feature categories in the order listed in YAML config. If a category depends on columns from another category, incorrect ordering causes silent failures (returns df unchanged with warning).
+**Context**: The `FeatureRegistry` executes feature categories in the order listed in YAML config.
 
-**Current State**: Safe. Interaction features (the only category with dependencies) were removed. Remaining categories (`base`, `graph`, `advanced_graph`, `time_weighted`, `text`) are independent.
-
-**Future Risk**: If adding new feature categories with dependencies:
-1. Document dependencies in the category's docstring
-2. Consider adding explicit dependency declarations to `FeatureRegistry`
-3. Or: auto-detect and compute dependencies before dependent categories
-
-**Reference**: Code review feedback Issue #11 (2025-12-01)
+**Current State**: Safe. Only two categories remain (`base`, `graph`), which are independent. The `base` category auto-selects all ETL columns, and `graph` computes derived features from edges.
 
 ---
 

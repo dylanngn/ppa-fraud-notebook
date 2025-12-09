@@ -5,7 +5,7 @@ Proves the model consistently outperforms Seon across all conditions.
 
 Success Criterion: Must outperform Seon (AUC-PR > 0.229) in ALL analyses.
 
-Run with: python -m src.experiments.exp7_production_readiness experiment_name=production-readiness features=production
+Run with: python -m src.experiments.exp7_production_readiness experiment_name=production-readiness
 """
 import json
 import logging
@@ -345,7 +345,7 @@ def main(cfg: DictConfig):
     """
     Experiment 7: Production Readiness Validation
     
-    Run with: python -m src.experiments.exp7_production_readiness experiment_name=production-readiness features=production
+    Run with: python -m src.experiments.exp7_production_readiness experiment_name=production-readiness
     """
     logger.info("="*60)
     logger.info("EXPERIMENT 7: PRODUCTION READINESS VALIDATION")

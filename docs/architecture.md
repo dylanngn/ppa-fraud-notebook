@@ -3,7 +3,7 @@
 ## Overview
 
 This project implements a fraud detection system for real estate listings using:
-- **XGBoost** as the primary model with handcrafted features
+- **XGBoost** as the primary model with auto-selected tabular + graph features
 - **GNN Hybrid** as an alternative approach (GraphSAGE/HGT + XGBoost)
 - **Seon** as the production baseline to beat
 
@@ -38,12 +38,7 @@ ppa-fraud-notebook/
 ├── conf/                           # Hydra Configuration
 │   ├── config.yaml                 # Main defaults
 │   ├── data/default.yaml           # Database & ETL settings
-│   ├── features/                   # Feature profiles
-│   │   ├── baseline.yaml           # Default (= production)
-│   │   ├── quick.yaml              # Fast iteration
-│   │   ├── standard.yaml           # Balanced
-│   │   ├── production.yaml         # Best performance
-│   │   ├── ablation.yaml           # Experiment definitions
+│   ├── features/auto.yaml          # Auto tabular + graph features (default)
 │   └── model/xgboost.yaml          # Model hyperparameters
 │
 ├── artifacts/                      # Generated Data (gitignored)
@@ -69,22 +64,19 @@ ppa-fraud-notebook/
 │   │
 │   ├── features/                   # Feature Engineering
 │   │   ├── registry.py             # Feature category registry
-│   │   ├── processor.py            # Feature processor (Hydra-aware)
-│   │   ├── definitions/            # Feature computation (order-independent)
-│   │   │   ├── base.py             # Tabular features
-│   │   │   ├── graph.py            # Graph-derived features
-│   │   │   └── text.py             # Text features
+│   │   ├── processor.py            # Feature processor (auto mode)
+│   │   ├── definitions/            # Feature computation
+│   │   │   ├── base.py             # Tabular features (auto-selected)
+│   │   │   └── graph.py            # Graph-derived features
 │   │   └── generators/             # Feature generators
-│   │       ├── graph_features.py
-│   │       ├── advanced_graph_features.py
-│   │       ├── time_weighted_features.py
-│   │       └── text_features.py
+│   │       ├── graph_features.py   # Basic graph features
+│   │       └── advanced_graph_features.py  # Advanced graph features
 │   │
 │   ├── models/                     # Model Training
 │   │   ├── train.py                # Main entry point (Hydra)
 │   │   ├── registry.py             # MLflow model registry
 │   │   ├── config/
-│   │   │   └── constants.py        # FEATURE_GROUPS definitions
+│   │   │   └── constants.py        # Feature exclusions & graph feature list
 │   │   ├── xgboost/
 │   │   │   ├── trainer.py          # XGBoost accumulating window
 │   │   │   └── utils.py            # Feature validation, constraints
@@ -138,16 +130,16 @@ ppa-fraud-notebook/
 │  Per Window:                                                                │
 │  ┌─────────────┐    ┌─────────────────┐    ┌─────────────┐                 │
 │  │ Raw Data    │───▶│ FeatureProcessor│───▶│ XGBClassifier│                │
-│  │ (Polars)    │    │ (categories,    │    │              │                │
-│  │             │    │  include_groups)│    │              │                │
+│  │ (Polars)    │    │ (auto mode)     │    │              │                │
+│  │             │    │                 │    │              │                │
 │  └─────────────┘    └─────────────────┘    └─────────────┘                 │
 │                              │                     │                        │
 │                              ▼                     ▼                        │
 │                     ┌─────────────────┐   ┌─────────────────┐              │
-│                     │ Feature Groups: │   │ MLflow Logging: │              │
-│                     │ - core_numerical│   │ - Metrics       │              │
-│                     │ - boolean_all   │   │ - Model         │              │
-│                     │ - graph_all     │   │ - Latency       │              │
+│                     │ Categories:     │   │ MLflow Logging: │              │
+│                     │ - base (auto)   │   │ - Metrics       │              │
+│                     │ - graph         │   │ - Model         │              │
+│                     │                 │   │ - Latency       │              │
 │                     └─────────────────┘   └─────────────────┘              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -293,7 +285,7 @@ Hydra logging provides:
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │  defaults:                                                           │   │
 │  │    - data: default        ───▶ conf/data/default.yaml               │   │
-│  │    - features: baseline   ───▶ conf/features/baseline.yaml          │   │
+│  │    - features: auto       ───▶ conf/features/auto.yaml              │   │
 │  │    - model: xgboost       ───▶ conf/model/xgboost.yaml              │   │
 │  │                                                                      │   │
 │  │  experiment_name: "ppa-fraud-detection"                             │   │
@@ -302,26 +294,28 @@ Hydra logging provides:
 │                                                                             │
 │  Override via CLI:                                                          │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  python -m src.models.train features=quick                          │   │
+│  │  python -m src.models.train                                          │   │
 │  │  python -m src.models.train model.params.n_estimators=1000          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Feature Profiles
+### Feature Configuration
 
-Profiles use **include_groups** for explicit feature selection (no exclusions).
+The system uses **auto mode** for feature selection:
 
-| Profile | Include Groups | Use Case |
-|---------|----------------|----------|
-| `quick` | `core_numerical`, `boolean_high` | Fast iteration |
-| `standard` | `core_numerical`, `boolean_all`, `graph_all` | Balanced |
-| `production` | All core + graph + time_weighted + text | Best performance |
-| `baseline` | Same as production | Default |
-| `ablation` | Configurable per experiment | Feature group testing |
+| Category | Behavior | Description |
+|----------|----------|-------------|
+| `base` | Auto-select all columns | All ETL columns except exclusions |
+| `graph` | Explicit computation | Graph-derived features (degree, PageRank, etc.) |
 
-> See `src/models/config/constants.py` for `FEATURE_GROUPS` definitions.
+**Exclusions** (defined in `src/models/config/constants.py`):
+- ID columns: `object_reference`, `owner_id`, `insertion_id`
+- Target/labels: `is_fraud`, `fraud_flag`, `seon_approved`
+- Metadata: `submission_at`, `first_published_date`, hashes
+
+> This eliminates manual feature curation. Experiment 9 validated that auto-selection matches hand-picked performance.
 
 ---
 
@@ -453,8 +447,7 @@ python -m src.data.graph.create_artifacts      # Create graph → artifacts/node
 python -m src.utils.evaluate_seon              # Compute Seon metrics → artifacts/seon_baseline.json
 
 # 2. Model Training
-python -m src.models.train features=production # XGBoost with production features
-python -m src.models.train features=quick      # XGBoost with core features (fast)
+python -m src.models.train                     # XGBoost with auto features (default)
 python -m src.models.gnn.sage                  # GNN hybrid (SAGE)
 python -m src.models.gnn.hgt                   # GNN hybrid (HGT)
 
@@ -474,7 +467,7 @@ python -m src.utils.mlflow_model_comparison compare \
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Config (Input)** | Hydra | Define what to run, composable profiles |
+| **Config (Input)** | Hydra | Define what to run, simple auto config |
 | **Logging** | Hydra + colorlog | Colored console + auto log files |
 | **Tracking (Output)** | MLflow | Record results, model registry, comparison |
 | ETL | Polars | High-performance data processing |
