@@ -35,30 +35,28 @@ logger = logging.getLogger(__name__)
 
 def load_seon_baseline() -> Dict[str, Any]:
     """
-    Load Seon baseline performance from pre-computed results.
+    Load Seon baseline performance from results registry.
     
     Returns:
         Dictionary with Seon metrics
     """
-    try:
-        # Try to load from saved results
-        seon_path = Path("artifacts/seon_baseline.csv")
-        if seon_path.exists():
-            df = pd.read_csv(seon_path)
-            return {
-                "mean_auc_pr": df["auc_pr"].mean() if "auc_pr" in df.columns else None,
-                "mean_precision": df["precision"].mean() if "precision" in df.columns else None,
-                "mean_recall": df["recall"].mean() if "recall" in df.columns else None,
-            }
-    except Exception as e:
-        logger.warning(f"Could not load Seon baseline: {e}")
+    from src.experiments.results import load_result, ExperimentID
+    
+    result = load_result(ExperimentID.SEON_BASELINE)
+    if result and result.get("metrics"):
+        metrics = result["metrics"]
+        return {
+            "mean_auc_pr": metrics.get("auc_pr"),
+            "mean_precision": metrics.get("precision"),
+            "mean_recall": metrics.get("recall"),
+        }
     
     # Return placeholder if not available
     return {
         "mean_auc_pr": None,
         "mean_precision": None,
         "mean_recall": None,
-        "note": "Seon baseline not available - manual comparison needed"
+        "note": "Seon baseline not available - run evaluate_seon first"
     }
 
 
@@ -346,6 +344,17 @@ def main(cfg: DictConfig):
         print("="*60)
         print(operating_points.to_string(index=False))
         print("\n")
+        
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        save_result(ExperimentID.EXP6_BUSINESS_VALUE, {
+            "auc_pr": metrics["auc_pr"],
+            "auc_roc": metrics["auc_roc"],
+            "p_at_100": metrics["p@100"],
+            "p_at_500": metrics.get("p@500"),
+            "seon_auc_pr": seon_baseline.get("mean_auc_pr"),
+            "operating_points": operating_points.to_dict(orient="records"),
+        })
         
         logger.info("Business value evaluation complete!")
         logger.info(f"Outputs saved to: {output_dir}")

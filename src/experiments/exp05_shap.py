@@ -413,6 +413,15 @@ def main(cfg: DictConfig):
         logger.info("\nTop 10 Features by SHAP Importance:")
         for i, feat in enumerate(results["feature_importance"][:10]):
             logger.info(f"  {i+1}. {feat['feature']}: {feat['importance']:.4f}")
+        
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        save_result(ExperimentID.EXP5_SHAP, {
+            "top_features": results["feature_importance"][:20],
+            "n_features": results["n_features"],
+            "n_samples_analyzed": results["n_samples_analyzed"],
+            "n_case_studies": len(results["case_studies"]),
+        })
     
     return results
 

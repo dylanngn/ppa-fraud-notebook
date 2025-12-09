@@ -241,13 +241,20 @@ def run_anomaly_detection(config: DictConfig) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"LOF failed: {e}")
     
-    # 4. Add XGBoost supervised baseline for comparison
+    # 4. Add XGBoost supervised baseline for comparison (load from results registry)
+    from src.experiments.results import get_metric, ExperimentID
+    
+    baseline_auc_pr = get_metric(ExperimentID.XGBOOST_BASELINE, "auc_pr", default=0.784)
+    baseline_auc_roc = get_metric(ExperimentID.XGBOOST_BASELINE, "auc_roc", default=0.95)
+    baseline_p100 = get_metric(ExperimentID.XGBOOST_BASELINE, "p_at_100", default=0.87)
+    baseline_p500 = get_metric(ExperimentID.XGBOOST_BASELINE, "p_at_500", default=0.75)
+    
     results.append({
         'method': 'XGBoost (supervised)',
-        'auc_pr': 0.776,  # From Exp9 results
-        'auc_roc': 0.95,
-        'p_at_100': 0.87,
-        'p_at_500': 0.75,
+        'auc_pr': baseline_auc_pr,
+        'auc_roc': baseline_auc_roc,
+        'p_at_100': baseline_p100,
+        'p_at_500': baseline_p500,
         'type': 'supervised'
     })
     
@@ -345,6 +352,17 @@ def main(cfg: DictConfig):
         
         logger.info(f"\nTotal time: {elapsed:.1f}s")
         logger.info(f"Results saved to: {OUTPUT_DIR}")
+        
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        
+        best_unsupervised_row = results[results['type'] == 'unsupervised'].sort_values('auc_pr', ascending=False).iloc[0]
+        save_result(ExperimentID.EXP10A_ANOMALY, {
+            "best_method": best_unsupervised_row['method'],
+            "best_auc_pr": float(best_unsupervised_row['auc_pr']),
+            "best_auc_roc": float(best_unsupervised_row['auc_roc']),
+            "all_methods": results.to_dict(orient='records')
+        })
         
         # Key finding
         best_unsupervised = results[results['type'] == 'unsupervised']['auc_pr'].max()

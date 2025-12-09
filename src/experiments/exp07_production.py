@@ -24,13 +24,14 @@ from omegaconf import DictConfig
 from scipy import stats
 
 from src.models.utils.common import setup_mlflow
+from src.experiments.results import get_metric, ExperimentID
 
 logger = logging.getLogger(__name__)
 
-# Seon baseline (from artifacts/seon_baseline.json)
-SEON_AUC_PR = 0.2287
-SEON_P100 = 0.2681
-SEON_PRECISION = 0.2677
+# Seon baseline (loaded from results registry)
+SEON_AUC_PR = get_metric(ExperimentID.SEON_BASELINE, "auc_pr", default=0.2287)
+SEON_P100 = get_metric(ExperimentID.SEON_BASELINE, "p_at_100", default=0.2681)
+SEON_PRECISION = get_metric(ExperimentID.SEON_BASELINE, "precision", default=0.2677)
 
 
 def load_window_results(experiment_name: str = "xgboost-hyperopt") -> pd.DataFrame:
@@ -395,6 +396,18 @@ def main(cfg: DictConfig):
         
         # Print report
         print("\n" + report)
+        
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        save_result(ExperimentID.EXP7_PRODUCTION, {
+            "all_criteria_pass": all_pass,
+            "mean_auc_pr": consistency['mean_auc_pr'],
+            "min_auc_pr": consistency['min_auc_pr'],
+            "max_auc_pr": consistency['max_auc_pr'],
+            "ci_95_lower": consistency['ci_95_lower'],
+            "p5_auc_pr": consistency['p5_auc_pr'],
+            "seon_baseline": SEON_AUC_PR,
+        })
         
         logger.info(f"\nOutputs saved to: {output_dir}")
         

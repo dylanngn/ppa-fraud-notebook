@@ -68,18 +68,20 @@ python -m src.models.hyperopt.xgboost experiment_name=xgboost-hyperopt \
 
 ### Experiment Scripts
 
-| Script | Command | RQ |
-|--------|---------|-----|
-| `exp3_hyperopt.py` | `python -m src.experiments.exp3_hyperopt` | Production |
-| `exp4_concept_drift.py` | `python -m src.experiments.exp4_concept_drift` | RQ3 |
-| `exp5_shap.py` | `python -m src.experiments.exp5_shap` | RQ4 |
-| `exp6_business_value.py` | `python -m src.experiments.exp6_business_value` | Production |
-| `exp7_production_readiness.py` | `python -m src.experiments.exp7_production_readiness` | Production |
-| `exp8_drift_poc.py` | `python -m src.experiments.exp8_drift_poc` | Monitoring |
-| `exp9_feature_selection.py` | `python -m src.experiments.exp9_feature_selection` | RQ1 ✅ |
-| `exp10_anomaly_detection.py` | `python -m src.experiments.exp10_anomaly_detection` | Methodology ✅ |
-| `exp10_clustering.py` | `python -m src.experiments.exp10_clustering` | RQ1 ✅ |
-| `exp10_association_rules.py` | `python -m src.experiments.exp10_association_rules` | RQ4 ✅ |
+| Script | Command | RQ | Status |
+|--------|---------|-----|--------|
+| `exp01_graph_value.py` | `python -m src.experiments.exp01_graph_value` | RQ1 | ✅ Ready |
+| `exp02_architecture.py` | `python -m src.experiments.exp02_architecture` | RQ2 | ✅ Ready |
+| `exp03_hyperopt.py` | `python -m src.experiments.exp03_hyperopt` | Production | 🔄 Pending |
+| `exp04_concept_drift.py` | `python -m src.experiments.exp04_concept_drift` | RQ3 | 🔄 Pending |
+| `exp05_shap.py` | `python -m src.experiments.exp05_shap` | RQ4 | 🔄 Pending |
+| `exp06_business_value.py` | `python -m src.experiments.exp06_business_value` | Production | 🔄 Pending |
+| `exp07_production.py` | `python -m src.experiments.exp07_production` | Production | 🔄 Pending |
+| `exp08_drift.py` | `python -m src.experiments.exp08_drift` | Monitoring | 🔄 Pending |
+| `exp09_feature_selection.py` | `python -m src.experiments.exp09_feature_selection` | RQ1 | ✅ Ready |
+| `exp10a_anomaly.py` | `python -m src.experiments.exp10a_anomaly` | Methodology | 🔄 Pending |
+| `exp10b_clustering.py` | `python -m src.experiments.exp10b_clustering` | RQ1 | 🔄 Pending |
+| `exp10c_association.py` | `python -m src.experiments.exp10c_association` | RQ4 | 🔄 Pending |
 
 ### MLflow Experiment Naming
 
@@ -124,8 +126,10 @@ python -m src.utils.mlflow_model_comparison drift \
 
 **Date**: 2025-12-01 (initial), 2025-12-09 (validated by Exp 9)  
 **Objective**: Demonstrate that graph-derived features add significant value to fraud detection  
-**Status**: ✅ COMPLETED  
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)  
 **Answers**: RQ1 (novel relational indicators)
+
+> ⚠️ **Re-run Required**: Architecture changed to auto feature selection. Previous results used deprecated feature tiers.
 
 ### Research Question
 
@@ -178,8 +182,10 @@ K-Means clustering on graph embeddings discovered:
 
 **Date**: 2025-12-02  
 **Objective**: Compare hybrid GNN-XGBoost architecture against alternatives  
-**Status**: ✅ COMPLETED  
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)  
 **Answers**: RQ2 (hybrid architecture design)
+
+> ⚠️ **Re-run Required**: graph_builder.py updated to use raw ETL column names. GNN models need retraining.
 
 ### Research Question
 
@@ -288,7 +294,9 @@ Fixed by loading `mappings.pkl` instead of recreating mapping from dataframe.
 
 **Date**: 2025-12-02  
 **Objective**: Optimize XGBoost hyperparameters for fraud detection  
-**Status**: ✅ COMPLETED
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
+
+> ⚠️ **Re-run Required**: Feature set changed to auto mode. Hyperparameters need re-optimization.
 
 ### Methodology
 
@@ -386,10 +394,12 @@ python -m src.models.train experiment_name=xgboost-hyperopt
 
 ## Experiment 4: Concept Drift & Retraining Evaluation (RQ3)
 
-**Date**: 2025-12-02  
-**Objective**: Validate that periodic retraining mitigates concept drift  
-**Status**: ✅ COMPLETED  
+**Date**: 2025-12-02
+**Objective**: Validate that periodic retraining mitigates concept drift
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
 **Answers**: RQ3 (periodic retraining effectiveness)
+
+> ⚠️ **Re-run Required**: Feature pipeline changed. Drift analysis needs fresh baseline.
 
 ### Research Question
 
@@ -487,10 +497,12 @@ python -m src.models.train
 
 ## Experiment 5: Explainability Analysis (RQ4)
 
-**Date**: 2025-12-02  
-**Objective**: Generate actionable insights using SHAP  
-**Status**: ✅ COMPLETED  
+**Date**: 2025-12-02
+**Objective**: Generate actionable insights using SHAP
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
 **Answers**: RQ4 (XAI for actionable insights)
+
+> ⚠️ **Re-run Required**: Feature set changed. SHAP analysis needs recomputation with new feature names.
 
 ### Run Command
 
@@ -614,9 +626,11 @@ python -m src.experiments.exp5_shap experiment_name=shap-explainability-rq4
 
 ## Experiment 6: Business Value Evaluation
 
-**Date**: 2025-12-03  
-**Objective**: Answer practical business questions before production  
-**Status**: ✅ COMPLETED
+**Date**: 2025-12-03
+**Objective**: Answer practical business questions before production
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
+
+> ⚠️ **Re-run Required**: Depends on new XGBoost training results.
 
 ### Context
 
@@ -703,10 +717,12 @@ At the same review budget (Top 100):
 
 ## Experiment 7: Production Readiness Validation
 
-**Date**: 2025-12-03  
-**Objective**: Prove the model consistently outperforms Seon across all conditions  
-**Status**: ✅ COMPLETED - PRODUCTION READY  
-**Prerequisite**: Experiment 6 GO decision ✅
+**Date**: 2025-12-03
+**Objective**: Prove the model consistently outperforms Seon across all conditions
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
+**Prerequisite**: Experiment 6 GO decision
+
+> ⚠️ **Re-run Required**: Depends on Exp3 hyperopt and Exp6 results.
 
 ### Success Criterion
 
@@ -838,9 +854,11 @@ python -m src.experiments.exp7_production_readiness experiment_name=production-r
 
 ## Experiment 8: Feature Evolution & Monitoring
 
-**Date**: 2025-12-03  
+**Date**: 2025-12-03
 **Objective**: Detect emerging fraud patterns
-**Status**: ✅ COMPLETED (8A, 8B, 8C all done)
+**Status**: 🔄 PENDING RE-RUN (after 2025-12-09 architecture simplification)
+
+> ⚠️ **Re-run Required**: Feature names changed. Monitoring needs reconfiguration.
 
 ### Research Question
 
@@ -962,222 +980,75 @@ Analyzed ALL 292 fields from `raw_insertions.parquet`:
 
 ---
 
-## Experiment 9: Feature Selection Methodology (Supervisor Feedback)
+## Experiment 9: Feature Selection Validation
 
-**Date**: 2025-12-09  
-**Objective**: Provide statistical justification for feature selection methodology  
-**Status**: ✅ COMPLETED  
-**Addresses**: HIGH priority feedback (Section 4), MEDIUM priority RQ1 gap (Section 3.1)
+**Date**: 2025-12-09 (original), 2025-12-09 (simplified)  
+**Objective**: Validate the simplified feature architecture  
+**Status**: 🔄 PENDING RE-RUN  
+**Addresses**: HIGH priority feedback (Section 4), RQ1 (graph feature value)
 
-### Research Gap
+### Simplified Approach (Post-Architecture Change)
 
-Current feature selection is **ad-hoc** (coverage + domain knowledge + experimentation):
-- 127 fields with ≥50% coverage available
-- Only 54 features currently used in production
-- No formal feature selection algorithm applied
-- Arbitrary thresholds (correlation > 0.1, coverage > 50%)
+After the 2025-12-09 architecture simplification, Exp9 now validates:
 
-**Key Issue**: High-value fields are ignored without statistical justification:
+1. **Full auto mode** - All tabular + graph features
+2. **Tabular-only mode** - No graph features  
+3. **Graph-only mode** - Only graph-derived features
 
-| Field | Correlation | Coverage | Status |
-|-------|-------------|----------|--------|
-| `rent.interval` | **0.374** | 82% | ❌ Not used |
-| `platforms` | **0.284** | 100% | ❌ Not used |
-| `billing.language` | **0.263** | 98% | ❌ Not used |
-| `listing_component_size` | 0.262 | Computed | ✅ Used |
-| `shared_contact_email_count` | 0.150 | Computed | ✅ Used |
-
-### Sub-Experiments
-
-#### 9A: All-Fields Baseline
-
-**Objective**: Test if using all available fields improves or degrades performance
+### Methodology
 
 ```bash
-python -m src.experiments.exp9_feature_selection \
-  +exp9.method=all_fields \
-  experiment_name=feature-selection-exp9
+python -m src.experiments.exp9_feature_selection
 ```
 
-| Configuration | Features | Description |
-|---------------|----------|-------------|
-| `all_127_fields` | ~127 | All fields with ≥50% coverage |
-| `all_292_fields` | ~292 | ALL fields (XGBoost handles missing natively) |
+### Expected Results
 
-**Key Question**: Does using all 292 fields (with missing values) improve or hurt performance?
-- If ALL fields > 127 fields: Low-coverage fields contain useful signal
-- If ALL fields < 127 fields: Noise/overfitting from sparse features
-- If similar: Coverage threshold doesn't matter much
+| Mode | Features | Description |
+|------|----------|-------------|
+| `full` | ~280+ | Auto tabular + graph features |
+| `tabular_only` | ~260+ | All tabular, no graph |
+| `graph_only` | 17 | Only GRAPH_FEATURES from constants.py |
 
-#### 9B: Algorithmic Selection Comparison
+### Key Questions
 
-**Objective**: Compare ALL formal feature selection methods from supervisor feedback
+1. **Graph contribution**: Does `full` > `tabular_only`?
+2. **Graph standalone value**: Is `graph_only` > random baseline?
+3. **Architecture validation**: Does auto mode achieve competitive AUC-PR?
 
-```bash
-python -m src.experiments.exp9_feature_selection \
-  +exp9.method=comparison \
-  experiment_name=feature-selection-exp9
-```
+### Historical Context
 
-| Method | Priority | Implementation | Description |
-|--------|----------|----------------|-------------|
-| **Production (manual)** | BASELINE | Current 54 features | Baseline for comparison |
-| **RFE (XGBoost)** | 🔴 HIGH | `sklearn.feature_selection.RFE` | Recursive Feature Elimination |
-| **LASSO** | 🔴 HIGH | `sklearn.linear_model.LassoCV` | L1 regularization for sparse selection |
-| **Information Gain** | 🟡 MEDIUM | `sklearn.feature_selection.f_classif` | ANOVA F-score (proxy for info gain) |
-| **Chi-Square** | 🟡 MEDIUM | `sklearn.feature_selection.chi2` | Chi-square test for independence |
-| **Mutual Information** | 🟡 MEDIUM | `sklearn.feature_selection.mutual_info_classif` | Non-linear relationships |
-| **Permutation Importance** | 🟡 MEDIUM | `sklearn.inspection.permutation_importance` | Model-agnostic importance |
-| **Correlation** | BASELINE | Top-k by `|corr(feature, is_fraud)|` | Simple, interpretable |
+The original Exp9 compared 8 feature selection methods (RFE, LASSO, etc.) and found:
+- Auto selection ≈ manual curation in performance
+- This justified adopting auto mode as the default
 
-**All methods from supervisor feedback Section 2.4 and 4.2 are now covered.**
-
-**Implementation**:
-
-```python
-# src/experiments/exp9_feature_selection.py
-from sklearn.feature_selection import RFE, SelectFromModel, mutual_info_classif
-from sklearn.linear_model import LassoCV
-
-def exp9_feature_selection():
-    """Compare feature selection methods."""
-    
-    # Load all 127 fields with ≥50% coverage
-    all_features = get_all_available_features()  # From field_audit
-    
-    methods = {
-        "all_127_fields": {
-            "features": all_features,
-            "description": "All fields with ≥50% coverage"
-        },
-        "production_manual_54": {
-            "features": PRODUCTION_PROFILE_FEATURES,
-            "description": "Current handpicked features"
-        },
-        "rfe_top_50": {
-            "features": rfe_select(all_features, n=50),
-            "description": "Recursive Feature Elimination"
-        },
-        "lasso_selected": {
-            "features": lasso_select(all_features),
-            "description": "LASSO non-zero coefficients"
-        },
-        "correlation_top_50": {
-            "features": correlation_select(all_features, n=50),
-            "description": "Top 50 by fraud correlation"
-        },
-        "mutual_info_top_50": {
-            "features": mutual_info_select(all_features, n=50),
-            "description": "Top 50 by mutual information"
-        },
-    }
-    
-    # Train accumulating window for each, log to MLflow
-    for name, config in methods.items():
-        metrics = train_and_evaluate(config['features'])
-        mlflow.log_metrics({...})
-```
-
-**Results Table (Completed 2025-12-09)**:
-
-| Method | Priority | Features | Mean AUC-PR | Std | Notes |
-|--------|----------|----------|-------------|-----|-------|
-| All 51 fields (≥50% cov) | 9A | 51 | 0.7708 | 0.090 | High-coverage ETL fields |
-| **All 278 fields** | 9A | 278 | **0.7835** | 0.090 | 🥇 Best overall |
-| **RFE top-50** | 🔴 HIGH | 50 | **0.7762** | 0.089 | 🥇 Best selection method |
-| Information Gain top-50 | 🟡 MEDIUM | 50 | 0.7749 | 0.085 | Close second |
-| Mutual Info top-50 | 🟡 MEDIUM | 50 | 0.7745 | 0.093 | |
-| Chi-Square top-50 | 🟡 MEDIUM | 50 | 0.7727 | 0.090 | |
-| Correlation top-50 | BASELINE | 49 | 0.7722 | 0.094 | |
-| Permutation Importance | 🟡 MEDIUM | 50 | 0.7698 | 0.095 | |
-| LASSO selected | 🔴 HIGH | 43 | 0.7577 | 0.090 | More conservative |
-| Production-equivalent | BASELINE | 4 | 0.3386 | 0.095 | Only 4 raw field matches |
-
-#### 9C: Graph-Only Ablation (RQ1 Gap)
-
-**Objective**: Isolate graph feature contribution by testing graph features alone
-
-**Gap from Supervisor Feedback (Section 3.1)**:
-> "Your Experiment 1 shows graph features add +3.9% AUC-PR, but you compare 'base + graph' vs 'base only'. Need isolated ablation."
-
-```bash
-python -m src.experiments.exp9_feature_selection \
-  +exp9.method=graph_only \
-  experiment_name=feature-selection-exp9
-```
-
-**Results Table for RQ1 (Completed 2025-12-09)**:
-
-| Configuration | Features | AUC-PR | Delta |
-|---------------|----------|--------|-------|
-| Tabular only | 20 tabular features | **0.7316** | baseline |
-| **Graph only** | 17 graph features | **0.3960** | -0.336 |
-| Tabular + Graph | production | ~0.78 | +0.05 |
-
-**Key Finding**: Graph features have standalone predictive value (0.40 > random), but tabular features are stronger. The hybrid approach is justified as graph features complement tabular.
-
-**Implementation**:
-
-```python
-# Graph-only ablation
-graph_only_features = GRAPH_FEATURES  # 17 features from constants.py
-metrics = train_and_evaluate(graph_only_features)
-```
-
-### Success Criteria
-
-| Criterion | Target | Result | Status |
-|-----------|--------|--------|--------|
-| Identify best selection method | Method with highest Mean AUC-PR | **RFE (0.776)** | ✅ |
-| Document feature overlap | % overlap between methods | See CSV | ✅ |
-| Graph-only baseline | Graph AUC-PR > 0.40 | **0.396** (~0.40) | ✅ |
-| Explain high-correlation unused fields | Document why `rent.interval` (0.37) isn't used | Raw ETL fields differ from processed | ✅ |
-
-### Results Summary
-
-**9A Findings**:
-- Using all 278 raw ETL fields (0.784 AUC-PR) slightly outperforms filtered 51 fields (0.771)
-- XGBoost handles missing values well - no need for strict coverage filtering
-- Raw ETL field names differ from processed feature names (e.g., `listing.characteristics.numberOfRooms` vs `rooms`)
-
-**9B Findings**:
-- **RFE is the best feature selection method** (0.776 AUC-PR) - validates supervisor's HIGH priority
-- All methods with 50 features converge to ~0.77 AUC-PR
-- LASSO is more conservative (43 features) with slightly lower performance
-- The "production-equivalent" baseline only matched 4 raw field names, explaining poor score
-
-**9C Findings**:
-- Graph features alone achieve **0.396 AUC-PR** - confirms standalone predictive value
-- Tabular features alone achieve **0.732 AUC-PR** - stronger baseline
-- Hybrid approach justified: graph features complement tabular (+5% when combined)
-
-**Key Insight**: The thesis should note that feature selection method matters less than feature count. With 50 features, most methods perform similarly (~0.77). The choice of RFE is statistically justified but not dramatically superior.
+The simplified script validates this by showing that the new architecture performs well.
 
 ### Deliverables
 
-- [x] `src/experiments/exp9_feature_selection.py` - Experiment script
-- [x] `artifacts/feature_selection/method_comparison.csv` - Results table
-- [x] `artifacts/feature_selection/selection_results.json` - Full results
-- [x] Update `experiment_journal.md` with results and conclusion
-- [x] Update `statistical_analysis.md` with feature selection statistics
-- [x] `artifacts/feature_selection/exp9_complete_comparison.png` - Visualization
+- [x] `src/experiments/exp9_feature_selection.py` - Experiment script (simplified)
+- [ ] `artifacts/feature_selection/comparison_results.csv` - Results table (after re-run)
+- [ ] `artifacts/feature_selection/ablation_comparison.png` - Visualization (after re-run)
+- [x] `notebooks/experiment9_feature_selection.ipynb` - Analysis notebook
 
-### Estimated Effort
+### Previous Results (Pre-Simplification, for Reference)
 
-| Sub-experiment | Effort | Priority |
-|----------------|--------|----------|
-| 9A: All-fields baseline | 0.5 days | HIGH |
-| 9B: Algorithmic comparison | 1 day | HIGH |
-| 9C: Graph-only ablation | 0.5 days | HIGH (RQ1 gap) |
+The original Exp9 found:
+- All 278 raw fields: **0.784 AUC-PR** (best)
+- RFE top-50: 0.776 AUC-PR (best selection method)
+- Graph-only: 0.396 AUC-PR (standalone value confirmed)
+
+These results justified the architecture simplification to auto mode.
 
 ---
 
 ## Experiment 10: Unsupervised & Pattern Discovery (Supervisor Feedback)
 
-**Date**: 2025-12-09  
-**Objective**: Address missing unsupervised methods and discover interpretable fraud patterns  
-**Status**: ✅ COMPLETED  
+**Date**: 2025-12-09
+**Objective**: Address missing unsupervised methods and discover interpretable fraud patterns
+**Status**: 🔄 PENDING RE-RUN (uses raw_insertions.parquet, should work but needs verification)
 **Addresses**: HIGH priority (Section 2.1), MEDIUM priority (Sections 2.2, 2.3)
+
+> ⚠️ **Re-run Note**: Scripts use `raw_insertions.parquet` directly. Should be compatible with new architecture but needs verification.
 
 ### Research Gap
 
@@ -1548,29 +1419,31 @@ def exp10c_association_rules():
 ### Completed Experiments by Research Question
 
 #### RQ1: Novel Relational Indicators
-- [x] **Experiment 1**: Graph feature value (+5% AUC-PR) ✅
-- [x] **Experiment 9C**: Graph-only ablation (0.396 AUC-PR standalone) ✅
-- [x] **Experiment 10B**: Fraud ring discovery (9 high-fraud clusters) ✅
+- [ ] **Experiment 1**: Graph feature value - 🔄 PENDING RE-RUN
+- [ ] **Experiment 9C**: Graph-only ablation - 🔄 PENDING RE-RUN
+- [ ] **Experiment 10B**: Fraud ring discovery - 🔄 PENDING RE-RUN
 
 #### RQ2: Hybrid Architecture Design
-- [x] **Experiment 2**: SAGE (+1.67%) vs HGT (-0.24%) vs handcrafted (+2.9%) ✅
+- [ ] **Experiment 2**: SAGE vs HGT vs handcrafted - 🔄 PENDING RE-RUN
 
 #### RQ3: Concept Drift Mitigation
-- [x] **Experiment 4**: Accumulating window prevents -1.56%/month degradation ✅
+- [ ] **Experiment 4**: Accumulating window evaluation - 🔄 PENDING RE-RUN
 
 #### RQ4: Explainable AI
-- [x] **Experiment 5**: SHAP analysis + analyst decision rules ✅
-- [x] **Experiment 10C**: Association rules (5.72x lift for interpretable patterns) ✅
+- [ ] **Experiment 5**: SHAP analysis - 🔄 PENDING RE-RUN
+- [ ] **Experiment 10C**: Association rules - 🔄 PENDING RE-RUN
 
 #### Production Readiness
-- [x] **Experiment 3**: Hyperparameter optimization ✅
-- [x] **Experiment 6**: Business value (+188% vs Seon) ✅ GO DECISION
-- [x] **Experiment 7**: Production validation ✅ PRODUCTION READY
-- [x] **Experiment 8**: Drift monitoring (no significant drift) ✅
+- [ ] **Experiment 3**: Hyperparameter optimization - 🔄 PENDING RE-RUN
+- [ ] **Experiment 6**: Business value - 🔄 PENDING RE-RUN
+- [ ] **Experiment 7**: Production validation - 🔄 PENDING RE-RUN
+- [ ] **Experiment 8**: Drift monitoring - 🔄 PENDING RE-RUN
 
 #### Methodology Validation (Supervisor Feedback)
-- [x] **Experiment 9**: Feature selection (auto ≈ manual, RFE best method) ✅
-- [x] **Experiment 10A**: Unsupervised comparison (8.5x gap vs supervised) ✅
+- [ ] **Experiment 9**: Feature selection - 🔄 PENDING RE-RUN
+- [ ] **Experiment 10A**: Unsupervised comparison - 🔄 PENDING RE-RUN
+
+> **Note**: All experiments marked PENDING RE-RUN after 2025-12-09 architecture simplification. Previous results used deprecated feature tiers and column naming.
 
 ### Success Metrics
 
@@ -1622,20 +1495,21 @@ def exp10c_association_rules():
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| Feature selection formally compared | ✅ Done | Exp 9: 8 methods, RFE best |
-| Unsupervised methods tested | ✅ Done | Exp 10A: 8.5x gap vs supervised |
-| "Hybrid" terminology clarified | ✅ Done | Exp 2: handcrafted > GNN embeddings |
-| All 4 RQs have explicit experiments | ✅ Done | See Roadmap |
-| Graph-only ablation | ✅ Done | Exp 9C: 0.396 AUC-PR |
-| Association rules for interpretability | ✅ Done | Exp 10C: 5.72x lift |
-| Clustering for fraud rings | ✅ Done | Exp 10B: 9 clusters |
+| Feature selection formally compared | 🔄 Re-run needed | Exp 9: scripts ready |
+| Unsupervised methods tested | 🔄 Re-run needed | Exp 10A: scripts ready |
+| "Hybrid" terminology clarified | 🔄 Re-run needed | Exp 2: scripts ready |
+| All 4 RQs have explicit experiments | 🔄 Re-run needed | See Roadmap |
+| Graph-only ablation | 🔄 Re-run needed | Exp 9C: needs fresh run |
+| Association rules for interpretability | 🔄 Re-run needed | Exp 10C: scripts ready |
+| Clustering for fraud rings | 🔄 Re-run needed | Exp 10B: scripts ready |
 
 ### Documentation
 
 - [x] `experiment_journal.md` restructured ✅
 - [x] `architecture.md` updated (auto mode) ✅
 - [x] `knowledge_base.md` updated ✅
-- [x] `statistical_analysis.md` includes feature selection stats ✅
+- [x] `dataflow.md` created ✅
+- [ ] `statistical_analysis.md` needs update after re-runs
 
 ### Reproducibility
 
@@ -1643,6 +1517,7 @@ def exp10c_association_rules():
 - [x] Random seeds set for all experiments ✅
 - [x] `requirements.txt` up to date ✅
 - [x] Feature pipeline simplified (auto mode) ✅
+- [x] Results registry created (`src/experiments/results.py`) ✅
 
 ---
 

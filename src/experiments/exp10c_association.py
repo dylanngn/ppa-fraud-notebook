@@ -290,11 +290,27 @@ def main(cfg: DictConfig):
         
         logger.info(f"\nTotal time: {elapsed:.1f}s")
         
-        # Key finding
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        
         if len(fraud_rules) > 0:
             best_rule = fraud_rules.iloc[0]
+            save_result(ExperimentID.EXP10C_ASSOCIATION, {
+                "n_fraud_rules": len(fraud_rules),
+                "best_rule_antecedent": best_rule['antecedent_str'],
+                "best_rule_confidence": float(best_rule['confidence']),
+                "best_rule_lift": float(best_rule['lift']),
+                "top_rules": fraud_rules.head(10).to_dict(orient='records')
+            })
+            
+            # Key finding
             logger.info(f"\n🔑 Best Rule: IF {best_rule['antecedent_str']}")
             logger.info(f"   THEN FRAUD with {best_rule['confidence']*100:.1f}% confidence ({best_rule['lift']:.1f}x lift)")
+        else:
+            save_result(ExperimentID.EXP10C_ASSOCIATION, {
+                "n_fraud_rules": 0,
+                "note": "No fraud rules found with given thresholds"
+            })
     
     return fraud_rules
 

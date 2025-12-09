@@ -345,6 +345,17 @@ def main(cfg: DictConfig):
         
         logger.info(f"\nTotal time: {elapsed:.1f}s")
         
+        # Save to results registry
+        from src.experiments.results import save_result, ExperimentID
+        
+        best_method_row = summary_df.sort_values('max_fraud_lift', ascending=False).iloc[0]
+        save_result(ExperimentID.EXP10B_CLUSTERING, {
+            "best_method": best_method_row['method'],
+            "best_max_fraud_lift": float(best_method_row['max_fraud_lift']),
+            "n_high_fraud_clusters": len(high_fraud),
+            "methods_summary": summary_df.to_dict(orient='records')
+        })
+        
         # Key finding
         if len(high_fraud) > 0:
             best_lift = high_fraud['fraud_lift'].max()
