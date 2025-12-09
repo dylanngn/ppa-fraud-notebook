@@ -43,7 +43,7 @@ ppa-fraud-notebook/
 │   │   ├── quick.yaml              # Fast iteration
 │   │   ├── standard.yaml           # Balanced
 │   │   ├── production.yaml         # Best performance
-│   │   └── ablation.yaml           # Experiment definitions
+│   │   ├── ablation.yaml           # Experiment definitions
 │   └── model/xgboost.yaml          # Model hyperparameters
 │
 ├── artifacts/                      # Generated Data (gitignored)
@@ -94,6 +94,15 @@ ppa-fraud-notebook/
 │   │   └── hyperopt/
 │   │       ├── xgboost.py          # Optuna hyperopt
 │   │       └── pytorch.py          # GNN hyperopt
+│   │
+│   ├── experiments/                # Experiment Scripts
+│   │   ├── exp3_hyperopt.py        # Hyperparameter optimization
+│   │   ├── exp4_concept_drift.py   # Concept drift evaluation
+│   │   ├── exp5_shap.py            # SHAP explainability
+│   │   ├── exp6_business_value.py  # Business value evaluation
+│   │   ├── exp7_production_readiness.py  # Production validation
+│   │   ├── exp8_drift_poc.py       # Drift detection POC
+│   │   ├── exp8_field_audit.py     # Field audit
 │   │
 │   └── utils/                      # Metrics, Seon baseline, MLflow CLI
 │       ├── metrics.py              # Centralized metrics
@@ -456,6 +465,7 @@ python -m src.models.hyperopt.xgboost          # Optuna search for XGBoost
 python -m src.utils.mlflow_model_comparison compare \
   --model-name fraud-detection-xgboost \
   --candidate-run-id <RUN_ID>
+
 ```
 
 ---

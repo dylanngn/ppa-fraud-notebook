@@ -30,6 +30,7 @@ def _build_manifest_from_constants() -> Dict[str, Tuple[str, bool]]:
         TIER2_GRAPH_FEATURES,
         TIME_WEIGHTED_FEATURE_COLUMNS,
         TEXT_FEATURE_COLUMNS,
+        CANDIDATE_FEATURES,
     )
     
     manifest = {}
@@ -57,6 +58,10 @@ def _build_manifest_from_constants() -> Dict[str, Tuple[str, bool]]:
     # Text features (all numeric)
     for feat in TEXT_FEATURE_COLUMNS:
         manifest[feat] = ("numeric", False)
+    
+    # Candidate features (all categorical) - Feature Discovery Pipeline
+    for feat in CANDIDATE_FEATURES:
+        manifest[feat] = ("categorical", False)
     
     return manifest
 
@@ -174,7 +179,12 @@ def get_optimal_tree_method() -> str:
 def get_categorical_features(features: List[str]) -> List[str]:
     """Identify categorical features that should use XGBoost's native categorical support."""
     categorical_features = []
-    potential_categoricals = ["payment_type", "bundle_tier", "offer_type"]
+    potential_categoricals = [
+        # Core categorical features
+        "payment_type", "bundle_tier", "offer_type",
+        # Feature Discovery Pipeline candidates (2025-12-03)
+        "rent_interval", "platforms", "billing_language",
+    ]
     
     for feat in potential_categoricals:
         if feat in features:

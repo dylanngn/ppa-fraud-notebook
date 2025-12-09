@@ -268,6 +268,17 @@ ALL_GRAPH_FEATURE_COLUMNS = (
 
 
 # =============================================================================
+# CANDIDATE FEATURES (From Feature Discovery Pipeline)
+# Auto-discovered via exp8_field_audit.py, approved 2025-12-03
+# =============================================================================
+CANDIDATE_FEATURES = [
+    "rent_interval",      # listing.prices.rent.interval - corr=0.374, coverage=82%
+    "platforms",          # listing.platforms - corr=0.284, coverage=100%
+    "billing_language",   # listing.lister.billing.language - corr=0.263, coverage=98%
+]
+
+
+# =============================================================================
 # FEATURE GROUPS (For Ablation Experiments)
 # Each group can be independently toggled on/off
 # =============================================================================
@@ -291,6 +302,9 @@ FEATURE_GROUPS = {
     "time_weighted_core": TIME_WEIGHTED_CORE_FEATURES,
     "time_weighted_extra": TIME_WEIGHTED_EXTRA_FEATURES,
     "text": TEXT_FEATURE_COLUMNS,
+    
+    # Feature Discovery Pipeline candidates (auto-discovered)
+    "candidates": CANDIDATE_FEATURES,
     
     # Deprecated (for comparison experiments)
     "burst_detection": DEPRECATED_BURST_FEATURES,

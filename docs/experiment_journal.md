@@ -52,6 +52,9 @@ Experiment scripts are organized in `src/experiments/`:
 | `exp3_hyperopt.py` | `python -m src.experiments.exp3_hyperopt` | XGBoost hyperparameter optimization |
 | `exp4_concept_drift.py` | `python -m src.experiments.exp4_concept_drift` | Concept drift evaluation (RQ3) |
 | `exp5_shap.py` | `python -m src.experiments.exp5_shap` | SHAP explainability analysis (RQ4) |
+| `exp6_business_value.py` | `python -m src.experiments.exp6_business_value` | Business value vs Seon baseline |
+| `exp7_production_readiness.py` | `python -m src.experiments.exp7_production_readiness` | Production readiness validation |
+| `exp8_drift_poc.py` | `python -m src.experiments.exp8_drift_poc` | Drift detection with Evidently AI |
 
 ```bash
 # Data Pipeline (run once)
@@ -890,11 +893,11 @@ python -m src.experiments.exp7_production_readiness experiment_name=production-r
 
 ---
 
-## Experiment 8: Feature Drift Detection POC
+## Experiment 8: Feature Evolution & Monitoring
 
 **Date**: 2025-12-03  
-**Objective**: Detect when handcrafted features become stale due to new fraud strategies  
-**Status**: ✅ COMPLETED (8A & 8C done, 8B optional)
+**Objective**: Detect emerging fraud patterns and automate feature discovery  
+**Status**: ✅ COMPLETED (8A, 8B, 8C all done)
 
 ### Research Question
 
@@ -1068,7 +1071,11 @@ Analyzed ALL 292 fields from `raw_insertions.parquet`:
 - [x] Experiment 7: Production readiness validation ✅ PRODUCTION READY
 
 ### Phase 4: Post-Deployment Monitoring (Future)
-- [x] Experiment 8: Feature evolution & monitoring ✅ Found 6 unused high-value fields
+- [x] Experiment 8: Feature evolution & monitoring
+  - [x] 8A: Drift detection POC (Evidently AI) ✅ No drift detected
+  - [x] 8B: Feature Discovery Pipeline ✅ **Framework implemented**
+  - [x] 8C: Full field audit ✅ Found 6 unused high-value fields
+  - [x] 8D: SHAP validation ✅ **rent_interval is #1 feature, KEEP for interpretability**
 
 ### Success Metrics (Updated after Experiment 6)
 

@@ -176,6 +176,10 @@ def _create_listing_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl
         helper.get_col("listing.lister.billing.payment.paymentType").alias("payment_type"),
         pl.col("customer_segment"),
         helper.get_col("listing.localization.primary").alias("language"),
+        # Feature Discovery Pipeline - Approved Candidates (2025-12-03)
+        helper.get_col("listing.prices.rent.interval").alias("rent_interval"),       # corr=0.374
+        helper.get_col("listing.platforms").alias("platforms"),                       # corr=0.284
+        helper.get_col("listing.lister.billing.language").alias("billing_language"),  # corr=0.263
         # Description - coalesce multiple language options
         pl.coalesce([
             helper.get_col("listing.localization.de.text.description"),

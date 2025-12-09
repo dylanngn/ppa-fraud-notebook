@@ -16,6 +16,10 @@ def compute_base_features(df: pl.DataFrame, cutoff_date: datetime, config: Any =
         cutoff_date: Temporal cutoff for feature computation
         config: Reserved for future per-category configuration (currently unused)
     """
+    # 0. Ensure insertion_id exists (alias from object_reference for graph features)
+    if "insertion_id" not in df.columns and "object_reference" in df.columns:
+        df = df.with_columns(pl.col("object_reference").alias("insertion_id"))
+    
     # 1. Account Age
     if "submission_at" in df.columns and "account_created_at" in df.columns:
         df = df.with_columns(
@@ -99,5 +103,54 @@ def compute_base_features(df: pl.DataFrame, cutoff_date: datetime, config: Any =
         if col in df.columns:
             if df[col].dtype not in [pl.Float32, pl.Float64]:
                 df = df.with_columns(pl.col(col).cast(pl.Float64))
+
+    # 9. Feature Discovery Pipeline - Approved Candidates (2025-12-03)
+    # These are categorical features discovered via exp8_field_audit.py
+    # Note: Raw column names differ from aliased names in nodes_listing
+    
+    # rent_interval (corr=0.374, coverage=82%)
+    # Raw: listing.prices.rent.interval -> Alias: rent_interval
+    rent_col = None
+    if "rent_interval" in df.columns:
+        rent_col = "rent_interval"
+    elif "listing.prices.rent.interval" in df.columns:
+        rent_col = "listing.prices.rent.interval"
+    
+    if rent_col:
+        df = df.with_columns(
+            pl.col(rent_col).fill_null("UNKNOWN").str.to_uppercase().alias("rent_interval")
+        )
+    else:
+        df = df.with_columns(pl.lit("UNKNOWN").alias("rent_interval"))
+    
+    # platforms (corr=0.284, coverage=100%)
+    # Raw: listing.platforms -> Alias: platforms
+    platforms_col = None
+    if "platforms" in df.columns:
+        platforms_col = "platforms"
+    elif "listing.platforms" in df.columns:
+        platforms_col = "listing.platforms"
+    
+    if platforms_col:
+        df = df.with_columns(
+            pl.col(platforms_col).fill_null("UNKNOWN").str.to_uppercase().alias("platforms")
+        )
+    else:
+        df = df.with_columns(pl.lit("UNKNOWN").alias("platforms"))
+    
+    # billing_language (corr=0.263, coverage=98%)
+    # Raw: listing.lister.billing.language -> Alias: billing_language
+    lang_col = None
+    if "billing_language" in df.columns:
+        lang_col = "billing_language"
+    elif "listing.lister.billing.language" in df.columns:
+        lang_col = "listing.lister.billing.language"
+    
+    if lang_col:
+        df = df.with_columns(
+            pl.col(lang_col).fill_null("UNKNOWN").str.to_lowercase().alias("billing_language")
+        )
+    else:
+        df = df.with_columns(pl.lit("unknown").alias("billing_language"))
 
     return df

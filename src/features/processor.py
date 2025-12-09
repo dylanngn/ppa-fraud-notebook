@@ -5,12 +5,14 @@ Generates feature matrix based on configuration.
 Supports Hydra configuration with:
 - categories: List of feature categories to compute (base, graph, etc.)
 - include_groups: List of feature groups to INCLUDE
+- Dynamic candidates from conf/features/candidates.yaml (Feature Discovery Pipeline)
 """
 import polars as pl
 from datetime import datetime
-from typing import List, Optional, Set
+from pathlib import Path
+from typing import List, Optional, Set, Dict, Any
 import logging
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from src.features.registry import FeatureRegistry
 from src.models.config.constants import FEATURE_GROUPS
 
@@ -23,10 +25,18 @@ import src.features.definitions.text  # noqa: F401 - registers "text" category
 
 logger = logging.getLogger(__name__)
 
+# Path to candidates config (for Feature Discovery Pipeline integration)
+CANDIDATES_CONFIG_PATH = Path(__file__).parent.parent.parent / "conf" / "features" / "candidates.yaml"
+
 
 class FeatureProcessor:
     """
     Feature processor that supports Hydra configuration profiles.
+    
+    Supports three sources of features:
+    1. Static feature groups from constants.py (via include_groups)
+    2. Dynamic candidates from conf/features/candidates.yaml (Feature Discovery Pipeline)
+    3. Categories for feature generators (base, graph, etc.)
     
     Usage:
         # With Hydra config (preferred - using include_groups)
@@ -37,12 +47,20 @@ class FeatureProcessor:
             categories=["base", "graph"],
             include_groups=["core_numerical", "boolean_all", "graph_all"]
         )
+        
+        # With dynamic candidates from Feature Discovery Pipeline
+        processor = FeatureProcessor(
+            categories=["base", "graph"],
+            include_groups=["core_numerical", "boolean_all"],
+            use_candidates=True  # Include approved candidates
+        )
     """
     
     def __init__(
         self,
         categories: Optional[List[str]] = None,
         include_groups: Optional[List[str]] = None,
+        use_candidates: bool = False,
     ):
         """
         Initialize feature processor.
@@ -51,9 +69,13 @@ class FeatureProcessor:
             categories: Feature categories to compute. Defaults to all available.
             include_groups: Feature groups to include (from constants.FEATURE_GROUPS).
                            This is the PREFERRED way to select features.
+            use_candidates: Whether to include approved candidates from
+                           conf/features/candidates.yaml (Feature Discovery Pipeline).
         """
         self.categories = categories or FeatureRegistry.list_categories()
         self.include_groups = include_groups
+        self.use_candidates = use_candidates
+        self.candidate_features: List[Dict[str, Any]] = []
         
         # Build the set of features to include based on groups
         self.include_features: Optional[Set[str]] = None
@@ -68,6 +90,42 @@ class FeatureProcessor:
                                    f"Available groups: {list(FEATURE_GROUPS.keys())}")
             logger.info(f"Including {len(self.include_features)} features from {len(include_groups)} groups")
         
+        # Load approved candidates if enabled
+        if use_candidates:
+            self._load_approved_candidates()
+    
+    def _load_approved_candidates(self) -> None:
+        """Load approved feature candidates from candidates.yaml."""
+        if not CANDIDATES_CONFIG_PATH.exists():
+            logger.debug("No candidates.yaml found, skipping dynamic candidates")
+            return
+        
+        try:
+            config = OmegaConf.load(CANDIDATES_CONFIG_PATH)
+            candidates = config.get("candidates", [])
+            
+            # Filter to approved or integrated candidates
+            approved = [
+                dict(c) for c in candidates 
+                if c.get("status") in ("approved", "integrated")
+            ]
+            
+            if approved:
+                self.candidate_features = approved
+                candidate_names = [c.get("feature_name") for c in approved]
+                
+                # Add to include_features set
+                if self.include_features is None:
+                    self.include_features = set()
+                self.include_features.update(candidate_names)
+                
+                logger.info(f"Loaded {len(approved)} approved candidates from Feature Discovery Pipeline")
+                for c in approved:
+                    logger.debug(f"  - {c.get('feature_name')} (corr={c.get('correlation', 0):.3f})")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load candidates.yaml: {e}")
+        
     @classmethod
     def from_config(cls, config: DictConfig) -> "FeatureProcessor":
         """
@@ -77,14 +135,21 @@ class FeatureProcessor:
             config: Hydra feature configuration with:
                    - 'categories': Feature generators to run
                    - 'include_groups': Feature groups to include
+                   - 'use_candidates': Whether to include approved candidates
+                                      from Feature Discovery Pipeline
             
         Returns:
             Configured FeatureProcessor instance
         """
         categories = list(config.get("categories", [])) or None
         include_groups = list(config.get("include_groups", [])) or None
+        use_candidates = config.get("use_candidates", False)
 
-        return cls(categories=categories, include_groups=include_groups)
+        return cls(
+            categories=categories, 
+            include_groups=include_groups,
+            use_candidates=use_candidates
+        )
         
     def process(self, df: pl.DataFrame, cutoff_date: datetime) -> pl.DataFrame:
         """
@@ -142,4 +207,16 @@ class FeatureProcessor:
             "include_groups": self.include_groups,
             "include_features_count": len(self.include_features) if self.include_features else None,
             "mode": "include_groups" if self.include_features else "all",
+            "use_candidates": self.use_candidates,
+            "candidate_features_count": len(self.candidate_features),
+            "candidate_features": [c.get("feature_name") for c in self.candidate_features],
         }
+    
+    def get_approved_candidates(self) -> List[Dict[str, Any]]:
+        """
+        Get list of approved candidates currently loaded.
+        
+        Returns:
+            List of approved candidate feature configs from candidates.yaml
+        """
+        return self.candidate_features
