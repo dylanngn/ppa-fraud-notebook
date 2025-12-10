@@ -1,22 +1,20 @@
 """
-Features module.
+Features Module.
 
 Structure:
-- definitions/: Feature computation functions for training pipeline
-  - base.py: compute_base_features() - tabular features from raw data
-  - graph.py: compute_graph_features() - features from graph artifacts
-
-- generators/: Standalone scripts that create parquet artifacts
-  - graph_features.py: Generate basic graph features
-  - advanced_graph_features.py: Generate advanced graph features
-
-- processor.py: FeatureProcessor - orchestrates feature generation
-- registry.py: FeatureRegistry - maps category names to generators
+- xgboost/: XGBoost feature engineering
+  - processor.py: FeatureProcessor - orchestrates feature generation
+  - registry.py: FeatureRegistry - maps category names to generators
+  - definitions/: Feature computation functions
+  - generators/: Standalone scripts that create artifacts
+  
+- gnn/: GNN feature engineering
+  - node_features.py: Graph node feature engineering
 """
-from src.features import generators
-from src.features import definitions
-from src.features.registry import FeatureRegistry
-from src.features.processor import FeatureProcessor
+from src.features.xgboost import generators
+from src.features.xgboost import definitions
+from src.features.xgboost.registry import FeatureRegistry
+from src.features.xgboost.processor import FeatureProcessor
 
 __all__ = [
     "definitions",

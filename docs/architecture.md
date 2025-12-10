@@ -1,11 +1,14 @@
-# Architecture Documentation
+# Technical Architecture
 
-## Overview
+**Purpose**: Document the technical architecture of the fraud detection system.
 
-This project implements a fraud detection system for real estate listings using:
-- **XGBoost** as the primary model with auto-selected tabular + graph features
-- **GNN Hybrid** as an alternative approach (GraphSAGE/HGT + XGBoost)
-- **Seon** as the production baseline to beat
+> 📊 For domain knowledge (fields, relations), see [`knowledge_base.md`](knowledge_base.md)  
+> 🔄 For data pipeline, see [`dataflow.md`](dataflow.md)  
+> 📓 For experiments, see [`experiment_journal.md`](experiment_journal.md)
+
+---
+
+## System Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -14,7 +17,7 @@ This project implements a fraud detection system for real estate listings using:
 │                                                                             │
 │  ┌──────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐   │
 │  │ Database │───▶│ ETL Pipeline │───▶│ Artifacts   │───▶│ Model Train  │   │
-│  │ (Aurora  │    │              │    │ (Parquet)   │    │              │   │
+│  │ (Aurora  │    │ (src/data)   │    │ (Parquet)   │    │ (XGBoost)    │   │
 │  │ Postgres)│    │              │    │             │    │              │   │
 │  └──────────┘    └──────────────┘    └─────────────┘    └──────────────┘   │
 │                                            │                    │           │
@@ -29,450 +32,511 @@ This project implements a fraud detection system for real estate listings using:
 
 ---
 
-## Technical Architecture
-
-### Package Structure
+## Package Structure
 
 ```
 ppa-fraud-notebook/
 ├── conf/                           # Hydra Configuration
-│   ├── config.yaml                 # Main defaults
+│   ├── config.yaml                 # Main config (entry point)
 │   ├── data/default.yaml           # Database & ETL settings
-│   ├── features/auto.yaml          # Auto tabular + graph features (default)
-│   └── model/xgboost.yaml          # Model hyperparameters
+│   ├── features/auto.yaml          # Auto feature selection (default)
+│   └── model/xgboost.yaml          # XGBoost hyperparameters
 │
 ├── artifacts/                      # Generated Data (gitignored)
-│   ├── raw_insertions.parquet      # ETL output
+│   ├── raw_insertions.parquet      # ETL output (234k rows, 292 cols)
 │   ├── nodes_*.parquet             # Graph nodes
 │   ├── edges_*.parquet             # Graph edges
 │   ├── graph.pt                    # PyTorch Geometric graph
-│   ├── seon_baseline.json          # Static Seon metrics
-│   └── embeddings_*.pt             # GNN embeddings
+│   ├── results/                    # Experiment results (JSON)
+│   └── embeddings_*.pt             # GNN embeddings (optional)
 │
 ├── src/
 │   ├── data/                       # Data Pipeline
 │   │   ├── pipeline.py             # ETL orchestrator (Hydra entry)
-│   │   ├── schema.py               # Tabular data schema (Pandera validation)
-│   │   ├── etl/                    # Extract-Transform-Load
-│   │   │   ├── extract.py          # Database queries
-│   │   │   ├── transform.py        # Data cleaning
-│   │   │   └── load.py             # Parquet writing
-│   │   └── graph/                  # Graph Building
-│   │       ├── schema.py           # Graph schema (single source of truth)
+│   │   ├── etl/
+│   │   │   ├── extract.py          # SQL queries to Aurora
+│   │   │   ├── transform.py        # JSON flattening, type conversion
+│   │   │   └── load.py             # Write parquet
+│   │   └── graph/
 │   │       ├── create_artifacts.py # Node/edge parquet creation
-│   │       └── graph_builder.py    # PyTorch Geometric graph
+│   │       └── graph_structure.py  # Graph structure (uses features below)
 │   │
-│   ├── features/                   # Feature Engineering
+│   ├── features/                   # Feature Engineering & Data Splitting
 │   │   ├── registry.py             # Feature category registry
-│   │   ├── processor.py            # Feature processor (auto mode)
-│   │   ├── definitions/            # Feature computation
-│   │   │   ├── base.py             # Tabular features (auto-selected)
+│   │   ├── processor.py            # FeatureProcessor (auto mode)
+│   │   ├── temporal_split.py       # Temporal splitting utilities
+│   │   ├── graph_node_features.py  # GNN node feature engineering
+│   │   ├── definitions/
+│   │   │   ├── base.py             # Tabular features
 │   │   │   └── graph.py            # Graph-derived features
-│   │   └── generators/             # Feature generators
-│   │       ├── graph_features.py   # Basic graph features
-│   │       └── advanced_graph_features.py  # Advanced graph features
+│   │   └── generators/
+│   │       ├── graph_features.py   # Basic graph features (PageRank, degree)
+│   │       └── advanced_graph_features.py  # Advanced (betweenness, clustering)
 │   │
 │   ├── models/                     # Model Training
-│   │   ├── train.py                # Main entry point (Hydra)
-│   │   ├── registry.py             # MLflow model registry
+│   │   ├── train.py                # Main orchestrator (Hydra entry)
 │   │   ├── config/
-│   │   │   └── constants.py        # Feature exclusions & graph feature list
+│   │   │   └── constants.py        # EXCLUDED_COLUMNS, GRAPH_FEATURES
 │   │   ├── xgboost/
-│   │   │   ├── trainer.py          # XGBoost accumulating window
-│   │   │   └── utils.py            # Feature validation, constraints
-│   │   ├── gnn/
-│   │   │   ├── sage.py             # GraphSAGE hybrid
-│   │   │   └── hgt.py              # HGT hybrid
-│   │   └── hyperopt/
-│   │       ├── xgboost.py          # Optuna hyperopt
-│   │       └── pytorch.py          # GNN hyperopt
+│   │   │   ├── trainer.py          # Generic single-window trainer
+│   │   │   └── utils.py            # Feature validation
+│   │   ├── gnn/                    # GNN Hybrid (Phase 2)
+│   │   │   └── sage.py             # GraphSAGE + XGBoost hybrid
+│   │   └── hyperopt/               # Hyperparameter tuning
+│   │       ├── xgboost.py          # Optuna-based optimization
+│   │       └── pytorch.py          # GraphSAGE hyperopt
 │   │
-│   ├── experiments/                # Experiment Scripts
-│   │   ├── exp3_hyperopt.py        # Hyperparameter optimization
-│   │   ├── exp4_concept_drift.py   # Concept drift evaluation
-│   │   ├── exp5_shap.py            # SHAP explainability
-│   │   ├── exp6_business_value.py  # Business value evaluation
-│   │   ├── exp7_production_readiness.py  # Production validation
-│   │   ├── exp8_drift_poc.py       # Drift detection POC
-│   │   ├── exp8_field_audit.py     # Field audit
+│   ├── experiments/                # Experiment Scripts (Phase 1)
+│   │   ├── utils.py                # Shared: prepare_features, train_and_evaluate
+│   │   ├── results.py              # Results registry (save/load JSON)
+│   │   ├── exp01_graph_value.py    # RQ1: Graph feature value
+│   │   ├── exp02_concept_drift.py  # RQ3: Retraining necessity
+│   │   ├── exp03_shap.py           # RQ4: SHAP explainability
+│   │   ├── exp04_feature_engineering.py  # Methodology validation
+│   │   └── exp05_unsupervised.py   # Supervisor: Unsupervised comparison
 │   │
-│   └── utils/                      # Metrics, Seon baseline, MLflow CLI
-│       ├── metrics.py              # Centralized metrics
-│       ├── evaluate_seon.py        # Seon baseline
-│       └── mlflow_model_comparison.py
+│   └── utils/                      # Utilities
+│       ├── hydra_utils.py          # Path resolution
+│       ├── evaluate_seon.py        # SEON baseline (one-time)
+│       └── logger.py               # Logging setup
 │
-└── docs/                           # Documentation
-    ├── experiment_journal.md
-    ├── knowledge_base.md
-    └── architecture.md (this file)
+├── notebooks/                      # Jupyter Analysis
+│   ├── exp01_graph_value.ipynb     # Exp 1 analysis
+│   ├── exp02_concept_drift.ipynb   # Exp 2 analysis
+│   ├── exp03_shap.ipynb            # Exp 3 analysis
+│   ├── exp04_feature_engineering.ipynb  # Exp 4 analysis
+│   ├── exp05_unsupervised.ipynb    # Exp 5 analysis
+│   └── data_quality_analysis.ipynb # Data quality report
+│
+├── docs/                           # Documentation
+│   ├── architecture.md             # This file
+│   ├── dataflow.md                 # Data pipeline
+│   ├── knowledge_base.md           # Domain knowledge
+│   ├── experiment_journal.md       # Experiment definitions
+│   ├── statistical_analysis.md     # Statistical methodology
+│   ├── limitations.md              # Limitations & threats
+│   └── data_engineering_principles.md  # Best practices
+│
+├── mlruns/                         # MLflow tracking (gitignored)
+├── .venv/                          # Python virtual environment
+├── requirements.txt                # Python dependencies
+├── pyproject.toml                  # Project metadata
+└── README.md                       # Quick start guide
 ```
 
 ---
 
-## Model Architecture
+## Model Architecture (High Level)
+
+### Design Philosophy
+
+**Clean Separation of Concerns**:
+```
+Config (Hydra) → Orchestrator → Data Splitting → Feature Processing → Generic Trainer
+```
+
+The architecture follows these principles:
+1. **Config-driven**: Hydra configs control dataset selection, split strategy, features
+2. **Orchestration layer**: Main scripts (`train.py`, `sage.py`) coordinate the pipeline
+3. **Temporal splitting in features**: `AccumulatingWindowSplitter` handles time-series splits
+4. **Generic trainer**: `train_single_window()` just trains on given data (no splitting logic)
+5. **XGBoost as final predictor**: All models feed into XGBoost for the final decision
+
+| Model | Features | XGBoost Input |
+|-------|----------|---------------|
+| **XGBoost (Primary)** | Tabular + Graph | ~235 features |
+| **GraphSAGE Hybrid (Optional)** | Tabular + GNN Embeddings | ~200 tabular + 64D embedding |
+
+This simplifies the architecture:
+- Single prediction interface (XGBoost)
+- Single evaluation metric (AUC-PR, Precision, Recall)
+- Easy A/B testing (swap feature source, keep XGBoost)
+- Trainer is reusable across different orchestration strategies
+
+---
+
+## Model Implementations
 
 ### 1. XGBoost (Primary Model)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           XGBoost Training Pipeline                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                    ACCUMULATING WINDOW STRATEGY                       │  │
-│  │                                                                       │  │
-│  │  Window 1: Train [Jan-Jun] ──▶ Test [Jul 1-14]                       │  │
-│  │  Window 2: Train [Jan-Jul 7] ──▶ Test [Jul 8-21]                     │  │
-│  │  Window 3: Train [Jan-Jul 14] ──▶ Test [Jul 15-28]                   │  │
-│  │  ...                                                                  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  Per Window:                                                                │
-│  ┌─────────────┐    ┌─────────────────┐    ┌─────────────┐                 │
-│  │ Raw Data    │───▶│ FeatureProcessor│───▶│ XGBClassifier│                │
-│  │ (Polars)    │    │ (auto mode)     │    │              │                │
-│  │             │    │                 │    │              │                │
-│  └─────────────┘    └─────────────────┘    └─────────────┘                 │
-│                              │                     │                        │
-│                              ▼                     ▼                        │
-│                     ┌─────────────────┐   ┌─────────────────┐              │
-│                     │ Categories:     │   │ MLflow Logging: │              │
-│                     │ - base (auto)   │   │ - Metrics       │              │
-│                     │ - graph         │   │ - Model         │              │
-│                     │                 │   │ - Latency       │              │
-│                     └─────────────────┘   └─────────────────┘              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+**Architecture**:
+```python
+# High-level flow with orchestration
+Config (config.yaml)
+  → train.py (Orchestrator)
+      ├─ Load dataset (load_data)
+      ├─ Create temporal splits (AccumulatingWindowSplitter)
+      └─ For each window:
+          ├─ Process features (FeatureProcessor)
+          │   → ~235 features (218 tabular + 17 graph)
+          └─ Train model (train_single_window)
+  → XGBoost classifier
+  → Fraud probability
+              → Log to MLflow
 ```
 
-### 2. GNN Hybrid (Alternative)
+**Key Components**:
+- **Orchestrator**: `src/models/train.py`
+  - Coordinates entire training pipeline
+  - Loads dataset, creates splits, processes features
+  - Calls generic trainer per window
+- **Temporal Splitter**: `src/features/temporal_split.py`
+  - `AccumulatingWindowSplitter`: Time-series cross-validation
+  - `TemporalTrainTestSplitter`: GNN train/test split
+- **Feature Processor**: `src/features/processor.py`
+  - Auto-selects all tabular features (minus exclusions)
+  - Computes graph features (PageRank, degree, clustering)
+  - Label-encodes categorical columns
+- **Generic Trainer**: `src/models/xgboost/trainer.py`
+  - `train_single_window()`: Trains on given train/test data
+  - No splitting logic (pure training function)
+  - Logs metrics to MLflow
+- **Configuration**: `conf/model/xgboost.yaml`
+  - Hyperparameters (learning rate, depth, etc.)
+  - Training parameters (window sizes, step sizes)
 
+**Hyperparameters** (default):
+```yaml
+learning_rate: 0.1
+max_depth: 6
+min_child_weight: 5
+subsample: 0.8
+colsample_bytree: 0.8
+gamma: 0.1
+scale_pos_weight: 11.2  # Computed from fraud rate
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        GNN Hybrid Training Pipeline                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Phase 1: GNN Pre-training (Once)                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │                                                                         ││
-│  │  ┌───────────┐    ┌─────────────────┐    ┌─────────────────┐           ││
-│  │  │ HeteroData│───▶│ SAGE/HGT Model  │───▶│ 64-dim Embeddings│          ││
-│  │  │ Graph     │    │ (2 layers,      │    │ per Listing     │           ││
-│  │  │           │    │  64 hidden)     │    │                 │           ││
-│  │  └───────────┘    └─────────────────┘    └─────────────────┘           ││
-│  │       │                                           │                     ││
-│  │       ▼                                           ▼                     ││
-│  │  Node Types:                               Saved to:                    ││
-│  │  - User                                    artifacts/embeddings_*.pt   ││
-│  │  - Listing (target)                                                     ││
-│  │  - Email, Phone, Address, IP                                            ││
-│  │                                                                         ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
-│                                                                             │
-│  Phase 2: Hybrid XGBoost (Per Window)                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │                                                                         ││
-│  │  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐       ││
-│  │  │ Tabular Features│ + │ GNN Embeddings  │ = │ Combined Features│      ││
-│  │  │ (from processor)│   │ (64 dims)       │   │                 │       ││
-│  │  └─────────────────┘   └─────────────────┘   └─────────────────┘       ││
-│  │                                                       │                 ││
-│  │                                                       ▼                 ││
-│  │                                              ┌─────────────────┐        ││
-│  │                                              │ XGBClassifier   │        ││
-│  │                                              │ (Final Decision)│        ││
-│  │                                              └─────────────────┘        ││
-│  │                                                                         ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+
+### 2. GraphSAGE Hybrid (Phase 2 - Optional)
+
+**Architecture**:
+```python
+# High-level flow with orchestration
+Config (config.yaml)
+  → sage.py (Hybrid Orchestrator)
+      ├─ Train GraphSAGE (once)
+      │   ├─ Load graph (graph_structure.py)
+      │   ├─ Temporal split (TemporalTrainTestSplitter)
+      │   └─ Train GNN → Save best model
+      ├─ Create embedding generator
+      ├─ Load dataset
+      ├─ Create temporal splits (AccumulatingWindowSplitter)
+      └─ For each window:
+          ├─ Process base features (FeatureProcessor)
+          ├─ Generate embeddings (per-window, temporally fair)
+          │   → Node embeddings (64D)
+          ├─ Concatenate features + embeddings
+          └─ Train XGBoost (train_single_window)
+  → Fraud probability
 ```
+
+**Key Components**:
+- **Graph Structure**: `src/data/graph/graph_structure.py`
+  - Creates PyTorch Geometric `HeteroData` object
+  - 6 node types (user, listing, ip, email, phone, address)
+  - 8+ edge types (user-posts-listing, etc.)
+- **Graph Features**: `src/features/graph_node_features.py`
+  - Node feature engineering (separate from structure)
+  - Listing: 419-dim features (numerical, categorical, embeddings)
+  - Other nodes: Simple features
+- **GNN Model**: `src/models/gnn/sage.py`
+  - **GraphSAGE**: Inductive graph neural network
+  - Homogeneous model converted to heterogeneous via `to_hetero()`
+  - Mean aggregation for robust neighbor combination
+  - Skip connections to prevent over-smoothing
+- **Embedding Flow**:
+  - GNN trained once on temporal split (80/20)
+  - Per-window: Generate embeddings on temporally-filtered graph
+  - Concatenate embeddings with base features
+  - Train XGBoost on hybrid features
+
+**Why GraphSAGE**:
+- ✅ **Inductive learning**: Handles new nodes in accumulating windows
+- ✅ **Simple & robust**: Mean aggregation generalizes well
+- ✅ **Production-ready**: Fast inference, easy to deploy
+- ✅ **Proven**: Widely used in fraud detection systems
+
+**Why Not HGT** (removed):
+- ❌ More transductive (learns specific node relationships)
+- ❌ Complex attention mechanisms harder to generalize
+- ❌ Overkill for sparse graphs with simple structural patterns
 
 ### 3. Graph Structure
 
+**Graph Schema**:
+```python
+# PyTorch Geometric HeteroData
+graph = {
+    'listing': {
+        'x': [234458, D],           # Node features
+        'y': [234458],              # Fraud labels
+        'object_reference': [234458] # IDs
+    },
+    ('listing', 'shared_email', 'listing'): {
+        'edge_index': [2, E1]       # Edge connectivity
+    },
+    ('listing', 'shared_phone', 'listing'): {
+        'edge_index': [2, E2]
+    },
+    # ... 8 edge types total
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    HETEROGENEOUS GRAPH (8 Edge Types)                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│                              ┌─────────┐                                    │
-│                              │  USER   │                                    │
-│                              └────┬────┘                                    │
-│                      ┌───────────┬┴┬───────────┐                           │
-│                      │ posts     │  │ uses     │ has_email                  │
-│                      ▼           │  ▼          ▼                            │
-│               ┌──────────┐       │ ┌────┐  ┌───────┐                       │
-│               │ LISTING  │       │ │ IP │  │ EMAIL │                       │
-│               └────┬─────┘       │ └────┘  └───────┘                       │
-│     ┌─────────────┬┴┬─────────────┴────────────┘                           │
-│     │             │  │                                                      │
-│     │ has_contact_│  │ has_billing_email                                   │
-│     │ email       │  │                                                      │
-│     │             │  │ has_phone (unified: billing + lister)               │
-│     │             │  │                                                      │
-│     ▼             │  ▼                                                      │
-│ ┌───────┐   ┌────────┐   ┌─────────┐                                       │
-│ │ EMAIL │   │ PHONE  │   │ ADDRESS │                                       │
-│ └───────┘   └────────┘   └─────────┘                                       │
-│                                ▲                                            │
-│               located_at ─────┤                                            │
-│               billing_addr ───┘                                            │
-│                                                                             │
-│  Coverage:                                                                  │
-│  - User→Listing: 100%                                                       │
-│  - Listing→Email: 98-99%                                                    │
-│  - Listing→Phone: ~99% (coalesced)                                         │
-│  - Listing→Address: 91-98%                                                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+**Edge Types** (see `knowledge_base.md` for details):
+- `shared_contact_email` (98% coverage)
+- `shared_billing_phone` (98% coverage)
+- `shared_ip` (84% coverage)
+- `same_owner` (100% coverage)
+- `same_ppa_person` (94% coverage)
+- `same_region` (100% coverage)
+- `same_street` (100% coverage)
+- `shared_contact_phone` (70% coverage)
 
 ---
 
-## Configuration & Tracking Framework
+## Configuration Framework
+
+### Hydra (Configuration Management)
+
+**Purpose**: Manage experiment configurations declaratively.
+
+**Config Structure**:
+```yaml
+# conf/config.yaml (main entry point)
+defaults:
+  - data: default        # Database connection, ETL settings
+  - features: auto       # Feature selection mode
+  - model: xgboost       # Model hyperparameters
+
+experiment_name: "ppa-fraud-detection"
+seed: 42
+```
+
+**Override Example**:
+```bash
+# Run with different feature mode
+python -m src.models.train features=auto
+
+# Override specific params
+python -m src.models.train model.learning_rate=0.05 model.max_depth=8
+```
+
+**Hydra Benefits**:
+- Type-safe configs (via OmegaConf)
+- Easy experimentation (override any param)
+- Automatic output directories
+- Config versioning (saved with each run)
+
+### MLflow (Experiment Tracking)
+
+**Purpose**: Track all training runs, metrics, and artifacts.
+
+**What Gets Tracked**:
+```python
+# Automatically logged
+mlflow.log_params({
+    "learning_rate": 0.1,
+    "max_depth": 6,
+    "features_mode": "auto",
+    "n_features": 235
+})
+
+mlflow.log_metrics({
+    "auc_pr": 0.67,
+    "auc_roc": 0.95,
+    "precision": 0.87,
+    "recall": 0.75
+})
+
+mlflow.log_artifacts([
+    "feature_importance.png",
+    "confusion_matrix.png"
+])
+```
+
+**MLflow UI**:
+```bash
+# Start server
+mlflow ui --port 5000
+
+# View at http://127.0.0.1:5000
+```
+
+**Experiment Organization**:
+```
+ppa-fraud-detection/          # Default experiment
+├── run_abc123 (2025-12-09)   # Each training run
+├── run_def456 (2025-12-10)
+└── ...
+
+exp01-graph-value/            # Experiment 1
+├── run_xyz789
+└── ...
+
+exp02-concept-drift/          # Experiment 2
+└── ...
+```
 
 ### Why Both Hydra AND MLflow?
 
-These tools are **complementary**, not overlapping:
+| Tool | Purpose | When Used |
+|------|---------|-----------|
+| **Hydra** | Configuration management | Before training (set params) |
+| **MLflow** | Experiment tracking | During/after training (log results) |
 
-| Tool | Role | Phase | Question Answered |
-|------|------|-------|-------------------|
-| **Hydra** | Configuration | Before training | "What should we run?" |
-| **MLflow** | Tracking/Registry | During/after training | "What happened? Which model is best?" |
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│     HYDRA       │────▶│    TRAINING     │────▶│     MLFLOW      │
-│  (Input Config) │     │   (Execution)   │     │ (Output Tracking)│
-├─────────────────┤     ├─────────────────┤     ├─────────────────┤
-│ • features=quick│     │ • Load data     │     │ • Log metrics   │
-│ • model.params  │     │ • Generate feats│     │ • Store model   │
-│ • experiment_   │     │ • Train XGBoost │     │ • Model registry│
-│   name          │     │ • Evaluate      │     │ • Compare runs  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-```
-
-**Without Hydra**: Config scattered in code, no CLI overrides, no composable profiles  
-**Without MLflow**: No metric history, no model versioning, manual comparison
-
-Together they enable:
-1. **Reproducibility**: Hydra config → exact same experiment
-2. **Traceability**: MLflow links config → metrics → model
-3. **Iteration**: Change config (Hydra) → compare results (MLflow)
-
-### Logging Strategy
-
-| Log Type | Tool | Purpose |
-|----------|------|---------|
-| Experiment metrics | MLflow | AUC-PR, P@100, latency → tracked & compared |
-| Operational logs | Hydra | Progress, warnings, errors → console + file |
-| Debug output | Hydra | `hydra.verbose=true` → DEBUG level |
-
-Hydra logging provides:
-- **Auto-configured** Python logging for `@hydra.main()` modules
-- **Colored output** via [hydra-colorlog](https://hydra.cc/docs/plugins/colorlog/)
-- **Log files** saved to `outputs/<date>/<time>/*.log`
-- **CLI control**: `hydra.verbose=true` for debug, `hydra/job_logging=disabled` to silence
-
-### Hydra Configuration Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           HYDRA CONFIGURATION                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  conf/config.yaml (defaults)                                                │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  defaults:                                                           │   │
-│  │    - data: default        ───▶ conf/data/default.yaml               │   │
-│  │    - features: auto       ───▶ conf/features/auto.yaml              │   │
-│  │    - model: xgboost       ───▶ conf/model/xgboost.yaml              │   │
-│  │                                                                      │   │
-│  │  experiment_name: "ppa-fraud-detection"                             │   │
-│  │  seed: 42                                                            │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Override via CLI:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  python -m src.models.train                                          │   │
-│  │  python -m src.models.train model.params.n_estimators=1000          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Feature Configuration
-
-The system uses **auto mode** for feature selection:
-
-| Category | Behavior | Description |
-|----------|----------|-------------|
-| `base` | Auto-select all columns | All ETL columns except exclusions |
-| `graph` | Explicit computation | Graph-derived features (degree, PageRank, etc.) |
-
-**Exclusions** (defined in `src/models/config/constants.py`):
-- ID columns: `object_reference`, `owner_id`, `insertion_id`
-- Target/labels: `is_fraud`, `fraud_flag`, `seon_approved`
-- Metadata: `submission_at`, `first_published_date`, hashes
-
-> This eliminates manual feature curation. Experiment 9 validated that auto-selection matches hand-picked performance.
+They're complementary:
+- Hydra: "What config am I using?"
+- MLflow: "What results did I get?"
 
 ---
 
-## MLflow Integration
+## Data Flow Architecture
 
+```mermaid
+graph LR
+    A[Aurora DB] --> B[ETL Pipeline]
+    B --> C[raw_insertions.parquet]
+    C --> D[create_artifacts.py]
+    D --> E[nodes_*.parquet]
+    D --> F[edges_*.parquet]
+    E --> G[FeatureProcessor]
+    F --> G
+    G --> H[XGBoost]
+    H --> I[Predictions]
+    H --> J[MLflow]
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          MLFLOW TRACKING STRUCTURE                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Experiment: ppa-fraud-detection                                            │
-│  │                                                                          │
-│  ├── Run: xgboost_accumulating_20251130_1430 (Parent)                      │
-│  │   ├── Params: model_name, initial_window_days, feature_categories       │
-│  │   ├── Metrics: mean_auc_pr, best_auc_pr, num_windows                    │
-│  │   ├── Tags: model_type=xgboost, training_mode=accumulating_window       │
-│  │   │                                                                      │
-│  │   ├── Nested Run: window_0                                               │
-│  │   │   ├── Metrics: auc_pr, auc_roc, p_at_100, latency_*                 │
-│  │   │   └── Artifacts: model.pkl                                          │
-│  │   │                                                                      │
-│  │   ├── Nested Run: window_1                                               │
-│  │   │   └── ...                                                            │
-│  │   │                                                                      │
-│  │   └── Nested Run: window_N                                               │
-│  │       └── ...                                                            │
-│  │                                                                          │
-│  └── Model Registry                                                         │
-│      ├── fraud-detection-xgboost (best window model)                       │
-│      ├── fraud-detection-gnn-sage                                          │
-│      └── fraud-detection-hybrid-sage                                       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+
+**Detailed flow**: See [`dataflow.md`](dataflow.md)
+
+---
+
+## Deployment Architecture (Conceptual)
+
+### Training Pipeline
+```
+Weekly Schedule:
+1. Extract new data from Aurora (incremental)
+2. Update graph artifacts (new nodes/edges)
+3. Retrain XGBoost (accumulating window)
+4. Evaluate on latest week
+5. Log to MLflow
+6. If AUC-PR > threshold: promote model
+```
+
+### Inference Pipeline
+```
+Real-time (API):
+1. New listing submitted
+2. Fetch user features from cache
+3. Compute graph features (if graph exists)
+4. Load XGBoost model from MLflow
+5. Predict fraud probability
+6. If prob > 0.7: flag for review
 ```
 
 ---
 
-## Metrics Flow
+## Technology Stack
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     CENTRALIZED METRICS (src/utils/metrics.py)              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  calculate_metrics(y_true, y_pred, include_confusion_matrix=False)          │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Always Computed:                                                    │   │
-│  │  - auc_pr, auc_roc         (Ranking quality)                        │   │
-│  │  - p@50, p@100, p@200      (Precision at K)                         │   │
-│  │  - r@50, r@100, r@200      (Recall at K)                            │   │
-│  │  - lift@50, lift@100, lift@200                                       │   │
-│  │  - fraud_count, fraud_rate                                           │   │
-│  │                                                                      │   │
-│  │  Optional (for Seon binary classifier):                             │   │
-│  │  - accuracy, precision, recall, f1_score                            │   │
-│  │  - tp, tn, fp, fn                                                    │   │
-│  │  - catch_rate, false_alarm_rate                                      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  measure_inference_latency(model, X_sample, n_iterations=100)               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  - latency_mean_ms, latency_p50_ms, latency_p95_ms, latency_p99_ms  │   │
-│  │  - latency_per_sample_ms                                             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### Core Libraries
+
+| Component | Library | Version | Purpose |
+|-----------|---------|---------|---------|
+| **ML Framework** | XGBoost | 2.0+ | Gradient boosting |
+| **Graph ML** | PyTorch Geometric | 2.4+ | GNN (Phase 2) |
+| **Data** | Polars | 0.19+ | Fast DataFrame operations |
+| **Config** | Hydra | 1.3+ | Configuration management |
+| **Tracking** | MLflow | 2.8+ | Experiment tracking |
+| **DB** | psycopg2 | 2.9+ | PostgreSQL driver |
+| **Viz** | matplotlib, seaborn | | Plotting |
+
+### Development Tools
+
+| Tool | Purpose |
+|------|---------|
+| **Jupyter** | Notebook analysis |
+| **pytest** | Unit testing |
+| **black** | Code formatting |
+| **mypy** | Type checking |
+| **ruff** | Linting |
 
 ---
 
-## GNN Hybrid Support
+## Scalability Considerations
 
-The trainer fully supports `embedding_generator` callback for per-window GNN embedding generation. This enables fair temporal comparison between XGBoost and GNN hybrid models.
+### Current Scale
 
-All modules now use unified Hydra configuration directly, eliminating legacy compatibility layers.
+| Metric | Value |
+|--------|-------|
+| **Listings** | 234k |
+| **Features** | ~235 |
+| **Training Time** | ~5 min (single window) |
+| **Memory** | ~8GB peak |
+| **Disk** | ~500MB (artifacts) |
 
-## Recommended Improvements
+### Bottlenecks
 
-1. **Add Integration Tests**: Verify full pipeline works end-to-end
-2. ~~**Optimize Embedding Generation**: Graph building per window is slow; consider caching~~ ✅ Fixed (2025-12-01)
+| Component | Bottleneck | Solution |
+|-----------|------------|----------|
+| **Graph creation** | Memory (10M+ edges) | Incremental update, not full rebuild |
+| **Feature computation** | CPU (graph metrics) | Cache graph features |
+| **Training** | Time (120+ windows for drift eval) | Parallel window evaluation |
 
-## Technical Debt
+### Future Scaling
 
-### Feature Category Ordering (Deferred)
-
-The `FeatureRegistry` executes categories in YAML-listed order. Currently all categories are independent, so order doesn't matter. **If adding dependent categories in the future**, either:
-- Document dependencies in docstrings and ensure correct YAML ordering
-- Add explicit dependency declarations to `FeatureRegistry` for auto-ordering
-
-See `docs/knowledge_base.md` § "Technical Debt: Feature Category Ordering" for details.
-
-### Production Readiness (Deferred to Post-Experiment Phase)
-
-The following items are deferred during the experiment phase to prioritize iteration speed. Revisit when transitioning to production:
-
-| Category | Item | Notes |
-|----------|------|-------|
-| **Testing** | Unit tests for `FeatureProcessor`, `calculate_metrics` | Add pytest suite |
-| **Testing** | Integration tests for full pipeline | End-to-end validation |
-| **CI/CD** | GitHub Actions workflow | Lint, test, type-check |
-| **Data Versioning** | DVC for artifacts | Track data lineage |
-
-**Already Implemented:**
-- ✅ **Data Quality**: Pandera schema validation in `src/data/schema.py`
-- ✅ **Config Validation**: `src/features/config_validator.py`
-- ✅ **MLflow Config Logging**: Full Hydra config logged as artifact
-| **Serving** | Feature Store pattern | Pre-compute graph features in batch |
-| **Serving** | FastAPI inference service | Raw listing → prediction |
-| **Monitoring** | Feature drift detection | KS-test on distributions |
-| **Monitoring** | Model performance monitoring | Track AUC-PR over time |
-
-**Serving Architecture Note**: Graph features (`shared_contact_email_count`, `listing_component_size`, etc.) cannot be computed at request time. Production requires:
-1. **Batch job** to pre-compute graph features → Feature Store
-2. **Online features** computed at request time (account_age, booleans)
-3. **Inference service** merges online + offline features → model prediction
-
-See `docs/mlops_review.md` for detailed implementation guidance.
+For 10x scale (2.3M listings):
+- **Distributed graph**: Use Apache Spark GraphX or Neo4j
+- **Incremental training**: Don't retrain from scratch
+- **Feature store**: Cache computed features
+- **Model serving**: Deploy via FastAPI + Docker
 
 ---
 
-## Execution Flow
+## Testing Strategy
 
-All commands use Hydra for configuration. Run from project root.
-
-```bash
-# 1. Data Pipeline (one-time setup)
-python -m src.data.pipeline                    # Extract from DB → artifacts/raw_insertions.parquet
-python -m src.data.graph.create_artifacts      # Create graph → artifacts/nodes_*.parquet, edges_*.parquet
-python -m src.utils.evaluate_seon              # Compute Seon metrics → artifacts/seon_baseline.json
-
-# 2. Model Training
-python -m src.models.train                     # XGBoost with auto features (default)
-python -m src.models.gnn.sage                  # GNN hybrid (SAGE)
-python -m src.models.gnn.hgt                   # GNN hybrid (HGT)
-
-# 3. Hyperparameter Optimization
-python -m src.models.hyperopt.xgboost          # Optuna search for XGBoost
-
-# 4. Model Comparison
-python -m src.utils.mlflow_model_comparison compare \
-  --model-name fraud-detection-xgboost \
-  --candidate-run-id <RUN_ID>
-
+### Unit Tests
+```python
+# tests/test_features.py
+def test_feature_processor():
+    processor = FeatureProcessor(categories=['base'])
+    df, features = processor.process(data)
+    assert len(features) > 0
+    assert all(col in df.columns for col in features)
 ```
 
+### Integration Tests
+```python
+# tests/test_pipeline.py
+def test_etl_to_training():
+    # Run full pipeline
+    run_etl()
+    create_graph_artifacts()
+    train_model()
+    # Verify outputs exist
+```
+
+### Experiment Reproducibility
+- All experiments use fixed `seed=42`
+- Hydra saves full config with each run
+- MLflow tracks all hyperparameters
+- Git commit hash logged to MLflow
+
 ---
 
-## Summary
+## Security Considerations
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Config (Input)** | Hydra | Define what to run, simple auto config |
-| **Logging** | Hydra + colorlog | Colored console + auto log files |
-| **Tracking (Output)** | MLflow | Record results, model registry, comparison |
-| ETL | Polars | High-performance data processing |
-| Graph | PyTorch Geometric | GNN-ready heterogeneous graph |
-| Primary Model | XGBoost | Fraud classification |
-| Alternative | GraphSAGE/HGT | GNN embeddings for hybrid |
-| Baseline | Seon (static) | Production system to beat |
+| Risk | Mitigation |
+|------|------------|
+| **Data Leakage** | Strict temporal splits, no future data |
+| **PII Exposure** | All contacts hashed, no raw emails/phones |
+| **Model Stealing** | MLflow access control (if deployed) |
+| **Adversarial Attacks** | Multi-feature redundancy, weekly retraining |
 
+---
+
+## References
+
+- Configuration: `conf/config.yaml`
+- Data pipeline: [`dataflow.md`](dataflow.md)
+- Domain knowledge: [`knowledge_base.md`](knowledge_base.md)
+- MLflow docs: https://mlflow.org
+- Hydra docs: https://hydra.cc

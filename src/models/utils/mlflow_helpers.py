@@ -34,10 +34,14 @@ def create_gnn_signature(
     Returns:
         ModelSignature or None if creation fails
     """
-    try:
         # Try standard inference first (works for simple cases)
-        return infer_signature(input_example, output_example)
-    except Exception:
+    try:
+        signature = infer_signature(input_example, output_example)
+        logger.debug("Successfully created signature via standard inference")
+        return signature
+    except Exception as e:
+        logger.debug(f"Standard signature inference failed: {e}, trying manual TensorSpec creation")
+        
         # Fall back to manual TensorSpec creation for complex inputs
         try:
             # Create input schema from dictionary
@@ -52,6 +56,9 @@ def create_gnn_signature(
                         input_specs.append(
                             TensorSpec(type=np.dtype(value.dtype).name, shape=tuple(shape), name=key)
                         )
+                if not input_specs:
+                    logger.warning("No valid input specs created from input_example")
+                    return None
                 input_schema = Schema(input_specs)
             
             # Create output schema
@@ -67,9 +74,17 @@ def create_gnn_signature(
                             name="output"
                         )
                     ])
+                else:
+                    logger.warning(f"Unsupported output type: {type(output_example)}")
+                    return None
             
-            return ModelSignature(inputs=input_schema, outputs=output_schema)
-        except Exception:
+            signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+            logger.debug("Successfully created signature via manual TensorSpec")
+            return signature
+            
+        except Exception as e2:
+            # If all else fails, return None (model will be logged without signature)
+            logger.warning(f"Failed to create signature via manual TensorSpec: {e2}")
             return None
 
 

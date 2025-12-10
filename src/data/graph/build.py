@@ -18,7 +18,7 @@ import hydra
 from omegaconf import DictConfig
 
 from src.data.graph.create_artifacts import create_nodes_and_edges, RAW_INSERTIONS
-from src.data.graph.graph_builder import build_graph
+from src.data.graph.graph_structure import build_graph
 
 import polars as pl
 
@@ -38,7 +38,7 @@ def main(_cfg: DictConfig) -> None:
     # Check for raw data
     if not RAW_INSERTIONS.exists():
         logger.error(f"Raw insertions not found at {RAW_INSERTIONS}")
-        logger.error("Run ETL first: python -m src.data.pipeline")
+        logger.error("Run ETL first: python -m src.data.etl.pipeline")
         raise SystemExit(1)
     
     # Step 1: Load raw data

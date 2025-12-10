@@ -4,7 +4,7 @@ Handles flattening of JSON fields and anonymization.
 """
 import json
 import polars as pl
-from typing import Any, Dict, List
+from typing import Any, Dict
 import logging
 from src.utils.anonymize import anonymize_listings_pii
 
@@ -38,18 +38,36 @@ def flatten_dict_recursive(d: Any, parent_key: str = "", sep: str = ".") -> Dict
     return dict(items)
 
 def flatten_json_batch(json_strings: list, prefix: str = "") -> list:
-    """Efficiently flattens a batch of JSON strings."""
+    """
+    Efficiently flattens a batch of JSON strings.
+    
+    Args:
+        json_strings: List of JSON strings or dict objects
+        prefix: Prefix to add to all keys
+        
+    Returns:
+        List of flattened dictionaries (empty dict for failures)
+    """
     def process_one(json_str):
         if json_str is None:
             return {}
+            
         try:
             json_obj = json.loads(json_str) if isinstance(json_str, str) else json_str
             return flatten_dict_recursive(json_obj, parent_key=prefix)
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to flatten JSON: {e}")
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON format: {e}")
+            return {}
+        except TypeError as e:
+            logger.warning(f"Type error while flattening JSON: {e}")
+            return {}
+        except (AttributeError, KeyError, ValueError) as e:
+            logger.warning(f"Error accessing JSON structure: {e}")
             return {}
         except Exception as e:
-            logger.warning(f"Unexpected error flattening JSON: {e}")
+            # Catch any other unexpected errors to prevent batch failure
+            logger.error(f"Unexpected error flattening JSON: {type(e).__name__}: {e}")
             return {}
     
     return [process_one(js) for js in json_strings]
@@ -121,8 +139,10 @@ def flatten_chunk(df_chunk: pl.DataFrame) -> pl.DataFrame:
                     df_flat = df_flat.with_columns(
                         pl.col(col).cast(original_dtype, strict=False)
                     )
-                except Exception as e:
+                except (pl.ComputeError, pl.SchemaError) as e:
                     logger.warning(f"Could not cast {col} from {current_dtype} to {original_dtype}: {e}")
+                except Exception as e:
+                    logger.error(f"Unexpected error casting {col}: {type(e).__name__}: {e}")
     
     return df_flat
 

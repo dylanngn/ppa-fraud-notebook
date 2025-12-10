@@ -36,8 +36,6 @@ paths:
   graph: artifacts/graph.pt
   mappings: artifacts/mappings.pkl
   
-  # Model files
+  # Model files (GraphSAGE only)
   model_sage: artifacts/model_sage_best.pt
-  model_hgt: artifacts/model_hgt_best.pt
   embeddings_sage: artifacts/embeddings_sage.pt
-  embeddings_hgt: artifacts/embeddings_hgt.pt

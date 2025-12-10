@@ -1,8 +1,8 @@
 """
-SAGE Hybrid Model Training
+SAGE (GraphSAGE) Model Training
 
-Optimized SAGE (GraphSAGE) implementation for fraud detection.
-Trains GNN embeddings and hybrid XGBoost model with model-specific optimizations.
+GraphSAGE implementation for fraud detection with inductive learning.
+Trains GNN embeddings that can be used standalone or with XGBoost.
 """
 import logging
 import pickle
@@ -10,12 +10,11 @@ from datetime import datetime
 
 import hydra
 import mlflow
-import numpy as np
 import polars as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from torch_geometric.nn import Linear, SAGEConv, to_hetero
 
 from src.utils.hydra_utils import resolve_path
@@ -28,22 +27,29 @@ EMBEDDINGS_SAGE = resolve_path("artifacts/embeddings_sage.pt")
 NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
 MAPPINGS_PKL = resolve_path("artifacts/mappings.pkl")
 
-from src.models.xgboost.trainer import train_accumulating_window
+from src.models.xgb_trainer.trainer import train_single_window
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
 from src.models.utils.mlflow_helpers import get_model_dependencies
 from src.utils.metrics import calculate_metrics
-from src.data.graph.graph_builder import build_graph
-from src.data.loader import load_data
+from src.data.graph.graph_structure import build_graph, get_graph_metadata, validate_graph_metadata
+from src.data.training_loader import load_data
+from src.features.xgboost.processor import FeatureProcessor
+from src.utils.temporal_split import AccumulatingWindowSplitter, TemporalTrainTestSplitter
 
 
 class GraphSAGE(nn.Module):
-    """GraphSAGE model for heterogeneous graphs."""
+    """
+    GraphSAGE (homogeneous graph) model.
+    
+    Uses mean aggregation to combine neighbor features.
+    Converted to heterogeneous via to_hetero() wrapper.
+    """
     
     def __init__(self, hidden_channels, out_channels, num_layers):
         super().__init__()
         self.convs = nn.ModuleList()
         for _ in range(num_layers):
-            conv = SAGEConv(hidden_channels, hidden_channels)
+            conv = SAGEConv(hidden_channels, hidden_channels, aggr='mean')
             self.convs.append(conv)
         self.lin = Linear(hidden_channels, out_channels)
 
@@ -55,29 +61,46 @@ class GraphSAGE(nn.Module):
 
 class SAGEWrapper(nn.Module):
     """
-    SAGE wrapper for heterogeneous graphs.
-    Optimized for fraud detection with skip connections to prevent over-smoothing.
+    GraphSAGE wrapper for heterogeneous fraud detection graphs.
+    
+    Key features:
+    - Inductive learning (can handle unseen nodes)
+    - Skip connections to prevent over-smoothing
+    - Mean aggregation for stable neighbor combination
+    - Converts homogeneous SAGE to heterogeneous via to_hetero()
     """
     
     def __init__(self, metadata, hidden_channels=64, out_channels=64, num_layers=2):
         super().__init__()
-        # Input projections for all node types
+        
+        # Input projections for all node types (listing, user, location, etc.)
         self.lin_dict = nn.ModuleDict()
         for node_type in metadata[0]:
             self.lin_dict[node_type] = Linear(-1, hidden_channels)
         
-        # Core SAGE model (mean aggregation works best for heterogeneous graphs)
+        # Core GraphSAGE model (homogeneous) converted to heterogeneous
         model = GraphSAGE(hidden_channels, hidden_channels, num_layers)
         self.gnn = to_hetero(model, metadata, aggr='mean')
         
-        # Output projection with skip connection (preserve self-features)
+        # Output projection with skip connection
+        # Concatenates self-features with neighbor aggregation to prevent over-smoothing
         self.lin_out = Linear(hidden_channels * 2, out_channels)
         
-        # Classifier for training
+        # Binary classifier for fraud prediction
         self.classifier = Linear(out_channels, 1)
 
     def forward(self, x_dict, edge_index_dict):
-        # Project inputs
+        """
+        Generate node embeddings.
+        
+        Args:
+            x_dict: Dict of node type -> feature tensor
+            edge_index_dict: Dict of edge type -> edge index tensor
+            
+        Returns:
+            Listing node embeddings (Tensor)
+        """
+        # Project all node types to hidden dimension
         x_dict_proj = {}
         for node_type, x in x_dict.items():
             if node_type in self.lin_dict:
@@ -86,21 +109,23 @@ class SAGEWrapper(nn.Module):
         # Cache listing self-representation before message passing
         listing_self = x_dict_proj['listing']
         
-        # Apply SAGE
+        # Apply GraphSAGE message passing
         x_dict_out = self.gnn(x_dict_proj, edge_index_dict)
         
-        # Concatenate self features with aggregated message
+        # Skip connection: concatenate self features with aggregated neighbors
         listing_out = x_dict_out['listing']
         z_listing = torch.cat([listing_self, listing_out], dim=-1)
         z_listing = self.lin_out(z_listing)
+        
         return z_listing
 
     def predict(self, x_dict, edge_index_dict):
+        """Generate fraud predictions (for training)."""
         z = self.forward(x_dict, edge_index_dict)
         return self.classifier(z)
 
 
-def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_days=14):
+def train_sage_embeddings(epochs=25, split_percent=0.8):
     """
     Train SAGE embeddings with optimized parameters.
     
@@ -110,7 +135,7 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     - 2 layers, 64 hidden channels (optimal for this graph size)
     
     Returns:
-        str: Model URI of the logged GNN model (e.g., "runs:/run_id/gnn_model")
+        str: Path to saved embeddings file (e.g., "artifacts/embeddings_sage.pt")
     """
     setup_mlflow()
     mlflow.pytorch.autolog()
@@ -123,28 +148,26 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         data = torch.load(GRAPH_PT, weights_only=False)
     device = get_device()
 
-    # Temporal split
+    # Temporal split using utility from features
     timestamps = data['listing'].timestamp.numpy()
+    splitter = TemporalTrainTestSplitter(
+        timestamps=timestamps,
+        split_percent=split_percent,
+        start_threshold_percentile=10
+    )
+    train_mask, test_mask = splitter.split()
+    split_info = splitter.get_split_info()
     
-    # Use 10th percentile as start threshold to filter out very old/invalid timestamps
-    # This is more robust than a hardcoded date and adapts to the data range
-    start_threshold = np.percentile(timestamps[timestamps > 0], 10)
-    valid_mask = timestamps >= start_threshold
-    valid_timestamps = timestamps[valid_mask]
-    
-    if len(valid_timestamps) == 0:
-        valid_timestamps = timestamps
-    
-    logger.info(f"Using start_threshold: {datetime.fromtimestamp(start_threshold / 1e9)}")
-        
-    split_time = np.percentile(valid_timestamps, split_percent * 100)
+    logger.info(f"Temporal split: {split_info['train_size']} train, {split_info['test_size']} test")
+    split_time = split_info['split_time']
 
     # Create training subgraph
     train_data = filter_graph_by_time(data, split_time)
     train_data = train_data.to(device)
     
-    # Get metadata
+    # Get and validate metadata from filtered graph
     filtered_metadata = train_data.metadata()
+    validate_graph_metadata(filtered_metadata, strict=False)
     
     # Initialize model with optimized parameters
     model = SAGEWrapper(
@@ -158,20 +181,18 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
     
     # MLflow tracking
     mlflow.start_run(run_name="gnn_sage", tags={"model_type": "gnn", "gnn_variant": "sage"})
-    gnn_model_uri = None
+    gnn_embeddings_path = None
     try:
         mlflow.log_params({
             "epochs": epochs,
             "split_percent": split_percent,
-            "window_days": window_days,
-            "step_days": step_days,
             "hidden_channels": 64,
             "num_layers": 2,
             "learning_rate": 0.001,
+            **{f"split_{k}": v for k, v in split_info.items() if k not in ["split_time_readable", "start_threshold_readable"]}
         })
     
-        train_mask = ((train_data['listing'].timestamp <= split_time) & 
-                     (train_data['listing'].timestamp >= start_threshold)).to(device)
+        train_mask_device = torch.from_numpy(train_mask).to(device)
         
         # Training loop
         best_loss = float('inf')
@@ -181,8 +202,8 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
             
             out = model.predict(train_data.x_dict, train_data.edge_index_dict)
             loss = F.binary_cross_entropy_with_logits(
-                out[train_mask], 
-                train_data['listing'].y[train_mask].float().view(-1, 1)
+                out[train_mask_device], 
+                train_data['listing'].y[train_mask_device].float().view(-1, 1)
             )
             
             loss.backward()
@@ -196,19 +217,16 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
         # Load best model
         model.load_state_dict(torch.load(MODEL_SAGE_BEST, weights_only=False))
         
-        # Evaluate on test split (before loading full graph to save memory)
-        test_mask = ((data['listing'].timestamp > split_time) & 
-                    (data['listing'].timestamp >= start_threshold))
-        
+        # Evaluate on test split
         if test_mask.sum() > 0:
             # Use full graph for evaluation (will reuse for embeddings)
             full_data = data.to(device)
-            test_mask_device = test_mask.to(device)
+            test_mask_device = torch.from_numpy(test_mask).to(device)
             model.eval()
             with torch.no_grad():
                 test_out = model.predict(full_data.x_dict, full_data.edge_index_dict)
                 test_pred = test_out[test_mask_device].sigmoid().cpu().numpy().flatten()
-                test_y = data['listing'].y[test_mask].cpu().numpy()
+                test_y = data['listing'].y[test_mask_device].cpu().numpy()
             
             # Calculate metrics
             metrics = calculate_metrics(test_y, test_pred)
@@ -233,63 +251,19 @@ def train_sage_embeddings(epochs=25, split_percent=0.8, window_days=90, step_day
             z_listing = z_listing['listing']
         z_listing = z_listing.cpu()
             
-        # Save embeddings
+        # Save embeddings to disk (this is what downstream XGBoost uses)
         torch.save(z_listing, EMBEDDINGS_SAGE)
         mlflow.log_artifact(str(EMBEDDINGS_SAGE))
         
-        # Register GNN model to Model Registry
-        # 
-        # NOTE: GNN models cannot have MLflow signatures because:
-        # 1. GNN inputs are Dict[str, Tensor] (x_dict, edge_index_dict)
-        # 2. MLflow PyTorch flavor doesn't support Dict input types
-        # 3. Attempting to create a signature causes: "The PyTorch flavor does not support List or Dict input types"
-        #
-        # This is fine because:
-        # - GNN models aren't served via MLflow serving (graph structure required)
-        # - Use embeddings file (embeddings_sage.pt) for inference instead
-        # - The model IS logged and CAN be loaded, just without signature metadata
-        #
-        # The warning "Model logged without a signature" is expected and benign.
-        try:
-            deps = get_model_dependencies()
-            
-            model_info = mlflow.pytorch.log_model(
-                pytorch_model=model,
-                name="gnn_model",
-                registered_model_name="fraud-detection-gnn-sage",
-                **deps,
-                metadata={
-                    "model_type": "GraphSAGE (SAGE)",
-                    "task": "fraud_detection",
-                    "framework": "pytorch",
-                    "graph_type": "heterogeneous",
-                    "hidden_channels": 64,
-                    "out_channels": 64,
-                    "num_layers": 2,
-                    "training_epochs": epochs,
-                    "inference_note": "Use embeddings_sage.pt for inference, not MLflow serving",
-                },
-            )
-            # Ensure we return a string URI, not ModelInfo object
-            gnn_model_uri = model_info.model_uri if hasattr(model_info, 'model_uri') else str(model_info)
-        except Exception:
-            # Try alternative: register from autologged model
-            try:
-                run_id = mlflow.active_run().info.run_id
-                gnn_model_uri = f"runs:/{run_id}/gnn_model"
-                mlflow.register_model(
-                    model_uri=gnn_model_uri,
-                    name="fraud-detection-gnn-sage"
-                )
-            except Exception:
-                # Fallback: use run ID directly
-                run_id = mlflow.active_run().info.run_id
-                gnn_model_uri = f"runs:/{run_id}/gnn_model"
+        logger.info(f"GNN embeddings saved to {EMBEDDINGS_SAGE}")
+        logger.info(f"  Shape: {z_listing.shape}")
+        logger.info(f"  Note: GNN acts as feature extractor - embeddings.pt is the output artifact")
         
     finally:
         mlflow.end_run()
     
-    return gnn_model_uri
+    # Return embeddings path instead of model URI (since we don't register the model)
+    return str(EMBEDDINGS_SAGE)
 
 
 def create_sage_embedding_generator():
@@ -320,8 +294,9 @@ def create_sage_embedding_generator():
         logger.info("Graph not found. Building full graph...")
         full_graph = build_graph(cutoff_date=None)
     
-    # Get metadata from the actual graph (includes reverse edges from T.ToUndirected())
-    metadata = full_graph.metadata()
+    # Get metadata efficiently (uses cached metadata.pkl if available)
+    metadata = get_graph_metadata()
+    validate_graph_metadata(metadata, strict=True)
     
     # Initialize model with the correct metadata
     model = SAGEWrapper(
@@ -336,7 +311,7 @@ def create_sage_embedding_generator():
     model.eval()
     
     # Load the EXACT mapping used when graph was built
-    # This is critical: graph node indices are determined by graph_builder.py,
+    # This is critical: graph node indices are determined by graph_structure.py,
     # and Polars unique() may reorder rows. Using mappings.pkl guarantees correctness.
     if not MAPPINGS_PKL.exists():
         raise FileNotFoundError(
@@ -447,10 +422,12 @@ def main(cfg: DictConfig):
     """
     Train SAGE hybrid model: embeddings + XGBoost.
     
-    Pipeline:
+    Orchestrates:
     1. Train SAGE model on graph (temporal split)
     2. Create embedding generator for per-window embedding generation
-    3. Train hybrid XGBoost model with accumulating window
+    3. Load dataset and create temporal splits
+    4. Process features and embeddings per window
+    5. Train hybrid XGBoost model with GNN embeddings
     """
     if not NODES_LISTING.exists():
         raise FileNotFoundError("Artifacts not found. Run 'make etl' first.")
@@ -465,33 +442,181 @@ def main(cfg: DictConfig):
     logger.info(f"  Feature categories: {cfg.features.categories}")
     
     # Step 1: Train SAGE model (once, on training split)
-    gnn_model_uri = train_sage_embeddings(epochs=epochs)
+    gnn_embeddings_path = train_sage_embeddings(epochs=epochs)
     
     # Step 2: Create embedding generator (will generate embeddings per window)
     embedding_generator = create_sage_embedding_generator()
     
-    # Step 3: Load base data (without embeddings - they'll be generated per window)
+    # Step 3: Load dataset
     df = load_data()
+    logger.info(f"Loaded {len(df)} samples")
     
-    # NOTE: Base features are computed by FeatureProcessor inside trainer.py
-    # per-window with the correct temporal cutoff. Removed duplicate call here
-    # that used datetime.now() which was semantically incorrect.
-    
-    # Step 4: Override model name for hybrid
-    hybrid_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
-    hybrid_cfg.model.name = "hybrid_sage"
-    
-    # Step 6: Train hybrid model with per-window embeddings
-    result = train_accumulating_window(
-        df,
-        config=hybrid_cfg,
-        max_windows=max_windows,
-        embedding_generator=embedding_generator
+    # Step 4: Create temporal splitter
+    splitter = AccumulatingWindowSplitter(
+        df=df,
+        initial_window_days=cfg.model.training.initial_window_days,
+        step_days=cfg.model.training.step_days,
+        test_days=cfg.model.training.get("test_days", 14),
+        max_windows=max_windows
     )
     
-    logger.info(f"SAGE hybrid training complete. Mean AUC-PR: {result['mean_auc_pr']:.4f}")
+    # Step 5: Setup MLflow for hybrid training
+    setup_mlflow(cfg.experiment_name)
     
-    return result
+    with mlflow.start_run(
+        run_name=f"hybrid_sage_{datetime.now().strftime('%Y%m%d_%H%M')}",
+        tags={"model_type": "hybrid_sage", "training_mode": "accumulating_window"}
+    ) as parent_run:
+        
+        # Log configuration
+        mlflow.log_params({
+            "model_name": "hybrid_sage",
+            "initial_window_days": cfg.model.training.initial_window_days,
+            "step_days": cfg.model.training.step_days,
+            "feature_categories": ",".join(cfg.features.categories),
+            "uses_gnn_embeddings": True,
+            "gnn_embeddings_path": gnn_embeddings_path,
+        })
+        
+        # Step 6: Train per window with embeddings
+        results = []
+        best_auc_pr = 0
+        best_run_id = None
+        best_model_uri = None
+        
+        feature_processor = FeatureProcessor.from_config(cfg.features)
+        
+        for window_idx, train_data, test_data, window_info in splitter.split():
+            logger.info(
+                f"Window {window_idx}: "
+                f"train up to {window_info['train_end'].date()}, "
+                f"test {window_info['test_start'].date()} → {window_info['test_end'].date()}"
+            )
+            
+            # Process base features
+            train_processed, train_feature_cols = feature_processor.process(
+                train_data,
+                cutoff_date=window_info['train_end']
+            )
+            test_processed, test_feature_cols = feature_processor.process(
+                test_data,
+                cutoff_date=window_info['train_end'],
+                expected_columns=train_feature_cols
+            )
+            
+            # Generate embeddings for this window
+            try:
+                logger.info(f"Generating embeddings for window {window_idx}...")
+                train_embed_df, test_embed_df, embed_cols = embedding_generator(
+                    train_processed, test_processed, window_info['train_end']
+                )
+                
+                if not embed_cols:
+                    logger.warning("Embedding generator returned empty embed_cols, skipping embeddings")
+                    all_feature_cols = train_feature_cols
+                else:
+                    # Merge embeddings with base features
+                    train_processed = train_processed.join(train_embed_df, on="insertion_id", how="left")
+                    test_processed = test_processed.join(test_embed_df, on="insertion_id", how="left")
+                    
+                    # Fill nulls with zeros
+                    for col in embed_cols:
+                        train_processed = train_processed.with_columns(pl.col(col).fill_null(0.0))
+                        test_processed = test_processed.with_columns(pl.col(col).fill_null(0.0))
+                    
+                    # Combine feature columns
+                    all_feature_cols = train_feature_cols + embed_cols
+                    logger.info(f"Using {len(all_feature_cols)} features ({len(train_feature_cols)} base + {len(embed_cols)} embeddings)")
+                
+            except (KeyError, AttributeError) as e:
+                logger.error(f"Embedding generation failed due to data structure issue: {e}", exc_info=True)
+                all_feature_cols = train_feature_cols
+                logger.warning("Continuing without embeddings")
+            except Exception as e:
+                logger.error(f"Unexpected error during embedding generation: {type(e).__name__}: {e}", exc_info=True)
+                all_feature_cols = train_feature_cols
+                logger.warning("Continuing without embeddings")
+            
+            # Convert to pandas
+            train_df = train_processed.to_pandas()
+            test_df = test_processed.to_pandas()
+            
+            # Train model
+            result = train_single_window(
+                train_df=train_df,
+                test_df=test_df,
+                feature_cols=all_feature_cols,
+                target_col="is_fraud",
+                xgb_params=dict(cfg.model.params),
+                window_idx=window_idx,
+                log_model=True,
+                nested=True
+            )
+            
+            if result.get("skipped"):
+                continue
+            
+            # Track best model
+            if result["auc_pr"] > best_auc_pr:
+                best_auc_pr = result["auc_pr"]
+                best_run_id = result.get("run_id")
+                best_model_uri = result.get("model_uri")
+            
+            results.append({
+                "window_idx": window_idx,
+                "train_size": result["train_size"],
+                "test_size": result["test_size"],
+                "auc_pr": result["auc_pr"],
+                "auc_roc": result["auc_roc"],
+                "p@100": result["p@100"],
+            })
+        
+        # Step 7: Aggregate results
+        if results:
+            results_df = pl.DataFrame(results)
+            mean_auc_pr = float(results_df["auc_pr"].mean())
+            mean_auc_roc = float(results_df["auc_roc"].mean())
+            
+            mlflow.log_metrics({
+                "mean_auc_pr": mean_auc_pr,
+                "mean_auc_roc": mean_auc_roc,
+                "best_auc_pr": best_auc_pr,
+                "num_windows": float(len(results)),
+            })
+    
+            logger.info(f"SAGE hybrid training complete. Mean AUC-PR: {mean_auc_pr:.4f}")
+            
+            # Register best model
+            if best_model_uri is not None:
+                registered_model = mlflow.register_model(
+                    model_uri=best_model_uri,
+                    name="fraud-detection-hybrid_sage"
+                )
+                client = mlflow.tracking.MlflowClient()
+                client.update_model_version(
+                    name=registered_model.name,
+                    version=registered_model.version,
+                    description=f"Mean AUC-PR: {mean_auc_pr:.4f}, Best: {best_auc_pr:.4f}"
+                )
+                logger.info(f"Registered {registered_model.name} version {registered_model.version}")
+    
+            return {
+                "run_id": parent_run.info.run_id,
+                "best_run_id": best_run_id,
+                "results": results,
+                "mean_auc_pr": mean_auc_pr,
+                "best_auc_pr": best_auc_pr,
+                "num_windows": len(results),
+            }
+        else:
+            logger.warning("No windows processed!")
+            return {
+                "run_id": parent_run.info.run_id,
+                "results": [],
+                "mean_auc_pr": 0,
+                "best_auc_pr": 0,
+                "num_windows": 0,
+            }
 
 
 if __name__ == "__main__":

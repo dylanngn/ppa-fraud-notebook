@@ -1,9 +1,10 @@
 """
 Hyperparameter optimization for PyTorch GNN models using Optuna and MLflow.
 Follows MLflow best practices for hyperparameter tuning.
+
+Currently supports: GraphSAGE
 """
 import logging
-from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 import hydra
@@ -21,6 +22,7 @@ GRAPH_PT = resolve_path("artifacts/graph.pt")
 
 from src.models.utils.common import get_device, setup_mlflow, filter_graph_by_time
 from src.utils.metrics import calculate_metrics
+from src.utils.temporal_split import TemporalTrainTestSplitter
 
 
 def create_pytorch_objective(
@@ -31,10 +33,10 @@ def create_pytorch_objective(
     metric_weights: Optional[Dict[str, float]] = None
 ) -> Callable:
     """
-    Create Optuna objective function for PyTorch GNN hyperparameter optimization.
+    Create Optuna objective function for GraphSAGE hyperparameter optimization.
     
     Args:
-        model_class: PyTorch model class (e.g., HGTWrapper, SAGEWrapper)
+        model_class: PyTorch model class (SAGEWrapper)
         data: Full graph data
         epochs: Number of training epochs
         split_percent: Train/test split percentage
@@ -50,7 +52,7 @@ def create_pytorch_objective(
     
     def objective(trial: optuna.Trial) -> float:
         """
-        Optuna objective function for PyTorch hyperparameter tuning.
+        Optuna objective function for GraphSAGE hyperparameter tuning.
         """
         # Define hyperparameter search space
         params = {
@@ -60,10 +62,6 @@ def create_pytorch_objective(
             "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
         }
         
-        # For HGT, add num_heads
-        if "HGT" in model_class.__name__:
-            params["num_heads"] = trial.suggest_int("num_heads", 2, 8, step=2)
-        
         # Create nested MLflow run for this trial
         with mlflow.start_run(nested=True):
             mlflow.log_params(params)
@@ -71,48 +69,32 @@ def create_pytorch_objective(
             mlflow.log_param("epochs", epochs)
             
             try:
-                # Temporal split
+                # Temporal split using utility
                 timestamps = data['listing'].timestamp.numpy()
-                start_threshold = datetime(2023, 1, 1).timestamp() * 1e9
-                valid_mask = timestamps >= start_threshold
-                valid_timestamps = timestamps[valid_mask]
-                
-                if len(valid_timestamps) == 0:
-                    valid_timestamps = timestamps
-                
-                split_time = valid_timestamps[int(len(valid_timestamps) * split_percent)]
+                splitter = TemporalTrainTestSplitter(
+                    timestamps=timestamps,
+                    split_percent=split_percent,
+                    start_threshold_percentile=10
+                )
+                train_mask, test_mask = splitter.split()
+                split_info = splitter.get_split_info()
+                split_time = split_info['split_time']
                 
                 # Create training subgraph
-                train_data, train_edge_times = filter_graph_by_time(data, split_time, return_edge_times=True)
+                train_data = filter_graph_by_time(data, split_time)
                 train_data = train_data.to(device)
                 
-                # Move edge times to device
-                train_edge_times_device = {
-                    k: v.to(device) if v is not None else None 
-                    for k, v in train_edge_times.items()
-                }
-                
-                # Initialize model
-                if "HGT" in model_class.__name__:
-                    model = model_class(
-                        metadata=train_data.metadata(),
-                        hidden_channels=params["hidden_channels"],
-                        out_channels=params["out_channels"],
-                        num_heads=params["num_heads"],
-                        num_layers=params["num_layers"],
-                    ).to(device)
-                else:
-                    model = model_class(
-                        metadata=train_data.metadata(),
-                        hidden_channels=params["hidden_channels"],
-                        out_channels=params["out_channels"],
-                        num_layers=params["num_layers"],
-                    ).to(device)
+                # Initialize model (GraphSAGE only)
+                model = model_class(
+                    metadata=train_data.metadata(),
+                    hidden_channels=params["hidden_channels"],
+                    out_channels=params["out_channels"],
+                    num_layers=params["num_layers"],
+                ).to(device)
                 
                 optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
                 
-                train_mask = ((train_data['listing'].timestamp <= split_time) & 
-                             (train_data['listing'].timestamp >= start_threshold)).to(device)
+                train_mask_device = torch.from_numpy(train_mask).to(device)
                 
                 # Training loop
                 best_loss = float('inf')
@@ -120,18 +102,11 @@ def create_pytorch_objective(
                     model.train()
                     optimizer.zero_grad()
                     
-                    if "HGT" in model_class.__name__:
-                        out = model.predict(
-                            train_data.x_dict, 
-                            train_data.edge_index_dict, 
-                            train_edge_times_device
-                        )
-                    else:
-                        out = model.predict(train_data.x_dict, train_data.edge_index_dict)
+                    out = model.predict(train_data.x_dict, train_data.edge_index_dict)
                     
                     loss = F.binary_cross_entropy_with_logits(
-                        out[train_mask], 
-                        train_data['listing'].y[train_mask].float().view(-1, 1)
+                        out[train_mask_device], 
+                        train_data['listing'].y[train_mask_device].float().view(-1, 1)
                     )
                     
                     loss.backward()
@@ -143,34 +118,15 @@ def create_pytorch_objective(
                 mlflow.log_metric("best_train_loss", best_loss.item())
                 
                 # Evaluate on test split
-                test_mask = ((data['listing'].timestamp > split_time) & 
-                            (data['listing'].timestamp >= start_threshold))
-                
                 if test_mask.sum() > 0:
                     full_data = data.to(device)
-                    test_mask_device = test_mask.to(device)
-                    
-                    # Prepare edge times for full data
-                    full_edge_times_device = {}
-                    for edge_type in data.edge_index_dict.keys():
-                        if 'timestamp' in data[edge_type]:
-                            full_edge_times_device[edge_type] = data[edge_type].timestamp.to(device)
-                        else:
-                            full_edge_times_device[edge_type] = None
+                    test_mask_device = torch.from_numpy(test_mask).to(device)
                     
                     model.eval()
                     with torch.no_grad():
-                        if "HGT" in model_class.__name__:
-                            test_out = model.predict(
-                                full_data.x_dict, 
-                                full_data.edge_index_dict, 
-                                full_edge_times_device
-                            )
-                        else:
-                            test_out = model.predict(full_data.x_dict, full_data.edge_index_dict)
-                        
+                        test_out = model.predict(full_data.x_dict, full_data.edge_index_dict)
                         test_pred = test_out[test_mask_device].sigmoid().cpu().numpy().flatten()
-                        test_y = data['listing'].y[test_mask].cpu().numpy()
+                        test_y = data['listing'].y[test_mask_device].cpu().numpy()
                     
                     # Calculate metrics
                     metrics = calculate_metrics(test_y, test_pred)
@@ -211,10 +167,10 @@ def optimize_pytorch_hyperparameters(
     study_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Run hyperparameter optimization for PyTorch GNN models.
+    Run hyperparameter optimization for GraphSAGE.
     
     Args:
-        model_class: PyTorch model class (e.g., HGTWrapper, SAGEWrapper)
+        model_class: PyTorch model class (SAGEWrapper)
         experiment_name: MLflow experiment name
         n_trials: Number of Optuna trials
         epochs: Number of training epochs per trial
@@ -280,24 +236,21 @@ def optimize_pytorch_hyperparameters(
 @hydra.main(version_base=None, config_path="../../../conf", config_name="config")
 def main(cfg: DictConfig):
     """
-    Hyperparameter optimization for PyTorch GNN models using Optuna.
+    Hyperparameter optimization for GraphSAGE using Optuna.
     
     Usage:
-        python -m src.models.hyperopt.pytorch gnn.model_type=hgt
-        python -m src.models.hyperopt.pytorch gnn.model_type=sage
+        python -m src.models.hyperopt.pytorch
     """
-    from src.models.gnn.hgt import HGTWrapper
     from src.models.gnn.sage import SAGEWrapper
     
-    # Get model type from config
-    model_type = cfg.get("gnn", {}).get("model_type", "sage")
+    # Get config values
     n_trials = cfg.get("hyperopt", {}).get("n_trials", 50)
     epochs = cfg.get("gnn", {}).get("epochs", 25)
     timeout_minutes = cfg.get("hyperopt", {}).get("timeout_minutes", None)
     
-    model_class = HGTWrapper if model_type.lower() == "hgt" else SAGEWrapper
+    model_class = SAGEWrapper
     
-    logger.info(f"Starting {model_type.upper()} hyperparameter optimization...")
+    logger.info(f"Starting GraphSAGE hyperparameter optimization...")
     logger.info(f"  Experiment: {cfg.experiment_name}")
     logger.info(f"  Trials: {n_trials}")
     logger.info(f"  Epochs per trial: {epochs}")

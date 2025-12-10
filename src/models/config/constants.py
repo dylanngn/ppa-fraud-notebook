@@ -35,9 +35,16 @@ EXCLUDED_COLUMNS = {
     "listing_created_at",
     "account_created_at",
     
-    # External scores (would leak information)
+    # External fraud detection outputs (would leak information - SEON is the baseline we want to beat!)
     "seonFraudScore",
+    "seonApproved",
+    "seonSession",
     "auto_approval_criteria.meta.seonFraudScore",
+    "auto_approval_criteria.criteria.seonApproved",
+    "auto_approval_criteria.seonSession",
+    "listing.autoApprovalCriteria.meta.seonFraudScore",
+    "listing.autoApprovalCriteria.criteria.seonApproved",
+    "listing.autoApprovalCriteria.seonSession",
 }
 
 # Patterns to exclude (checked via endswith/contains)

@@ -1,437 +1,382 @@
 """
-Creates graph artifacts (nodes and edges) from flattened and anonymized data.
+Graph Artifact Creator
 
 This module creates the parquet files used by both:
-- GNN models (via graph_builder.py)
+- GNN models (via graph_structure.py)
 - XGBoost models (via graph_features.py for graph-derived features)
 
 Listing Node Strategy (2025-12-09):
     nodes_listing.parquet contains ALL columns from raw_insertions.parquet.
     This ensures consistency with XGBoost auto mode and fairness between models.
-    Feature filtering for GNN is done in graph_builder.py.
+    Feature filtering for GNN is done in graph_structure.py.
 
 Entity Naming Convention:
     - External name: listing_id (used in logs, configs, documentation)
     - Internal storage: insertion_id (database object_reference field)
-    
-Entity Identification (Source of Truth):
-    - Listing: `object_reference` → stored as `insertion_id` (internal)
-    - User: `owner_id` → aliased to `user_id`
+    - Graph node indexing: 0..N-1 based on full dataframe order (CRITICAL for embeddings)
 
 Note: User-listing relationship is established via:
     i.listing->'legacy'->>'personId' = u.owner_id
 This is handled in the ETL extract query (src/data/etl/extract.py).
 """
+
 import logging
+import pickle
 from pathlib import Path
-from typing import Optional, Tuple
 
 import polars as pl
+import torch
 
+from src.data.training_loader import load_data
+from src.data.graph.graph_structure import build_graph
 from src.utils.hydra_utils import resolve_path
 
 logger = logging.getLogger(__name__)
 
+# Artifact paths
 ARTIFACTS_DIR = resolve_path("artifacts")
-RAW_INSERTIONS = resolve_path("artifacts/raw_insertions.parquet")
-
-# Node file paths
-NODE_FILES = {
-    "user": ARTIFACTS_DIR / "nodes_user.parquet",
-    "listing": ARTIFACTS_DIR / "nodes_listing.parquet",
-    "ip": ARTIFACTS_DIR / "nodes_ip.parquet",
-    "email": ARTIFACTS_DIR / "nodes_email.parquet",
-    "phone": ARTIFACTS_DIR / "nodes_phone.parquet",
-    "address": ARTIFACTS_DIR / "nodes_address.parquet",
-}
-
-# Edge file paths
-EDGE_FILES = {
-    "user_posts": ARTIFACTS_DIR / "edges_user_posts_listing.parquet",
-    "user_ip": ARTIFACTS_DIR / "edges_user_uses_ip.parquet",
-    "user_email": ARTIFACTS_DIR / "edges_user_has_email.parquet",
-    "listing_contact_email": ARTIFACTS_DIR / "edges_listing_contact_email.parquet",
-    "listing_billing_email": ARTIFACTS_DIR / "edges_listing_billing_email.parquet",
-    "listing_phone": ARTIFACTS_DIR / "edges_listing_phone.parquet",  # Unified phone edge
-    "listing_located_at": ARTIFACTS_DIR / "edges_listing_located_at.parquet",
-    "listing_billing_addr": ARTIFACTS_DIR / "edges_listing_billing_addr.parquet",
-}
-
-# Email columns with coverage info
-EMAIL_COLS = [
-    "listing.lister.email.hash",           # 99.97% coverage - PRIMARY
-    "listing.lister.billing.email.hash",   # 98.00% coverage - GOOD
-]
-
-# Phone columns with coverage info
-# Coverage varies significantly - use billing phone as primary, coalesce with lister phone
-#   billing.phoneDay.hash: 97.99% coverage - BEST (PRIMARY)
-#   lister.phone.hash:     69.98% coverage - MODERATE (FALLBACK)
-#   viewing.phone.hash:     3.41% coverage - SKIP (too sparse)
-#   inquiry.phone.hash:     0.11% coverage - SKIP (too sparse)
-PHONE_COL_PRIMARY = "listing.lister.billing.phoneDay.hash"   # 98% coverage
-PHONE_COL_FALLBACK = "listing.lister.phone.hash"              # 70% coverage
-
-# Legacy: Individual columns (kept for reference)
-PHONE_COLS = [PHONE_COL_PRIMARY, PHONE_COL_FALLBACK]
-
-# Columns to SKIP due to low coverage (<10%) - not used in graph
-PHONE_COLS_LOW_COVERAGE = [
-    "listing.lister.contacts.viewing.phone.hash",   # 3.4% - too sparse
-    "listing.lister.contacts.inquiry.phone.hash",   # 0.1% - too sparse  
-    "listing.lister.billing.phoneMobile.hash",      # 1.8% - too sparse
-]
+NODES_USER = resolve_path("artifacts/nodes_user.parquet")
+NODES_LISTING = resolve_path("artifacts/nodes_listing.parquet")
+NODES_IP = resolve_path("artifacts/nodes_ip.parquet")
+NODES_EMAIL = resolve_path("artifacts/nodes_email.parquet")
+NODES_PHONE = resolve_path("artifacts/nodes_phone.parquet")
+NODES_ADDRESS = resolve_path("artifacts/nodes_address.parquet")
+EDGES_USER_LISTING = resolve_path("artifacts/edges_user_listing.parquet")
+EDGES_USER_IP = resolve_path("artifacts/edges_user_ip.parquet")
+EDGES_USER_EMAIL = resolve_path("artifacts/edges_user_email.parquet")
+EDGES_LISTING_EMAIL_CONTACT = resolve_path("artifacts/edges_listing_email_contact.parquet")
+EDGES_LISTING_EMAIL_BILLING = resolve_path("artifacts/edges_listing_email_billing.parquet")
+EDGES_LISTING_PHONE = resolve_path("artifacts/edges_listing_phone.parquet")
+EDGES_LISTING_ADDRESS_LOCATION = resolve_path("artifacts/edges_listing_address_location.parquet")
+EDGES_LISTING_ADDRESS_BILLING = resolve_path("artifacts/edges_listing_address_billing.parquet")
+GRAPH_PT = resolve_path("artifacts/graph.pt")
+MAPPINGS_PKL = resolve_path("artifacts/mappings.pkl")
 
 
-class ColumnHelper:
-    """Helper class for safely accessing columns with fallback options."""
-    
-    def __init__(self, df: pl.DataFrame):
-        self.df = df
-        self.columns = set(df.columns)
-    
-    def get_col(self, col_name: str, fallback_col: Optional[str] = None) -> pl.Expr:
-        """
-        Get column expression, with optional fallback if primary doesn't exist.
-        
-        Args:
-            col_name: Primary column name
-            fallback_col: Optional fallback column name
-            
-        Returns:
-            Polars expression for the column or None literal
-        """
-        if col_name in self.columns:
-            return pl.col(col_name)
-        elif fallback_col and fallback_col in self.columns:
-            return pl.col(fallback_col)
-        else:
-            return pl.lit(None).cast(pl.Utf8)
-
-def _create_user_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.DataFrame:
-    """Create user nodes."""
-    return df_listings.select([
-        pl.col("owner_id").alias("user_id"),
-        pl.col("account_created_at"),
-        pl.lit(None).cast(pl.Utf8).alias("email_domain")
-    ]).drop_nulls(subset=["user_id"]).unique(subset=["user_id"])
-
-
-def _create_listing_nodes(df_listings: pl.DataFrame, _helper: ColumnHelper) -> pl.DataFrame:
+def create_unique_entity_nodes(df: pl.DataFrame, id_col: str, entity_name: str):
     """
-    Create listing nodes with ALL fields from raw_insertions.
-    
-    Passes through all columns for consistency with XGBoost auto mode.
-    Downstream code (graph_builder.py) uses raw ETL column names directly.
-    
-    Only adds essential derived columns:
-    - insertion_id: alias of object_reference (graph ID)
-    - user_id: alias of owner_id (graph relationship)
-    - is_fraud: derived boolean from fraud_flag
-    """
-    return df_listings.with_columns([
-        pl.col("object_reference").alias("insertion_id"),
-        pl.col("owner_id").alias("user_id"),
-        pl.col("fraud_flag").is_not_null().alias("is_fraud"),
-    ]).unique(subset=["insertion_id"])
-
-
-def _create_ip_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
-    """Create IP nodes."""
-    return df_listings.select(
-        helper.get_col("user_ip_address_hash", "user_ip_address").alias("user_ip_address")
-    ).unique().drop_nulls()
-
-
-def _create_email_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
-    """Create email nodes from user and listing email columns."""
-    # Emails from users
-    emails_from_users = df_listings.select(
-        helper.get_col("contact_emails_hash", "contact_emails")
-        .str.split(",")
-        .explode()
-        .str.strip_chars()
-        .alias("email")
-    ).drop_nulls()
-    
-    # Emails from listings
-    emails_from_listings = []
-    for col in EMAIL_COLS:
-        if col in helper.columns:
-            emails_from_listings.append(
-                df_listings.select(pl.col(col).alias("email"))
-            )
-    
-    if emails_from_listings:
-        return pl.concat([emails_from_users] + emails_from_listings).unique().drop_nulls()
-    else:
-        return emails_from_users.unique().drop_nulls()
-
-
-def _create_phone_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
-    """Create phone nodes from listing phone columns."""
-    phones_from_listings = []
-    for col in PHONE_COLS:
-        if col in helper.columns:
-            phones_from_listings.append(
-                df_listings.select(pl.col(col).alias("phone"))
-            )
-    
-    if phones_from_listings:
-        return pl.concat(phones_from_listings).unique().drop_nulls()
-    else:
-        return pl.DataFrame({"phone": []})
-
-
-def _create_address_df(
-    df: pl.DataFrame,
-    helper: ColumnHelper,
-    street_col: str,
-    zip_col: str,
-    city_col: str,
-    country_col: str,
-    lat_col: Optional[str] = None,
-    lon_col: Optional[str] = None
-) -> pl.DataFrame:
-    """Create address DataFrame with address_id."""
-    cols = [
-        helper.get_col(street_col).fill_null("").alias("street"),
-        helper.get_col(zip_col).fill_null("").alias("zip"),
-        helper.get_col(city_col).fill_null("").alias("city"),
-        helper.get_col(country_col).fill_null("").alias("country")
-    ]
-    
-    if lat_col and lon_col:
-        cols.append(helper.get_col(lat_col).alias("latitude"))
-        cols.append(helper.get_col(lon_col).alias("longitude"))
-    else:
-        cols.append(pl.lit(None).cast(pl.Float64).alias("latitude"))
-        cols.append(pl.lit(None).cast(pl.Float64).alias("longitude"))
-    
-    return df.select(cols).with_columns(
-        (pl.col("country") + "_" + pl.col("zip") + "_" + pl.col("city") + "_" + pl.col("street")).alias("address_id")
-    ).drop_nulls(subset=["address_id"]).unique(subset=["address_id"])
-
-
-def _create_address_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> pl.DataFrame:
-    """Create address nodes from property and billing addresses."""
-    # Property address
-    addr_property = _create_address_df(
-        df_listings,
-        helper,
-        "listing.address.street.hash",
-        "listing.address.postalCode.hash",
-        "listing.address.city_hash",
-        "listing.address.country_hash",
-        "listing.address.geoCoordinates.latitude",
-        "listing.address.geoCoordinates.longitude"
-    )
-    
-    # Billing address
-    addr_billing = _create_address_df(
-        df_listings,
-        helper,
-        "listing.lister.billing.address.street_hash",
-        "listing.lister.billing.address.zip_hash",
-        "listing.lister.billing.address.city_hash",
-        "listing.lister.billing.address.country_hash"
-    )
-    
-    return pl.concat([addr_property, addr_billing]).unique(subset=["address_id"])
-
-
-def _create_edge_df(
-    df: pl.DataFrame,
-    helper: ColumnHelper,
-    src_col: str,
-    dst_col: str,
-    src_name: str = "source",
-    dst_name: str = "target"
-) -> pl.DataFrame:
-    """Create edge DataFrame from source and destination columns."""
-    return df.select([
-        pl.col(src_col).alias(src_name),
-        helper.get_col(dst_col).alias(dst_name)
-    ]).drop_nulls().unique()
-
-
-def _create_address_edge(
-    df: pl.DataFrame,
-    helper: ColumnHelper,
-    country_col: str,
-    zip_col: str,
-    city_col: str,
-    street_col: str
-) -> pl.DataFrame:
-    """Create address edge by concatenating address components."""
-    return df.select([
-        pl.col("object_reference").alias("source"),
-        (
-            helper.get_col(country_col).fill_null("") + "_" +
-            helper.get_col(zip_col).fill_null("") + "_" +
-            helper.get_col(city_col).fill_null("") + "_" +
-            helper.get_col(street_col).fill_null("")
-        ).alias("target")
-    ]).drop_nulls().unique()
-
-
-def _create_all_nodes(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[pl.DataFrame, ...]:
-    """Create all node DataFrames."""
-    nodes_user = _create_user_nodes(df_listings, helper)
-    nodes_listing = _create_listing_nodes(df_listings, helper)
-    nodes_ip = _create_ip_nodes(df_listings, helper)
-    nodes_email = _create_email_nodes(df_listings, helper)
-    nodes_phone = _create_phone_nodes(df_listings, helper)
-    nodes_address = _create_address_nodes(df_listings, helper)
-    
-    return nodes_user, nodes_listing, nodes_ip, nodes_email, nodes_phone, nodes_address
-
-
-def _create_all_edges(df_listings: pl.DataFrame, helper: ColumnHelper) -> Tuple[pl.DataFrame, ...]:
-    """Create all edge DataFrames."""
-    # User edges
-    edges_user_posts = df_listings.select([
-        pl.col("owner_id").alias("source"),
-        pl.col("object_reference").alias("target")
-    ]).drop_nulls().unique()
-    
-    edges_user_ip = df_listings.select([
-        pl.col("owner_id").alias("source"),
-        helper.get_col("user_ip_address_hash", "user_ip_address").alias("target")
-    ]).drop_nulls().unique()
-    
-    edges_user_email = df_listings.select([
-        pl.col("owner_id").alias("source"),
-        helper.get_col("contact_emails_hash", "contact_emails")
-        .str.split(",")
-        .explode()
-        .str.strip_chars()
-        .alias("target")
-    ]).drop_nulls().unique()
-    
-    # Listing-email edges
-    edges_listing_contact_email = _create_edge_df(
-        df_listings, helper, "object_reference", "listing.lister.email.hash"
-    )
-    edges_listing_billing_email = _create_edge_df(
-        df_listings, helper, "object_reference", "listing.lister.billing.email.hash"
-    )
-    
-    # Listing-phone edges
-    # Use coalesce to prefer billing phone (98% coverage) over lister phone (70% coverage)
-    edges_listing_phone = df_listings.select([
-        pl.col("object_reference").alias("source"),
-        pl.coalesce([
-            helper.get_col(PHONE_COL_PRIMARY),   # billing.phoneDay.hash (98%)
-            helper.get_col(PHONE_COL_FALLBACK),  # lister.phone.hash (70%)
-        ]).alias("target")
-    ]).drop_nulls().unique()
-    
-    # Listing-address edges
-    edges_listing_located_at = _create_address_edge(
-        df_listings, helper,
-        "listing.address.country_hash",
-        "listing.address.postalCode.hash",
-        "listing.address.city_hash",
-        "listing.address.street_hash"
-    )
-    edges_listing_billing_addr = _create_address_edge(
-        df_listings, helper,
-        "listing.lister.billing.address.country_hash",
-        "listing.lister.billing.address.zip_hash",
-        "listing.lister.billing.address.city_hash",
-        "listing.lister.billing.address.street_hash"
-    )
-    
-    return (
-        edges_user_posts, edges_user_ip, edges_user_email,
-        edges_listing_contact_email, edges_listing_billing_email,
-        edges_listing_phone,  # Unified phone edge
-        edges_listing_located_at, edges_listing_billing_addr
-    )
-
-
-def _save_artifacts(
-    nodes: Tuple[pl.DataFrame, ...],
-    edges: Tuple[pl.DataFrame, ...]
-) -> None:
-    """Save all node and edge DataFrames to parquet files."""
-    logger.info("Saving parquet artifacts...")
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    node_names = ["user", "listing", "ip", "email", "phone", "address"]
-    # Edge names
-    edge_names = [
-        "user_posts", "user_ip", "user_email",
-        "listing_contact_email", "listing_billing_email",
-        "listing_phone",  # Unified phone edge
-        "listing_located_at", "listing_billing_addr"
-    ]
-    
-    # Save nodes
-    for name, df in zip(node_names, nodes):
-        df.write_parquet(NODE_FILES[name])
-    
-    # Save edges
-    for name, df in zip(edge_names, edges):
-        df.write_parquet(EDGE_FILES[name])
-
-
-def create_nodes_and_edges(df_listings: pl.DataFrame) -> Tuple[pl.DataFrame, ...]:
-    """
-    Creates the nodes and edges for the Heterogeneous Graph.
-    
-    Works directly with flattened data that uses dot-notation field names.
-    The data should already be flattened and anonymized from fetch_raw_insertions().
+    Create unique entity nodes from hash columns.
     
     Args:
-        df_listings: DataFrame with flattened and anonymized data (dot-notation columns)
+        df: DataFrame containing the hash column
+        id_col: Name of the hash column (e.g., "user_ip_address_hash")
+        entity_name: Name for logging (e.g., "IP")
+            
+        Returns:
+        DataFrame with unique entity IDs
+    """
+    unique_entities = (
+        df
+        .select(pl.col(id_col))
+        .unique()
+        .drop_nulls()
+        .with_row_index(name=f"{entity_name.lower()}_idx")
+    )
+    
+    logger.info(f"  {entity_name}: {len(unique_entities):,} unique entities")
+    return unique_entities
+
+
+def create_user_nodes(df: pl.DataFrame):
+    """Create user nodes from owner_id."""
+    nodes = (
+        df
+        .select("owner_id")
+        .unique()
+        .drop_nulls()
+        .with_row_index(name="user_idx")
+    )
+    logger.info(f"  User: {len(nodes):,} unique users")
+    return nodes
+
+
+def create_listing_nodes(df: pl.DataFrame):
+    """
+    Create listing nodes.
+    
+    Strategy: Include ALL columns from raw_insertions to maintain consistency
+    with XGBoost auto mode. GNN will filter to relevant features in graph_structure.py.
+    
+    Index Strategy: Use row index as listing_idx (0..N-1) where N is total listings.
+    This ensures embedding[i] corresponds to row i in nodes_listing.parquet.
+    """
+    # Keep all columns for consistency with XGBoost
+    nodes = df.with_row_index(name="listing_idx")
+    
+    logger.info(f"  Listing: {len(nodes):,} listings with {len(nodes.columns)} columns")
+    logger.info(f"    Index range: 0 to {len(nodes)-1}")
+    logger.info(f"    Columns: {', '.join(nodes.columns[:10])}... (showing first 10)")
+    
+    return nodes
+
+
+def create_edges(df: pl.DataFrame, nodes_dict: dict):
+    """
+    Create all edge tables with proper index mapping.
+    
+    Args:
+        df: Raw insertions DataFrame
+        nodes_dict: Dictionary of node DataFrames with indices
         
     Returns:
-        Tuple of all node and edge DataFrames
+        Dictionary of edge DataFrames
     """
-    logger.info("Creating nodes and edges from flattened data...")
+    edges = {}
     
-    helper = ColumnHelper(df_listings)
+    # =========================================================================
+    # User -> Listing (posts)
+    # =========================================================================
+    edges["user_listing"] = (
+        df
+        .select(["owner_id", "object_reference"])
+        .drop_nulls()
+        .join(nodes_dict["user"], on="owner_id", how="inner")
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .select(["user_idx", "listing_idx"])
+    )
+    logger.info(f"  User -> Listing: {len(edges['user_listing']):,} edges")
     
-    # Create all nodes and edges
-    nodes = _create_all_nodes(df_listings, helper)
-    edges = _create_all_edges(df_listings, helper)
+    # =========================================================================
+    # User -> IP (uses)
+    # =========================================================================
+    edges["user_ip"] = (
+        df
+        .select(["owner_id", "user_ip_address_hash"])
+        .drop_nulls()
+        .join(nodes_dict["user"], on="owner_id", how="inner")
+        .join(nodes_dict["ip"], on="user_ip_address_hash", how="inner")
+        .select(["user_idx", "ip_idx"])
+    )
+    logger.info(f"  User -> IP: {len(edges['user_ip']):,} edges")
     
-    # Save artifacts
-    _save_artifacts(nodes, edges)
+    # =========================================================================
+    # User -> Email (has_email)
+    # =========================================================================
+    edges["user_email"] = (
+        df
+        .select(["owner_id", "owner_email_hash"])
+        .drop_nulls()
+        .join(nodes_dict["user"], on="owner_id", how="inner")
+        .join(nodes_dict["email"], on="owner_email_hash", how="inner")
+        .select(["user_idx", "email_idx"])
+    )
+    logger.info(f"  User -> Email: {len(edges['user_email']):,} edges")
     
+    # =========================================================================
+    # Listing -> Email (has_contact_email)
+    # =========================================================================
+    edges["listing_email_contact"] = (
+        df
+        .select(["object_reference", "lister_email_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["email"], on="lister_email_hash", how="inner")
+        .select(["listing_idx", "email_idx"])
+    )
+    logger.info(f"  Listing -> Email (contact): {len(edges['listing_email_contact']):,} edges")
+    
+    # =========================================================================
+    # Listing -> Email (has_billing_email)
+    # =========================================================================
+    edges["listing_email_billing"] = (
+        df
+        .select(["object_reference", "billing_email_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["email"], on="billing_email_hash", how="inner")
+        .select(["listing_idx", "email_idx"])
+    )
+    logger.info(f"  Listing -> Email (billing): {len(edges['listing_email_billing']):,} edges")
+    
+    # =========================================================================
+    # Listing -> Phone (has_phone)
+    # UNIFIED: Both billing_phone_hash and lister_phone_hash map to same edge type
+    # =========================================================================
+    
+    # Billing phone edges
+    billing_phone_edges = (
+        df
+        .select(["object_reference", "billing_phone_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["phone"], on="billing_phone_hash", how="inner")
+        .select(["listing_idx", "phone_idx"])
+    )
+    
+    # Lister phone edges
+    lister_phone_edges = (
+        df
+        .select(["object_reference", "lister_phone_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["phone"], on="lister_phone_hash", how="inner")
+        .select(["listing_idx", "phone_idx"])
+    )
+    
+    # Combine and deduplicate
+    edges["listing_phone"] = pl.concat([billing_phone_edges, lister_phone_edges]).unique()
+    
+    logger.info(f"  Listing -> Phone: {len(edges['listing_phone']):,} edges " +
+                f"(billing: {len(billing_phone_edges):,}, lister: {len(lister_phone_edges):,}, unique: {len(edges['listing_phone']):,})")
+    
+    # =========================================================================
+    # Listing -> Address (located_at)
+    # =========================================================================
+    edges["listing_address_location"] = (
+        df
+        .select(["object_reference", "location_address_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["address"], on="location_address_hash", how="inner")
+        .select(["listing_idx", "address_idx"])
+    )
+    logger.info(f"  Listing -> Address (location): {len(edges['listing_address_location']):,} edges")
+    
+    # =========================================================================
+    # Listing -> Address (has_billing_addr)
+    # =========================================================================
+    edges["listing_address_billing"] = (
+        df
+        .select(["object_reference", "billing_address_hash"])
+        .drop_nulls()
+        .join(
+            nodes_dict["listing"].select(["object_reference", "listing_idx"]),
+            on="object_reference",
+            how="inner"
+        )
+        .join(nodes_dict["address"], on="billing_address_hash", how="inner")
+        .select(["listing_idx", "address_idx"])
+    )
+    logger.info(f"  Listing -> Address (billing): {len(edges['listing_address_billing']):,} edges")
+    
+    return edges
+
+
+def create_nodes_and_edges(df: pl.DataFrame):
+    """
+    Main function to create all node and edge artifacts.
+    
+    Strategy:
+    1. Create unique entity nodes (user, ip, email, phone, address)
+    2. Keep ALL columns for listing nodes (consistency with XGBoost)
+    3. Create edges with proper index mapping
+    4. Save parquet files
+    5. Build and save PyTorch graph
+    6. Cache metadata separately for fast access
+    """
+    logger.info("=" * 70)
+    logger.info("Creating Node Artifacts")
+    logger.info("=" * 70)
+    
+    # Create nodes
+    nodes_user = create_user_nodes(df)
+    nodes_listing = create_listing_nodes(df)
+    nodes_ip = create_unique_entity_nodes(df, "user_ip_address_hash", "IP")
+    nodes_email = create_unique_entity_nodes(df, "owner_email_hash", "Email")
+    nodes_phone = create_unique_entity_nodes(df, "billing_phone_hash", "Phone")
+    nodes_address = create_unique_entity_nodes(df, "location_address_hash", "Address")
+    
+    # Store in dict for edge creation
+    nodes_dict = {
+        "user": nodes_user,
+        "listing": nodes_listing,
+        "ip": nodes_ip,
+        "email": nodes_email,
+        "phone": nodes_phone,
+        "address": nodes_address,
+    }
+    
+    logger.info("=" * 70)
+    logger.info("Creating Edge Artifacts")
+    logger.info("=" * 70)
+    
+    edges_dict = create_edges(df, nodes_dict)
+    
+    logger.info("=" * 70)
+    logger.info("Saving Artifacts")
+    logger.info("=" * 70)
+    
+    # Save nodes
+    nodes_user.write_parquet(NODES_USER)
+    nodes_listing.write_parquet(NODES_LISTING)
+    nodes_ip.write_parquet(NODES_IP)
+    nodes_email.write_parquet(NODES_EMAIL)
+    nodes_phone.write_parquet(NODES_PHONE)
+    nodes_address.write_parquet(NODES_ADDRESS)
+    logger.info(f"Saved 6 node files to {ARTIFACTS_DIR}")
+    
+    # Save edges
+    edges_dict["user_listing"].write_parquet(EDGES_USER_LISTING)
+    edges_dict["user_ip"].write_parquet(EDGES_USER_IP)
+    edges_dict["user_email"].write_parquet(EDGES_USER_EMAIL)
+    edges_dict["listing_email_contact"].write_parquet(EDGES_LISTING_EMAIL_CONTACT)
+    edges_dict["listing_email_billing"].write_parquet(EDGES_LISTING_EMAIL_BILLING)
+    edges_dict["listing_phone"].write_parquet(EDGES_LISTING_PHONE)
+    edges_dict["listing_address_location"].write_parquet(EDGES_LISTING_ADDRESS_LOCATION)
+    edges_dict["listing_address_billing"].write_parquet(EDGES_LISTING_ADDRESS_BILLING)
+    logger.info(f"Saved 8 edge files to {ARTIFACTS_DIR}")
+    
+    # Build graph with PyTorch Geometric
+    logger.info("Building PyTorch Geometric graph...")
+    graph_data = build_graph()
+    
+    # Save graph
+    logger.info(f"Saving graph to {GRAPH_PT}")
+    torch.save(graph_data, GRAPH_PT)
+    logger.info(f"Graph saved ({GRAPH_PT.stat().st_size / 1024 / 1024:.1f} MB)")
+    
+    # Cache metadata separately for fast access
+    metadata = graph_data.metadata()
+    metadata_path = str(GRAPH_PT).replace('.pt', '_metadata.pkl')
+    with open(metadata_path, 'wb') as f:
+        pickle.dump(metadata, f)
+    logger.info(f"Metadata cached to {metadata_path}")
+    
+    # Log summary
+    node_types, edge_types = metadata
+    logger.info("=" * 70)
     logger.info("Graph artifacts created successfully!")
-    
-    return nodes + edges
+    logger.info(f"Listings: {len(nodes_listing):,}")
+    logger.info(f"Total nodes: {sum(graph_data[nt].num_nodes for nt in graph_data.node_types):,}")
+    logger.info(f"Node types: {len(node_types)}, Edge types: {len(edge_types)}")
+    logger.info("=" * 70)
 
 
 def main():
-    """Create graph artifacts from flattened and anonymized data."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Create graph artifacts (nodes and edges)")
-    parser.add_argument(
-        "--input-path", 
-        default=None,
-        help=f"Path to flattened and anonymized data parquet file (default: {RAW_INSERTIONS})"
-    )
-    args = parser.parse_args()
-    
-    input_path = Path(args.input_path) if args.input_path else RAW_INSERTIONS
-    if not input_path.exists():
-        logger.error(f"{input_path} not found. Run ETL first.")
-        raise SystemExit(1)
+    """Main entry point."""
+    logger.info("Starting graph artifact creation...")
     
     try:
-        logger.info(f"Loading data from {input_path}...")
-        df_insertions = pl.read_parquet(input_path)
+        # Load data
+        logger.info("Loading data...")
+        df_insertions = load_data()
+        logger.info(f"Loaded {len(df_insertions):,} insertions with {len(df_insertions.columns)} columns")
         
-        if len(df_insertions) == 0:
-            logger.error("Input file is empty.")
-            raise SystemExit(1)
-        
-        logger.info(f"Creating graph artifacts from {len(df_insertions):,} insertions...")
+        # Create artifacts
         create_nodes_and_edges(df_insertions)
         
         logger.info("Graph artifacts created successfully!")

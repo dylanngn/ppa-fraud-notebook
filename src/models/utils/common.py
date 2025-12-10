@@ -33,22 +33,24 @@ def setup_mlflow(experiment_name: str = "ppa-fraud-detection"):
     mlflow.set_experiment(experiment_name)
 
 
-def filter_graph_by_time(data, max_time_ns, return_edge_times=False):
+def filter_graph_by_time(data, max_time_ns):
     """
     Returns a subgraph containing only edges and nodes visible at max_time_ns.
+    
+    Filters edges by timestamp to prevent data leakage during temporal training.
+    Node features and indices remain unchanged (GraphSAGE is inductive).
     
     Args:
         data: HeteroData graph object
         max_time_ns: Maximum timestamp in nanoseconds
-        return_edge_times: If True, also return edge_time_dict for temporal encoding
         
     Returns:
-        Filtered HeteroData graph, and optionally edge_time_dict
+        Filtered HeteroData graph
     """
     new_data = HeteroData()
-    edge_time_dict = {}
     
-    # Copy node features
+    # Copy node features (all nodes, all features)
+    # GraphSAGE is inductive - nodes can have features even without edges
     for node_type, x in data.x_dict.items():
         new_data[node_type].x = x
         new_data[node_type].num_nodes = data[node_type].num_nodes
@@ -57,22 +59,16 @@ def filter_graph_by_time(data, max_time_ns, return_edge_times=False):
     new_data['listing'].y = data['listing'].y
     new_data['listing'].timestamp = data['listing'].timestamp
     
-    # Filter edges by timestamp
+    # Filter edges by timestamp (key for temporal fairness)
     for edge_type, edge_index in data.edge_index_dict.items():
         if 'timestamp' in data[edge_type]:
             edge_times = data[edge_type].timestamp
             mask = edge_times <= max_time_ns
             new_data[edge_type].edge_index = edge_index[:, mask]
             new_data[edge_type].timestamp = edge_times[mask]
-            if return_edge_times:
-                edge_time_dict[edge_type] = edge_times[mask]
         else:
-            # Static edges (keep all)
+            # Static edges (e.g., listing-location, keep all)
             new_data[edge_type].edge_index = edge_index
-            if return_edge_times:
-                edge_time_dict[edge_type] = None
     
-    if return_edge_times:
-        return new_data, edge_time_dict
     return new_data
 
