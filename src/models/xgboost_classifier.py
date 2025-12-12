@@ -11,13 +11,15 @@ from src.models.base import BaseClassifier
 
 class XGBoostClassifier(BaseClassifier):
     """
-    Wrapper around XGBoost.
+    Wrapper around XGBoost classifier.
     """
     
     def __init__(self, **params):
         """
         Initialize with XGBoost parameters.
-        e.g. n_estimators, max_depth, learning_rate, etc.
+        
+        Args:
+            **params: XGBoost parameters (n_estimators, max_depth, learning_rate, etc.)
         """
         self.params = params
         self.model = None
@@ -33,18 +35,18 @@ class XGBoostClassifier(BaseClassifier):
         # Ensure enable_categorical is set if not provided
         if "enable_categorical" not in self.params:
             self.params["enable_categorical"] = True
-            
-        self.model = xgb.XGBClassifier(**self.params)
         
         eval_set = None
         if X_val is not None and y_val is not None:
             eval_set = [(X_val, y_val)]
-            
+        
+        self.model = xgb.XGBClassifier(**self.params)
         self.model.fit(
             X, y,
             eval_set=eval_set,
             verbose=False 
         )
+        
         return self
     
     def predict_proba(self, X: Any) -> np.ndarray:

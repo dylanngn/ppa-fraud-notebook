@@ -21,10 +21,10 @@ from src.models.hybrid import HybridPipeline
 from src.models.xgboost_classifier import XGBoostClassifier
 from src.models.graphsage import GraphSAGEEmbedder
 from src.utils.metrics import calculate_metrics
+from src.drift.detector import DriftDetector
 
 logger = logging.getLogger(__name__)
 
-from src.drift.detector import DriftDetector
 
 class AccumulatedTrainingPipeline:
     """
@@ -66,18 +66,25 @@ class AccumulatedTrainingPipeline:
         # 3. Iterate Splits
         accum_results: List[Dict] = []
         
+        # Track best model for parent run logging
+        best_model = None
+        best_input_example = None
+        best_auc_pr = -1.0
+        best_split_idx = -1
+        
         for i, split in enumerate(splitter.generate_accumulated_splits()):
             logger.info(f"Processing Split {i}: Train End {split.train.cutoff_date}")
             
             with mlflow.start_run(run_name=f"Split_{i}_{split.train.accumulation_id}", nested=True):
                 # Log Split params
-                mlflow.log_params({
+                log_params = {
                     "split_idx": i,
                     "train_cutoff": split.train.cutoff_date,
                     "val_cutoff": split.val.cutoff_date,
                     "test_cutoff": split.test.cutoff_date,
-                    "variant": self.variant.value
-                })
+                    "variant": self.variant.value,
+                }
+                mlflow.log_params(log_params)
                 
                 # 4. Prepare Components for this iteration
                 pipeline = self._build_pipeline()
@@ -176,7 +183,15 @@ class AccumulatedTrainingPipeline:
                 
                 accum_results.append(metrics)
                 
-                # Save Model (Log Artifacts to MLflow)
+                # Track best model for parent run (based on AUC-PR)
+                current_auc_pr = metrics.get("auc_pr", 0)
+                if current_auc_pr > best_auc_pr:
+                    best_auc_pr = current_auc_pr
+                    best_split_idx = i
+                    best_model = pipeline.classifier.model  # XGBoost native model
+                    best_input_example = pipeline.input_example_
+                
+                # Save Model (Log Artifacts to MLflow - per split for traceability)
                 # We log the XGBoost model as the primary inference artifact
                 # For GNN, we should log the weights as an extra artifact
                 
@@ -184,29 +199,26 @@ class AccumulatedTrainingPipeline:
                     import pandas as pd
                     from mlflow.models import infer_signature
                     
-                    # To be safe, we log the XGBoost Classifier object directly
+                    # Log the XGBoost Classifier with proper signature
                     xgb_native = pipeline.classifier.model 
                     
-                    # We need an input example that matches X_test structure (Base + Embeddings)
-                    # We don't have X_test explicitly here (it's inside predict).
-                    # Refactor: We can't easily get X_test from outside without modifying predict to return it.
-                    # Workaround: Log without signature OR modify pipeline.predict to return data?
-                    # Better: Log the *Pipeline* as a pyfunc?
-                    # For now: Log XGBoost model without signature if input is complex, 
-                    # OR attempt to inspect pipeline.classifier (it might have feature_names_in_)
-                    
-                    # RE-LOG with signature if possible (cleaner code structure):
+                    # Use input example stored during fit (works for all variants)
+                    input_example = pipeline.input_example_
                     signature = None
-                    input_example = None
+                    if input_example is not None:
+                        # Infer signature from training sample
+                        signature = infer_signature(input_example, xgb_native.predict_proba(input_example)[:, 1])
 
                     # Requirements path
                     req_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "requirements.txt")
 
+                    # Note: input_example is omitted because MLflow JSON serialization
+                    # loses pandas categorical dtype, causing XGBoost validation errors.
+                    # The signature alone is sufficient for schema documentation.
                     mlflow.xgboost.log_model(
                         xgb_native, 
                         name="xgboost_model",
                         signature=signature,
-                        input_example=input_example,
                         pip_requirements=req_path
                     )
                     
@@ -221,18 +233,57 @@ class AccumulatedTrainingPipeline:
                     logger.warning(f"Failed to log model artifacts: {e}")
 
                 
-        # 8. Aggregated Results
+        # 8. Log Final Model to Parent Run
+        # The FINAL model is what gets deployed - log its metrics to parent
         if accum_results:
-            avg_metrics = {k: float(np.mean([r[k] for r in accum_results])) for k in accum_results[0]}
-            logger.info(f"Average Metrics: {avg_metrics}")
-            mlflow.log_metrics(avg_metrics) # In parent run?
+            # Use the best model (highest AUC-PR)
+            final_metrics = accum_results[best_split_idx]
+            final_metrics_labeled = {f"final_{k}": v for k, v in final_metrics.items()}
+            mlflow.log_metrics(final_metrics_labeled)
+            
+            # Log metadata about the final model
+            mlflow.log_params({
+                "final_model_split_idx": best_split_idx,
+                "total_splits": len(accum_results),
+            })
+            
+            logger.info(f"Final Model Metrics: {final_metrics}")
+            
+            # Log the FINAL model to parent run for easy deployment access
+            # (Child runs have per-split models for traceability)
+            if best_model is not None:
+                try:
+                    import pandas as pd
+                    from mlflow.models import infer_signature
+                    
+                    signature = None
+                    if best_input_example is not None:
+                        signature = infer_signature(
+                            best_input_example, 
+                            best_model.predict_proba(best_input_example)[:, 1]
+                        )
+                    
+                    req_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+                        "requirements.txt"
+                    )
+                    
+                    mlflow.xgboost.log_model(
+                        best_model,
+                        name="final_model",
+                        signature=signature,
+                        pip_requirements=req_path
+                    )
+                    logger.info(f"Logged final model to parent run (from split {best_split_idx}, AUC-PR: {best_auc_pr:.4f})")
+                except Exception as e:
+                    logger.warning(f"Failed to log final model to parent run: {e}")
             
     def _build_pipeline(self) -> HybridPipeline:
-        """Instantiate a fresh pipeline for the window."""
-        
+        """Instantiate pipeline for the window."""
         # Config params
         xgb_params = self.cfg["model"]["xgboost"]
         
+        # Fresh classifier for each split
         classifier = XGBoostClassifier(**xgb_params)
         
         graph_builder = None

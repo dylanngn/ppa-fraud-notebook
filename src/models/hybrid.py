@@ -3,7 +3,7 @@ Hybrid GNN + XGBoost Pipeline.
 Orchestrates the flow: Data -> Graph -> Embeddings -> Classifier.
 """
 
-from typing import Optional, Dict, List
+from typing import Optional
 import polars as pl
 import numpy as np
 import torch
@@ -13,7 +13,6 @@ from src.data.schema import DataSplit, FEATURE_SCHEMA, ModelVariant
 from src.graph.builder import TemporalGraphBuilder
 from src.graph.features import HandcraftedGraphFeatures
 from src.models.base import HybridFraudDetector, BaseEmbedder, BaseClassifier
-from src.data.feature_store import FeatureStore
 
 class HybridPipeline(HybridFraudDetector):
     """
@@ -35,30 +34,26 @@ class HybridPipeline(HybridFraudDetector):
         self.classifier = classifier
         self.handcrafted_features = handcrafted_features
         self.train_categoricals = {} # To store allowed categories per column
+        self.input_example_ = None  # For MLflow signature (set during fit)
         
         # Checking dependencies based on variant
         if variant == ModelVariant.GRAPHSAGE_XGBOOST:
-             if not (graph_builder and embedder and classifier):
-                 raise ValueError("GraphSAGE variant requires builder, embedder, and classifier")
+            if not (graph_builder and embedder and classifier):
+                raise ValueError("GraphSAGE variant requires builder, embedder, and classifier")
         elif variant == ModelVariant.HANDCRAFTED_XGBOOST:
-             if not (graph_builder and handcrafted_features and classifier):
-                 raise ValueError("Handcrafted variant requires builder, feature extractor, and classifier")
+            if not (graph_builder and handcrafted_features and classifier):
+                raise ValueError("Handcrafted variant requires builder, feature extractor, and classifier")
         elif variant == ModelVariant.VANILLA_XGBOOST:
-             if not classifier:
-                 raise ValueError("Vanilla variant requires classifier")
+            if not classifier:
+                raise ValueError("Vanilla variant requires classifier")
     
     def fit(
         self,
-        df: pl.DataFrame,
+        train_df: pl.DataFrame,
         graph: Optional[HeteroData], 
         split: DataSplit,
     ) -> "HybridPipeline":
         
-        # 1. Prepare Data
-        # Assume df contains TRAIN data only (from Orchestrator/accumulated.py refactor)
-        train_df = df
-        
-        # 2. Generate Graph Features / Embeddings (Train Only)
         train_extra_features = None
         
         if self.variant == ModelVariant.GRAPHSAGE_XGBOOST:
@@ -104,7 +99,6 @@ class HybridPipeline(HybridFraudDetector):
             )
             train_extra_features = features_pl.to_numpy()
             
-        # 3. Combine Features for Classifier
         # Convert to Pandas for XGBoost categorical support
         base_cols = FEATURE_SCHEMA.all_base_features
         X_base_pl = train_df.select(base_cols)
@@ -115,9 +109,8 @@ class HybridPipeline(HybridFraudDetector):
         import pandas as pd
         for col in FEATURE_SCHEMA.base_categorical:
             if col in X_base.columns:
-                # Let Pandas infer categories from Train data
                 X_base[col] = X_base[col].astype("category")
-                self.train_categoricals[col] = X_base[col].dtype.categories
+                self.train_categoricals[col] = X_base[col].cat.categories
         
         y_train = train_df[FEATURE_SCHEMA.target].to_numpy()
         
@@ -132,8 +125,14 @@ class HybridPipeline(HybridFraudDetector):
              X_train = pd.concat([X_base, df_extra], axis=1)
         else:
             X_train = X_base
+        
+        # Store one sample for MLflow signature inference
+        # Convert integer columns to float64 to handle potential missing values at inference
+        sample = X_train.iloc[[0]].copy()
+        int_cols = sample.select_dtypes(include='integer').columns
+        sample[int_cols] = sample[int_cols].astype('float64')
+        self.input_example_ = sample
             
-        # 4. Train Classifier
         # XGBoost handles NaNs in X_train natively.
         self.classifier.fit(X_train, y_train)
         

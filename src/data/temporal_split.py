@@ -28,8 +28,7 @@ class AccumulatedTrainingConfig:
     val_window_days: int = 14       # Validation window size
     gap_days: int = 7               # Gap to prevent leakage
     
-    # Retraining settings
-    retrain_from_scratch: bool = False  # If False, use warm start
+    # History settings
     max_history_months: Optional[int] = None  # Sliding window limit (None = expanding)
 
 

@@ -18,7 +18,6 @@ training:
   initial_train_months: 1
   accumulation_frequency: "weekly"
   prediction_window_days: 7
-  warm_start: false  # If true, XGBoost continues training from previous split (incremental learning)
 
 model:
   variant: "vanilla_xgboost" # vanilla_xgboost, handcrafted_xgboost, graphsage_xgboost
