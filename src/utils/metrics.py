@@ -1,8 +1,3 @@
-"""
-Centralized metrics module for fraud detection evaluation.
-
-All evaluation metrics should be computed through this module to ensure consistency.
-"""
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 from typing import Dict
@@ -13,23 +8,6 @@ def calculate_metrics(
     y_pred: np.ndarray,
     include_confusion_matrix: bool = False
 ) -> Dict[str, float]:
-    """
-    Calculates all fraud detection metrics from predictions.
-    
-    This is the SINGLE SOURCE OF TRUTH for all model evaluation metrics.
-    
-    Args:
-        y_true: Ground truth labels (0/1)
-        y_pred: Predicted probabilities or scores (higher = more likely fraud)
-        include_confusion_matrix: If True, include tp/tn/fp/fn for binary predictions
-        
-    Returns:
-        Dict with metrics:
-        - auc_pr, auc_roc: Area under PR and ROC curves
-        - p@K, r@K, lift@K: Precision, Recall, Lift at K (K=50,100,200)
-        - fraud_count, fraud_rate: Ground truth statistics
-        - (optional) accuracy, precision, recall, f1_score, tp, tn, fp, fn
-    """
     metrics = {}
     
     # Ensure numpy arrays
@@ -66,13 +44,13 @@ def calculate_metrics(
             recall_k = hits / total_positives if total_positives > 0 else 0.0
             lift_k = precision_k / fraud_rate if fraud_rate > 0 else 0.0
             
-            metrics[f"p@{k}"] = float(precision_k)
-            metrics[f"r@{k}"] = float(recall_k)
-            metrics[f"lift@{k}"] = float(lift_k)
+            metrics[f"p_at_{k}"] = float(precision_k)
+            metrics[f"r_at_{k}"] = float(recall_k)
+            metrics[f"lift_at_{k}"] = float(lift_k)
         else:
-            metrics[f"p@{k}"] = 0.0
-            metrics[f"r@{k}"] = 0.0
-            metrics[f"lift@{k}"] = 0.0
+            metrics[f"p_at_{k}"] = 0.0
+            metrics[f"r_at_{k}"] = 0.0
+            metrics[f"lift_at_{k}"] = 0.0
     
     # Optional: Confusion matrix and derived metrics (for binary classifiers like Seon)
     if include_confusion_matrix:
@@ -103,54 +81,3 @@ def calculate_metrics(
         metrics["false_alarm_rate"] = float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0
     
     return metrics
-
-
-def measure_inference_latency(
-    model,
-    X_sample: np.ndarray,
-    n_iterations: int = 100
-) -> Dict[str, float]:
-    """
-    Measure inference latency for a model.
-    
-    Args:
-        model: Model with predict_proba or predict method
-        X_sample: Sample input data (small batch, e.g. 100 rows)
-        n_iterations: Number of iterations to average
-        
-    Returns:
-        Dict with latency metrics in milliseconds
-    """
-    import time
-    
-    # Determine prediction method
-    if hasattr(model, 'predict_proba'):
-        predict_fn = model.predict_proba
-    elif hasattr(model, 'predict'):
-        predict_fn = model.predict
-    else:
-        return {"error": "Model has no predict method"}
-    
-    # Warmup
-    for _ in range(5):
-        _ = predict_fn(X_sample)
-    
-    # Measure
-    latencies = []
-    for _ in range(n_iterations):
-        start = time.perf_counter()
-        _ = predict_fn(X_sample)
-        end = time.perf_counter()
-        latencies.append((end - start) * 1000)  # Convert to ms
-    
-    latencies = np.array(latencies)
-    
-    return {
-        "latency_mean_ms": float(np.mean(latencies)),
-        "latency_p50_ms": float(np.percentile(latencies, 50)),
-        "latency_p95_ms": float(np.percentile(latencies, 95)),
-        "latency_p99_ms": float(np.percentile(latencies, 99)),
-        "batch_size": len(X_sample),
-        "latency_per_sample_ms": float(np.mean(latencies) / len(X_sample)),
-    }
-

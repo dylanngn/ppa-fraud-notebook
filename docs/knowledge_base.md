@@ -1,13 +1,5 @@
 # Knowledge Base: Domain Knowledge
 
-**Purpose**: Single source of truth for domain knowledge - data quality, field definitions, relationships, mappings, and aliases.
-
-> 📁 For technical architecture, see [`architecture.md`](architecture.md)  
-> 🔄 For data pipeline, see [`dataflow.md`](dataflow.md)  
-> 📓 For experiments, see [`experiment_journal.md`](experiment_journal.md)
-
----
-
 ## 1. Dataset Overview
 
 | Metric | Value |
@@ -137,6 +129,33 @@ All 50 boolean indicators sorted by TRUE rate:
 | `hasCornerBath` | 0.12% | `listing.characteristics.hasCornerBath` |
 | `hasAirConditioning` | 0.03% | `listing.characteristics.hasAirConditioning` |
 
+### Predictive Power Analysis (Deep Dive Results)
+
+Based on correlation and fraud rate spread analysis:
+
+#### Top Numeric Signals
+| Feature | Correlation | Insight |
+|---------|-------------|---------|
+| `bundle.initialPrice` | 0.12 | Higher prices associated with fraud (targeting premium). |
+| `listing.characteristics.numberOfRooms` | 0.13 | Anomalous room counts signal fake listings. |
+| `listing.characteristics.yearBuilt` | 0.14 | Newer/Older distribution differences. |
+| `listing.characteristics.numberOfFloors` | 0.10 | Detail level correlates with legitimacy. |
+
+#### Production Baselines (Benchmarks)
+| Feature | Type | Insight |
+|---------|------|---------|
+| `auto_approval_criteria.criteria.seonApproved` | Binary | **Primary Baseline**. If True (Approved) → Legit. If False → Fraud. Our model must beat this manual rule logic. |
+
+#### Top Categorical Signals (Fraud Rate Spread)
+| Feature | Max Spread | Insight |
+|---------|------------|---------|
+| `listing.lister.billing.phoneDay.area_hash` | 89% | **Critical**. Certain area codes are almost 100% fraud. |
+| `listing.lister.email.domain_hash` | 86% | Disposable domains vs corporate. |
+| `auto_approval_criteria.meta.state` | 75% | Proxy for previous automated decisions. |
+| `listing.address.city_hash` | 64% | Geographic hotspots. |
+| `bundle.tier` | 28% | Premium bundles targeted by fraudsters. |
+| `listing.platforms` | 27% | Cross-posting behavior. |
+
 ---
 
 ## 4. Field Aliases & Naming Conventions
@@ -232,9 +251,6 @@ Based on platform's fraud detection experience:
 | `ppaPersonId` | High cardinality (94k) | Use as graph edge, not feature |
 | Boolean indicators | NULL = FALSE | No imputation needed |
 | Contact hashes | Privacy-sensitive | Use for graph edges, not direct features |
-| Text fields | Multiple description columns | Coalesce into `description_text` for embeddings |
-
----
 
 ## 8. Domain Glossary
 
@@ -257,9 +273,6 @@ Based on platform's fraud detection experience:
 | **Cold Start** | Brand new account with no history |
 | **Concept Drift** | Fraud patterns changing over time |
 | **SEON** | External fraud detection system (baseline) |
-| **Heterophily** | Fraudsters structurally isolated from legitimate users |
-
----
 
 ## 9. Contact Coverage Summary
 
@@ -267,8 +280,8 @@ Based on platform's fraud detection experience:
 
 ```
 Need to link listings by contact?
-├─ Email? → Use billing email (98% coverage, 129k unique)
-├─ Phone? → Use billing phone (98% coverage, 128k unique)
+├─ Email? → Use BOTH (Contact + Billing). Billing has higher coverage (98%).
+├─ Phone? → Use BOTH (Contact + Billing). Billing has higher coverage (98% vs 70%).
 └─ Address? → Use address hash (100% coverage but too unique)
 ```
 
@@ -279,11 +292,3 @@ Need to link listings by contact?
 - More stable (less likely to change)
 
 ---
-
-## References
-
-- Raw ETL pipeline: `src/data/etl/`
-- Graph artifacts creation: `src/data/graph/create_artifacts.py`
-- Feature processing: `src/features/processor.py`
-- Technical architecture: `docs/architecture.md`
-- Data pipeline: `docs/dataflow.md`

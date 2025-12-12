@@ -1,0 +1,37 @@
+
+# Experiment Configuration
+
+defaults:
+  - _self_
+
+experiment:
+  name: "default_experiment"
+  tracking_uri: "sqlite:///fraud-detection.db"
+
+data:
+  path: "artifacts/raw_insertions.parquet" # Defaults to dummy for testing, user should override
+  start_date: "2023-01-01"
+  end_date: "2025-11-02"
+
+training:
+  initial_train_months: 1
+  accumulation_frequency: "weekly"
+  prediction_window_days: 7
+
+model:
+  variant: "vanilla_xgboost" # vanilla_xgboost, handcrafted_xgboost, graphsage_xgboost
+  
+  xgboost:
+    n_estimators: 100
+    max_depth: 3
+    learning_rate: 0.1
+    # enable_categorical: True # Auto-set by wrapper
+    
+  gnn:
+    device: "cpu"
+    in_channels: 11 # Adjust based on schema (base_numerical count)
+    hidden_channels: 32
+    out_channels: 16
+    num_layers: 2
+    epochs: 5
+    batch_size: 1024
