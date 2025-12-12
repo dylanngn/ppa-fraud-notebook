@@ -2,15 +2,7 @@
 Drift Detection logic.
 """
 
-from typing import List, Optional
-import numpy as np
-
-# Try importing river, else fallback
-try:
-    from river import drift
-    HAS_RIVER = True
-except ImportError:
-    HAS_RIVER = False
+from river import drift
 
 class DriftDetector:
     """
@@ -19,11 +11,7 @@ class DriftDetector:
     
     def __init__(self, delta: float = 0.002):
         self.delta = delta
-        self.detector = None
-        if HAS_RIVER:
-            self.detector = drift.ADWIN(delta=delta)
-        else:
-            print("Warning: river not installed. Drift detection disabled.")
+        self.detector = drift.ADWIN(delta=delta)
             
     def update(self, val: float) -> bool:
         """

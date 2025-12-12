@@ -16,9 +16,6 @@ scikit-learn>=1.7.0
 xgboost>=3.1.0
 shap>=0.50.0
 
-# Hyperparameter optimization
-# optuna>=4.6.0
-
 # MLOps
 mlflow>=3.6.0
 river>=0.23.0 # Online ML and Drift Detection
@@ -35,7 +32,3 @@ seaborn>=0.13.0
 
 # Scientific computing
 networkx>=3.4
-
-# Testing
-pytest>=8.0.0
-

@@ -4,25 +4,12 @@ Ensures consistent interface across all model variants.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Optional
 import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 import polars as pl
 from src.data.schema import DataSplit
-
-@dataclass
-class ModelCheckpoint:
-    """Standardized checkpoint format."""
-    
-    model_state: Dict[str, Any]
-    config: Dict[str, Any]
-    metrics: Dict[str, float]
-    training_timestamp: str
-    accumulation_id: str
-    version: str = "1.0"
-
 
 class BaseEmbedder(ABC):
     """Abstract base for embedding generators (GNN or handcrafted)."""
