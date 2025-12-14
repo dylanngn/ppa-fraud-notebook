@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 
-from src.data.schema import DataSplit, FEATURE_SCHEMA, ModelVariant
+from src.data.schema import FEATURE_SCHEMA, ModelVariant
 from src.graph.builder import TemporalGraphBuilder
 from src.graph.features import HandcraftedGraphFeatures
 from src.models.base import HybridFraudDetector, BaseEmbedder, BaseClassifier
@@ -33,10 +33,11 @@ class HybridPipeline(HybridFraudDetector):
         self.embedder = embedder
         self.classifier = classifier
         self.handcrafted_features = handcrafted_features
-        self.train_categoricals = {} # To store allowed categories per column
-        self.input_example_ = None  # For MLflow signature (set during fit)
+        self.train_categoricals = {}
+        self.input_example_ = None
+        self._train_labels = None
+        self._train_node_count = None
         
-        # Checking dependencies based on variant
         if variant == ModelVariant.GRAPHSAGE_XGBOOST:
             if not (graph_builder and embedder and classifier):
                 raise ValueError("GraphSAGE variant requires builder, embedder, and classifier")
@@ -50,62 +51,39 @@ class HybridPipeline(HybridFraudDetector):
     def fit(
         self,
         train_df: pl.DataFrame,
-        graph: Optional[HeteroData], 
-        split: DataSplit,
+        graph: Optional[HeteroData],
     ) -> "HybridPipeline":
         
         train_extra_features = None
         
         if self.variant == ModelVariant.GRAPHSAGE_XGBOOST:
-            # Fit Embedder
             gnn_cols = FEATURE_SCHEMA.get_gnn_input_features()
             x_np = train_df.select(gnn_cols).to_numpy()
             x_tensor = torch.tensor(x_np, dtype=torch.float32)
             
-            # HANDLE MISSING DATA FOR GNN: Feature Propagation
-            # XGBoost can handle NaNs, but GraphSAGE cannot.
-            # We impute using graph structure.
             if torch.isnan(x_tensor).any():
-                from torch_geometric.transforms import FeaturePropagation
-                # We need to temporarily modify the graph to apply propagation
-                # Clone graph structure or work on reference if safe?
-                # Propagation requires 'x' in graph.
-                prop_data = graph.clone() 
-                prop_data["listing"].x = x_tensor
-                
-                # Apply propagation
-                # Note: FeaturePropagation infers missing_mask from NaNs in x
-                propagator = FeaturePropagation(missing_mask=torch.isnan(x_tensor), num_iterations=40)
-                prop_data = propagator(prop_data)
-                x_tensor = prop_data["listing"].x
+                col_medians = torch.nanmedian(x_tensor, dim=0).values
+                nan_mask = torch.isnan(x_tensor)
+                x_tensor = torch.where(nan_mask, col_medians.unsqueeze(0).expand_as(x_tensor), x_tensor)
+                x_tensor = torch.nan_to_num(x_tensor, nan=0.0)
             
             self.embedder.fit(graph, x_tensor, train_mask=None)
-            
-            # Generate Embeddings (for Train)
             embeddings = self.embedder.transform(graph, x_tensor)
             train_extra_features = embeddings
             
         elif self.variant == ModelVariant.HANDCRAFTED_XGBOOST:
-            # Compute handcrafted (using simplified fill for now or robust?)
-            # Handcrafted features like Neighbor Mean need to handle NaNs in aggregation.
-            # Our implementation might need checking. 
-            # For now, let's assume nanmean in numpy or polars handles it.
-            
             y_train = train_df[FEATURE_SCHEMA.target].to_numpy()
             train_mask = np.ones(len(train_df), dtype=bool) 
             
-            features_pl = self.handcrafted_features.compute_features(
-                graph, y_train, train_mask
-            )
+            features_pl = self.handcrafted_features.compute_features(graph, y_train, train_mask)
             train_extra_features = features_pl.to_numpy()
             
-        # Convert to Pandas for XGBoost categorical support
+            self._train_labels = y_train.copy()
+            self._train_node_count = len(train_df)
+            
         base_cols = FEATURE_SCHEMA.all_base_features
-        X_base_pl = train_df.select(base_cols)
-        X_base = X_base_pl.to_pandas()
+        X_base = train_df.select(base_cols).to_pandas()
         
-        # Cast categoricals explicitly and STORE schema
-        # XGBoost requires 'category' dtype, not object
         import pandas as pd
         for col in FEATURE_SCHEMA.base_categorical:
             if col in X_base.columns:
@@ -121,19 +99,15 @@ class HybridPipeline(HybridFraudDetector):
                  df_extra = pd.DataFrame(train_extra_features, columns=extra_cols, index=X_base.index)
              else:
                  df_extra = train_extra_features
-            
              X_train = pd.concat([X_base, df_extra], axis=1)
         else:
             X_train = X_base
         
-        # Store one sample for MLflow signature inference
-        # Convert integer columns to float64 to handle potential missing values at inference
         sample = X_train.iloc[[0]].copy()
         int_cols = sample.select_dtypes(include='integer').columns
         sample[int_cols] = sample[int_cols].astype('float64')
         self.input_example_ = sample
-            
-        # XGBoost handles NaNs in X_train natively.
+        
         self.classifier.fit(X_train, y_train)
         
         return self
@@ -141,26 +115,16 @@ class HybridPipeline(HybridFraudDetector):
     def predict(
         self,
         df: pl.DataFrame,
-        graph: Optional[HeteroData] # Inference graph (extended)
+        graph: Optional[HeteroData]
     ) -> np.ndarray:
-        
-        # 1. Base Features
         base_cols = FEATURE_SCHEMA.all_base_features
-        X_base_pl = df.select(base_cols)
-        X_base = X_base_pl.to_pandas()
+        X_base = df.select(base_cols).to_pandas()
         
-        # Cast categoricals ENFORCING Train Schema
-        # Any value appearing in Test but not Train will be mapped to NaN
-        # This prevents "XGBoostError: Found a category not in the training set"
         import pandas as pd
         for col in FEATURE_SCHEMA.base_categorical:
             if col in X_base.columns and col in self.train_categoricals:
                 known_cats = self.train_categoricals[col]
-                # Enforce known categories. Unknowns becomes NaN/Null.
                 X_base[col] = X_base[col].astype(pd.CategoricalDtype(categories=known_cats, ordered=False))
-        
-        # 2. Extra Features
-        import pandas as pd
         
         if self.variant == ModelVariant.VANILLA_XGBOOST:
             X_test = X_base
@@ -170,14 +134,11 @@ class HybridPipeline(HybridFraudDetector):
             x_np = df.select(gnn_cols).to_numpy()
             x_tensor = torch.tensor(x_np, dtype=torch.float32)
             
-            # HANDLE MISSING DATA FOR GNN INFERENCE
             if torch.isnan(x_tensor).any():
-                from torch_geometric.transforms import FeaturePropagation
-                prop_data = graph.clone()
-                prop_data["listing"].x = x_tensor
-                propagator = FeaturePropagation(missing_mask=torch.isnan(x_tensor), num_iterations=40)
-                prop_data = propagator(prop_data)
-                x_tensor = prop_data["listing"].x
+                col_medians = torch.nanmedian(x_tensor, dim=0).values
+                nan_mask = torch.isnan(x_tensor)
+                x_tensor = torch.where(nan_mask, col_medians.unsqueeze(0).expand_as(x_tensor), x_tensor)
+                x_tensor = torch.nan_to_num(x_tensor, nan=0.0)
             
             embeddings = self.embedder.transform(graph, x_tensor)
             
@@ -186,7 +147,22 @@ class HybridPipeline(HybridFraudDetector):
             X_test = pd.concat([X_base, df_extra], axis=1)
             
         elif self.variant == ModelVariant.HANDCRAFTED_XGBOOST:
-            raise NotImplementedError("Handcrafted inference requires historical label state")
+            if self._train_labels is None or self._train_node_count is None:
+                raise RuntimeError("Handcrafted model not fitted. Call fit() first.")
+            
+            num_nodes = graph["listing"].num_nodes
+            full_labels = np.full(num_nodes, np.nan)
+            full_labels[:self._train_node_count] = self._train_labels
+            
+            train_mask = np.zeros(num_nodes, dtype=bool)
+            train_mask[:self._train_node_count] = True
+            
+            features_pl = self.handcrafted_features.compute_features(graph, full_labels, train_mask)
+            extra_features = features_pl.to_numpy()
+            
+            extra_cols = [f"extra_{i}" for i in range(extra_features.shape[1])]
+            df_extra = pd.DataFrame(extra_features, columns=extra_cols, index=X_base.index)
+            X_test = pd.concat([X_base, df_extra], axis=1)
             
         else:
             raise ValueError("Unknown variant")

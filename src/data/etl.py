@@ -65,30 +65,23 @@ def main(cfg: DictConfig):
     """
     logger.info("Starting ETL pipeline...")
     
-    # Config validation
     if not cfg.data.db_uri:
         raise ValueError("DB_URI not set in config or environment variables")
     
-    # Paths - resolve relative config paths to absolute using Hydra utility
     temp_dir = hydra.utils.to_absolute_path(cfg.data.paths.temp_chunks)
     output_path = hydra.utils.to_absolute_path(cfg.data.paths.raw_insertions)
     
-    # Check if we need to run fetch
     if os.path.exists(output_path) and not cfg.data.extract.force_refresh:
         logger.info(f"{output_path} exists. Skipping fetch.")
         return
 
     os.makedirs(temp_dir, exist_ok=True)
     
-    # Parse dates
     start_dt = datetime.strptime(cfg.data.extract.start_date, DATE_FORMAT)
     end_dt = datetime.strptime(cfg.data.extract.end_date, DATE_FORMAT)
     days_per_chunk = cfg.data.extract.days_per_chunk
-    
-    # Find last processed date
     current_start = get_last_processed_date(temp_dir, start_dt)
     
-    # Chunk processing loop
     chunk_idx = 0
     while current_start < end_dt:
         current_end = min(current_start + timedelta(days=days_per_chunk), end_dt)
@@ -98,7 +91,6 @@ def main(cfg: DictConfig):
         chunk_filename = f"{CHUNK_PREFIX}{current_start.strftime(DATE_FORMAT_COMPACT)}_{current_end.strftime(DATE_FORMAT_COMPACT)}{CHUNK_SUFFIX}"
         chunk_path = os.path.join(temp_dir, chunk_filename)
         
-        # Skip if chunk already exists
         if os.path.exists(chunk_path):
             logger.info(f"Skipping chunk {chunk_idx} ({chunk_start_str} to {chunk_end_str}) - already exists")
             current_start = current_end
@@ -115,7 +107,7 @@ def main(cfg: DictConfig):
             # 2. Transform
             df_processed = process_chunk_data(df_chunk)
             
-            # 3. Load (Save intermediate chunk)
+            # 3. Load
             save_chunk(df_processed, chunk_path)
             logger.info(f"Saved chunk {chunk_idx} with {len(df_processed)} rows")
         else:
@@ -123,21 +115,16 @@ def main(cfg: DictConfig):
             
         current_start = current_end
         chunk_idx += 1
-        
-    # Assemble final dataset
+    
     logger.info("Assembling final dataset...")
     try:
         df_final = assemble_chunks(temp_dir)
-        
-        # Save final result
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         df_final.write_parquet(output_path, compression="zstd")
         logger.info(f"ETL Complete. Data saved to '{output_path}' ({len(df_final)} rows)")
         
     except ValueError as e:
         logger.error(f"Assembly failed: {e}")
-        # If no chunks found, maybe that's okay if the range was empty?
-        # But usually we expect some data.
 
 if __name__ == "__main__":
     main()

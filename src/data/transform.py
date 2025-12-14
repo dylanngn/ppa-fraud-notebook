@@ -51,7 +51,6 @@ def flatten_json_batch(json_strings: list, prefix: str = "") -> list:
             logger.warning(f"Error accessing JSON structure: {e}")
             return {}
         except Exception as e:
-            # Catch any other unexpected errors to prevent batch failure
             logger.error(f"Unexpected error flattening JSON: {type(e).__name__}: {e}")
             return {}
     

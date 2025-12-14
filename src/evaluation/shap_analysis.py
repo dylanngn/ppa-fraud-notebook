@@ -21,9 +21,6 @@ def run_shap_analysis(
     Compute and plot SHAP summary.
     """
     logger.info("Computing SHAP values...")
-    
-    # TreeExplainer is strict on model type. 
-    # Ensure model is the underlying Booster or XGBClassifier
     explainer = shap.TreeExplainer(model)
     
     shap_values = explainer.shap_values(X_sample)
@@ -34,9 +31,7 @@ def run_shap_analysis(
     plt.savefig(save_path)
     logger.info(f"SHAP summary saved to {save_path}")
     
-    # Also return importance df
     if isinstance(shap_values, list):
-        # Multiclass?
         vals = np.abs(shap_values[1]).mean(0)
     else:
         vals = np.abs(shap_values).mean(0)

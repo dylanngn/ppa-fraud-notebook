@@ -1,6 +1,6 @@
 """
 GraphSAGE implementation with self-supervised link prediction.
-UPDATED: Uses Full-Batch training to avoid 'torch-sparse' dependency issues.
+Uses full-batch training.
 """
 
 import torch
@@ -41,14 +41,10 @@ class GraphSAGEEncoder(nn.Module):
             in_ch = in_channels if i == 0 else hidden_channels
             out_ch = out_channels if i == num_layers - 1 else hidden_channels
             
-            # HeteroConv wrapper
-            conv_dict = {}
-            for edge_type in edge_types:
-                # SAGEConv per edge type
-                conv_dict[("listing", edge_type, "listing")] = SAGEConv(
-                    in_ch, out_ch, aggr="mean"
-                )
-            
+            conv_dict = {
+                ("listing", edge_type, "listing"): SAGEConv(in_ch, out_ch, aggr="mean")
+                for edge_type in edge_types
+            }
             self.convs.append(HeteroConv(conv_dict, aggr="sum"))
         
         self.reset_parameters()
@@ -123,34 +119,25 @@ class GraphSAGEEmbedder(BaseEmbedder):
             lr=self.config["learning_rate"]
         )
         
-        # Prepare Data
         graph["listing"].x = node_features
         graph = graph.to(self.device)
         
-        # Target edges for self-supervision (all edges of first type)
-        # Assuming homogeneous edge type structure mostly 
         target_edge_type = graph.edge_types[0]
         pos_edge_index = graph[target_edge_type].edge_index
         
         self.model.train()
         for epoch in range(self.config["epochs"]):
             optimizer.zero_grad()
-            
-            # Forward pass (Full Batch)
             z = self.model(graph.x_dict, graph.edge_index_dict)
             
-            # Link Prediction Loss (Dot product)
-            # Positive samples
+            # Link prediction loss
             src, dst = pos_edge_index
             pos_score = (z[src] * z[dst]).sum(dim=-1)
             
-            # Negative samples (Random)
-            # Simple random permutation for negatives
             neg_src = torch.randint(0, z.size(0), (src.size(0),), device=self.device)
             neg_dst = torch.randint(0, z.size(0), (dst.size(0),), device=self.device)
             neg_score = (z[neg_src] * z[neg_dst]).sum(dim=-1)
             
-            # Combine
             scores = torch.cat([pos_score, neg_score])
             labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
             
@@ -176,7 +163,6 @@ class GraphSAGEEmbedder(BaseEmbedder):
         graph = graph.to(self.device)
         
         with torch.no_grad():
-            # Full batch inference
             z = self.model(graph.x_dict, graph.edge_index_dict)
             return z.cpu().numpy()
 
@@ -191,7 +177,5 @@ class GraphSAGEEmbedder(BaseEmbedder):
         checkpoint = torch.load(path)
         config = checkpoint["config"]
         instance = cls(**config)
-        # Note: Model is not instantiated here because we don't have edge_types.
-        # It will need to be instantiated or we need to save architecture params.
-        # This is a known limitation of this simple prototype unless we save metadata.
+        # Note: Model not fully instantiated without edge_types (prototype limitation)
         return instance

@@ -42,12 +42,9 @@ def assemble_chunks(chunk_dir: str) -> pl.DataFrame:
         raise ValueError("No chunk files found!")
     
     logger.info(f"Found {len(chunk_files)} chunk files to assemble...")
-    
-    # Scan all chunks to detect schema conflicts
     logger.info("Scanning schemas to detect type conflicts...")
     lazy_chunks = [pl.scan_parquet(os.path.join(chunk_dir, f)) for f in chunk_files]
     
-    # Collect all unique columns and their types
     all_schemas = {}
     for lf in lazy_chunks:
         schema = lf.collect_schema()
@@ -56,19 +53,15 @@ def assemble_chunks(chunk_dir: str) -> pl.DataFrame:
                 all_schemas[col] = set()
             all_schemas[col].add(dtype)
     
-    # Resolve schema conflicts
     final_schema = resolve_schema_conflicts(all_schemas)
     all_columns = sorted(all_schemas.keys())
     logger.info(f"Unified schema: {len(final_schema)} columns")
     
-    # Read all chunks and ensure they match the unified schema
     dfs = []
     for chunk_file in chunk_files:
         chunk_path = os.path.join(chunk_dir, chunk_file)
         try:
             df_chunk = pl.read_parquet(chunk_path)
-            
-            # Build expressions to ensure all columns exist with correct types
             exprs = []
             for col in all_columns:
                 if col in df_chunk.columns:

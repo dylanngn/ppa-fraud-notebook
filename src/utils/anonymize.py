@@ -1,19 +1,6 @@
 """
-Component-Based Anonymization Utilities
-
-This module provides anonymization functions that split identifiers into components
-and hash each component separately. This approach:
-1. Preserves graph structure (deterministic hashing)
-2. Creates additional features (component-level connections)
-3. Potentially improves performance by enabling more granular pattern detection
-4. Maintains privacy (cannot reverse hashes)
-
-Example:
-    Email: "user@domain.com" → hash("user") + "@" + hash("domain.com")
-    This allows tracking:
-    - User-part reuse across domains (fraud pattern)
-    - Domain-part reuse across users (fraud pattern)
-    - Full email reuse (existing pattern)
+Component-based anonymization utilities.
+Splits identifiers into components and hashes each separately for graph construction.
 """
 import copy
 import hashlib
@@ -94,15 +81,7 @@ ADDRESS_GROUPS = [
 
 
 def get_salt(identifier_type: str) -> bytes:
-    """
-    Get salt for identifier type from environment.
-    
-    Args:
-        identifier_type: Type of identifier (email, phone, ip, address, person)
-        
-    Returns:
-        Salt bytes for hashing
-    """
+    """Get salt for identifier type from environment."""
     salt_key = f"{SALT_PREFIX}{identifier_type.upper()}"
     salt = os.getenv(salt_key)
     if not salt:
@@ -112,38 +91,14 @@ def get_salt(identifier_type: str) -> bytes:
 
 
 def hash_value(value: str, salt: bytes) -> Optional[str]:
-    """
-    Deterministic hash using HMAC-SHA256.
-    
-    Args:
-        value: String value to hash
-        salt: Salt bytes for HMAC
-        
-    Returns:
-        Hex digest of hash or None if value is empty
-    """
+    """Deterministic hash using HMAC-SHA256."""
     if not value or value.strip() == "":
         return None
     return hmac.new(salt, value.strip().lower().encode(), hashlib.sha256).hexdigest()
 
 
 def anonymize_email(email: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """
-    Split email into user-part and domain-part, hash each separately.
-    
-    Returns:
-        (full_hash, user_hash, domain_hash)
-        - full_hash: Hash of entire email (for backward compatibility)
-        - user_hash: Hash of user part (before @)
-        - domain_hash: Hash of domain part (after @)
-    
-    Example:
-        "user@domain.com" → (
-            hash("user@domain.com"),  # Full email hash
-            hash("user"),             # User-part hash
-            hash("domain.com")        # Domain-part hash
-        )
-    """
+    """Hash email into (full_hash, user_hash, domain_hash)."""
     if not email or email.strip() == "":
         return None, None, None
     
@@ -198,21 +153,7 @@ def _parse_phone_components(phone: str) -> Tuple[Optional[str], Optional[str], O
 
 
 def anonymize_phone(phone: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """
-    Split phone into country code, area code, and number, hash each separately.
-    
-    Phone format assumptions:
-    - International: +41 44 123 4567 or +41441234567
-    - National: 044 123 4567 or 0441234567
-    - Local: 123 4567 or 1234567
-    
-    Returns:
-        (full_hash, country_hash, area_hash, number_hash)
-        - full_hash: Hash of entire phone (for backward compatibility)
-        - country_hash: Hash of country code (if present)
-        - area_hash: Hash of area code (if present)
-        - number_hash: Hash of local number
-    """
+    """Hash phone into (full_hash, country_hash, area_hash, number_hash)."""
     if not phone or phone.strip() == "":
         return None, None, None, None
     
@@ -250,18 +191,7 @@ def _parse_ipv6(ip: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def anonymize_ip(ip: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """
-    Split IP address into network and host parts, hash each separately.
-    
-    For IPv4: Split by subnet (e.g., /24 network)
-    For IPv6: Split by prefix
-    
-    Returns:
-        (full_hash, network_hash, host_hash)
-        - full_hash: Hash of entire IP (for backward compatibility)
-        - network_hash: Hash of network part (e.g., 192.168.1.*)
-        - host_hash: Hash of host part (last octet for IPv4)
-    """
+    """Hash IP into (full_hash, network_hash, host_hash)."""
     if not ip or ip.strip() == "":
         return None, None, None
     
@@ -291,17 +221,7 @@ def anonymize_address(
     city: str,
     country: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """
-    Hash address components separately.
-    
-    Returns:
-        (full_hash, country_hash, zip_hash, city_hash, street_hash)
-        - full_hash: Hash of full address composite (for backward compatibility)
-        - country_hash: Hash of country
-        - zip_hash: Hash of postal code
-        - city_hash: Hash of city
-        - street_hash: Hash of street
-    """
+    """Hash address into (full_hash, country_hash, zip_hash, city_hash, street_hash)."""
     salt = get_salt("address")
     
     # Create full address composite (existing format)
@@ -321,15 +241,7 @@ def anonymize_person_name(
     given_name: str,
     family_name: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """
-    Hash person name components separately.
-    
-    Returns:
-        (full_hash, given_hash, family_hash)
-        - full_hash: Hash of full name (for backward compatibility)
-        - given_hash: Hash of given name
-        - family_hash: Hash of family name
-    """
+    """Hash name into (full_hash, given_hash, family_hash)."""
     salt = get_salt("person")
     
     # Create full name (existing format)
@@ -471,18 +383,7 @@ def _anonymize_lister_section(lister: Dict) -> None:
 
 
 def anonymize_listing_json_dict(listing_dict: Dict) -> Dict:
-    """
-    Anonymizes all PII in a parsed listing JSON dictionary.
-    
-    This function recursively processes the listing structure and replaces
-    all PII fields (emails, phones, addresses, names) with their hashed equivalents.
-    
-    Args:
-        listing_dict: Parsed listing JSON as a dictionary
-        
-    Returns:
-        Dictionary with all PII fields anonymized
-    """
+    """Anonymize all PII fields in a listing dictionary."""
     if not listing_dict or not isinstance(listing_dict, dict):
         return listing_dict
     
@@ -570,19 +471,7 @@ def _anonymize_listing_json_column(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def anonymize_dataframe_batch(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Anonymizes PII columns in a Polars DataFrame in batch, including embedded PII in listing_json.
-    
-    This function processes the raw insertions DataFrame and replaces PII columns
-    with their hashed equivalents. It also parses and anonymizes the listing_json field
-    to remove all embedded PII before saving to disk.
-    
-    Args:
-        df: Polars DataFrame with raw insertion data
-        
-    Returns:
-        DataFrame with PII columns replaced by hashes and listing_json anonymized
-    """
+    """Anonymize PII columns in DataFrame including embedded PII in listing_json."""
     df_anon = df.clone()
     
     df_anon = _anonymize_ip_column(df_anon)
@@ -685,33 +574,14 @@ def _anonymize_person_name_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def anonymize_listings_pii(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Anonymizes all PII fields extracted from listing_json during processing.
-    
-    This function should be called after process_listings() extracts fields from JSON.
-    It anonymizes emails, phones, addresses, IPs, and names.
-    
-    Args:
-        df: Polars DataFrame with extracted listing fields (from process_listings)
-        
-    Returns:
-        DataFrame with PII fields replaced by hashes
-    """
+    """Anonymize all PII fields in DataFrame after JSON extraction."""
     df_anon = df.clone()
     
-    # Anonymize email columns
     df_anon = _anonymize_email_columns(df_anon)
-    
-    # Anonymize phone columns
     df_anon = _anonymize_phone_columns(df_anon)
-    
-    # Anonymize address columns
     df_anon = _anonymize_address_columns(df_anon)
-    
-    # Anonymize person name columns
     df_anon = _anonymize_person_name_columns(df_anon)
     
-    # Handle user_ip_address and contact_emails (fallback if not already hashed)
     if "user_ip_address" in df_anon.columns and "user_ip_address_hash" not in df_anon.columns:
         df_anon = _anonymize_ip_column(df_anon)
     

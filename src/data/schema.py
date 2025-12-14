@@ -1,11 +1,10 @@
 """
 Data schemas and validation for the fraud detection pipeline.
 Single source of truth for feature definitions.
-UPDATED: Based on EDA of artifacts/raw_insertions.parquet.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Tuple, Optional
+from dataclasses import dataclass
+from typing import List, Tuple
 from enum import Enum
 
 
@@ -22,24 +21,22 @@ class FeatureSchema:
     """
     
     # === IDENTIFIERS ===
-    # Using specific flattened fields found in EDA
     id_columns: Tuple[str, ...] = (
         "listing_id",
         "user_id", 
-        "submission_at", # REPLACES created_at
+        "submission_at",
     )
     
     # === GRAPH IDENTITY COLUMNS ===
     graph_identity_columns: Tuple[str, ...] = (
-        "listing.lister.phone.hash",       # Contact Phone (70% coverage)
-        "listing.lister.email.hash",       # Contact Email (99% coverage)
-        "listing.lister.billing.phoneDay.hash", # Billing Phone (98% coverage) - NEW
-        "listing.lister.billing.email.hash",    # Billing Email (98% coverage) - NEW
+        "listing.lister.phone.hash",
+        "listing.lister.email.hash",
+        "listing.lister.billing.phoneDay.hash",
+        "listing.lister.billing.email.hash",
         "user_ip_address_hash",
     )
     
-    # === RAW SOURCE COLUMNS (Used for Coalescence) ===
-    # We define them here to inform loading, but the Model sees 'features'
+    # === RAW SOURCE COLUMNS ===
     raw_price_cols: Tuple[str, ...] = (
         "listing.prices.rent.gross",
         "listing.prices.rent.net",
@@ -52,30 +49,29 @@ class FeatureSchema:
         "listing.characteristics.lotSize"
     )
     
-    # === ENGINEERED FEATURES (Post-Coalescence) ===
-    # These are the columns the Model will actually use
+    # === ENGINEERED FEATURES ===
     base_numerical: Tuple[str, ...] = (
-        "feature_price",      # Coalesced
-        "feature_area",       # Coalesced
-        "feature_rooms",      # listing.characteristics.numberOfRooms
-        "feature_bathrooms",  # listing.characteristics.numberOfBathrooms
-        "feature_year_built", # listing.characteristics.yearBuilt
-        "feature_floors",     # listing.characteristics.numberOfFloors
+        "feature_price",
+        "feature_area",
+        "feature_rooms",
+        "feature_bathrooms",
+        "feature_year_built",
+        "feature_floors",
     )
     
-    # === BENCHMARKS (Not for Training) ===
+    # === BENCHMARKS ===
     benchmark_features: Tuple[str, ...] = (
-        "benchmark_seon_approved", # Production Binary Baseline (Approved=True means Legit)
+        "benchmark_seon_approved",
     )
     
     # === BASE CATEGORICAL FEATURES ===
     base_categorical: Tuple[str, ...] = (
         "listing.lister.billing.address.city_hash",
-        "listing.lister.billing.phoneDay.area_hash", # TOP PREDICTOR
-        "listing.lister.email.domain_hash",          # TOP PREDICTOR
+        "listing.lister.billing.phoneDay.area_hash",
+        "listing.lister.email.domain_hash",
         "listing.type",
         "bundle.tier",
-        "listing.platforms", # Size/list? Might need encoding or size extraction.
+        "listing.platforms",
     )
     
     # === TEMPORAL FEATURES (Derived) ===
@@ -85,8 +81,8 @@ class FeatureSchema:
     )
     
     # === TARGET ===
-    target: str = "is_fraud" # Derived from fraud_flag
-    raw_target_source: str = "fraud_flag" # Timestamp column
+    target: str = "is_fraud"
+    raw_target_source: str = "fraud_flag"
     
     # === GNN EMBEDDING ===
     gnn_embedding_dim: int = 64
@@ -115,24 +111,3 @@ class FeatureSchema:
         return list(self.base_numerical)
 
 FEATURE_SCHEMA = FeatureSchema()
-
-
-@dataclass
-class TemporalBoundary:
-    cutoff_date: str
-    split_name: str
-    accumulation_id: Optional[str] = None
-
-@dataclass 
-class DataSplit:
-    train: TemporalBoundary
-    val: TemporalBoundary
-    test: TemporalBoundary
-    gap_days: int = 7
-    
-    def validate(self) -> bool:
-        from datetime import datetime
-        t = datetime.fromisoformat
-        if not (t(self.train.cutoff_date) < t(self.val.cutoff_date) < t(self.test.cutoff_date)):
-            raise ValueError("Invalid split ordering")
-        return True

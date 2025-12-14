@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 import polars as pl
-from src.data.schema import DataSplit
 
 class BaseEmbedder(ABC):
     """Abstract base for embedding generators (GNN or handcrafted)."""
@@ -84,7 +83,6 @@ class HybridFraudDetector(ABC):
         self,
         df: pl.DataFrame,
         graph: HeteroData,
-        split: DataSplit,
     ) -> "HybridFraudDetector":
         """Fit the complete pipeline."""
         pass

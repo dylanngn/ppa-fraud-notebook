@@ -1,36 +1,42 @@
-
 # Experiment Configuration
+# Simple single-model training with fixed train/test split
 
 defaults:
   - _self_
 
 experiment:
-  name: "default_experiment"
+  name: "fraud_detection"
   tracking_uri: "sqlite:///ppa-fraud-detection-mlflow.db"
   artifact_location: "mlruns"
 
 data:
-  path: "artifacts/raw_insertions.parquet" # Defaults to dummy for testing, user should override
-  start_date: "2023-01-01"
-  end_date: "2025-11-02"
+  path: "artifacts/raw_insertions.parquet"
+  # Fixed train/test split for controlled A/B comparisons
+  train_end_date: "2024-06-01"  # Train on data up to this date
+  test_end_date: "2024-09-01"   # Test on data from train_end + gap to this date
 
 training:
-  initial_train_months: 1
-  accumulation_frequency: "weekly"
-  prediction_window_days: 7
+  gap_days: 7  # Gap between train and test to prevent leakage
 
 model:
-  variant: "vanilla_xgboost" # vanilla_xgboost, handcrafted_xgboost, graphsage_xgboost
+  variant: "vanilla_xgboost"  # vanilla_xgboost, handcrafted_xgboost, graphsage_xgboost
   
   xgboost:
+    # Core hyperparameters (tunable via HPO)
     n_estimators: 100
     max_depth: 3
     learning_rate: 0.1
-    # enable_categorical: True # Auto-set by wrapper
+    min_child_weight: 1
+    subsample: 1.0
+    colsample_bytree: 1.0
+    gamma: 0.0
+    reg_alpha: 0.0
+    reg_lambda: 1.0
+    scale_pos_weight: 1.0
     
   gnn:
     device: "cpu"
-    in_channels: 11 # Adjust based on schema (base_numerical count)
+    in_channels: 6  # Number of base_numerical features
     hidden_channels: 32
     out_channels: 16
     num_layers: 2
