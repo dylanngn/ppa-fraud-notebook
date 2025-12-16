@@ -4,13 +4,18 @@ PYTHON := python
 TRAINER := src.training.trainer
 
 # Default train/test split dates
+# Note: Adjust these to match your data range
 TRAIN_END := 2024-06-01
 TEST_END := 2024-09-01
 
-.PHONY: help install train-vanilla train-handcrafted train-gnn compare-all hpo hpo-quick mlflow clean
+.PHONY: help install etl etl-refresh train-vanilla train-handcrafted train-gnn compare-all hpo hpo-quick mlflow clean
 
 help:
 	@echo "Available commands:"
+	@echo ""
+	@echo "  Data Extraction:"
+	@echo "    make etl                   - Extract data from DB (resumable)"
+	@echo "    make etl-refresh           - Force re-extract all data"
 	@echo ""
 	@echo "  Training (single model):"
 	@echo "    make train-vanilla         - Train Baseline XGBoost"
@@ -29,6 +34,7 @@ help:
 	@echo "    make clean                 - Remove artifacts"
 	@echo ""
 	@echo "  Custom dates:"
+	@echo "    make etl ETL_START=2024-01-01 ETL_END=2024-06-01"
 	@echo "    make train-vanilla TRAIN_END=2024-03-01 TEST_END=2024-06-01"
 
 install:
@@ -94,6 +100,7 @@ compare-all:
 hpo:
 	$(PYTHON) -m $(TRAINER) \
 		--config-name=hpo_xgboost \
+		experiment.name="HPO_XGBoost" \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
@@ -141,6 +148,22 @@ temporal-check:
 		data.test_end_date="2024-12-01"
 	@echo ""
 	@echo "=== Temporal check complete! Compare AUC-PR across periods ==="
+
+# --- Data Extraction (ETL) ---
+
+ETL_START := 2023-01-01
+ETL_END := 2024-12-01
+
+etl:
+	$(PYTHON) -m src.data.etl \
+		data.extract.start_date=$(ETL_START) \
+		data.extract.end_date=$(ETL_END)
+
+etl-refresh:
+	$(PYTHON) -m src.data.etl \
+		data.extract.start_date=$(ETL_START) \
+		data.extract.end_date=$(ETL_END) \
+		data.extract.force_refresh=true
 
 # --- Utilities ---
 

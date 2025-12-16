@@ -1,85 +1,109 @@
-import os
-import polars as pl
-from typing import Dict
+"""
+Data loading module for SEON + Snowflake events pipeline.
+Handles saving processed data to parquet format.
+"""
 import logging
+import os
+from pathlib import Path
+
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
-def save_chunk(df: pl.DataFrame, path: str):
-    """Save a processed chunk to parquet."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.write_parquet(path, compression="zstd")
-    logger.info(f"Saved chunk to {path}")
 
-def resolve_schema_conflicts(all_schemas: Dict[str, set]) -> Dict[str, pl.DataType]:
-    """Resolve type conflicts across chunks and return unified schema."""
-    final_schema = {}
+def save_parquet(
+    df: pl.DataFrame,
+    path: str,
+    compression: str = "zstd",
+) -> None:
+    """
+    Save DataFrame to parquet file.
     
-    for col, dtypes in all_schemas.items():
-        if len(dtypes) > 1:
-            # Type conflict - check if it's numeric
-            has_int = any(dt in [
-                pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64
-            ] for dt in dtypes)
-            has_float = any(dt in [pl.Float32, pl.Float64] for dt in dtypes)
-            
-            if has_int and has_float:
-                final_schema[col] = pl.Float64
-                logger.info(f"Schema conflict for {col}: {dtypes} -> using Float64")
-            else:
-                # Pick the first one (simple resolution)
-                final_schema[col] = list(dtypes)[0]
-        else:
-            final_schema[col] = list(dtypes)[0]
+    Args:
+        df: DataFrame to save
+        path: Output path
+        compression: Compression algorithm (default: zstd)
+    """
+    path = Path(path)
     
-    return final_schema
+    # Create parent directories
+    os.makedirs(path.parent, exist_ok=True)
+    
+    logger.info(f"Saving to {path}...")
+    df.write_parquet(path, compression=compression)
+    
+    # Log file size
+    size_mb = path.stat().st_size / (1024 * 1024)
+    logger.info(f"  Saved {len(df):,} rows, {len(df.columns)} columns ({size_mb:.2f} MB)")
 
-def assemble_chunks(chunk_dir: str) -> pl.DataFrame:
-    """Assemble all chunks into a single DataFrame with schema resolution."""
-    chunk_files = sorted([f for f in os.listdir(chunk_dir) if f.endswith(".parquet")])
-    if not chunk_files:
-        raise ValueError("No chunk files found!")
+
+def save_summary(
+    df: pl.DataFrame,
+    path: str,
+) -> None:
+    """
+    Save summary statistics to JSON file.
     
-    logger.info(f"Found {len(chunk_files)} chunk files to assemble...")
-    logger.info("Scanning schemas to detect type conflicts...")
-    lazy_chunks = [pl.scan_parquet(os.path.join(chunk_dir, f)) for f in chunk_files]
+    Args:
+        df: DataFrame to summarize
+        path: Output path for summary JSON
+    """
+    import json
     
-    all_schemas = {}
-    for lf in lazy_chunks:
-        schema = lf.collect_schema()
-        for col, dtype in schema.items():
-            if col not in all_schemas:
-                all_schemas[col] = set()
-            all_schemas[col].add(dtype)
+    path = Path(path)
+    os.makedirs(path.parent, exist_ok=True)
     
-    final_schema = resolve_schema_conflicts(all_schemas)
-    all_columns = sorted(all_schemas.keys())
-    logger.info(f"Unified schema: {len(final_schema)} columns")
+    # Compute summary stats
+    summary = {
+        "total_rows": len(df),
+        "total_columns": len(df.columns),
+        "unique_insertions": df.select("INSERTION_ID").n_unique() if "INSERTION_ID" in df.columns else None,
+        "fraud_events": df.filter(pl.col("is_fraud") == 1).height if "is_fraud" in df.columns else None,
+        "non_fraud_events": df.filter(pl.col("is_fraud") == 0).height if "is_fraud" in df.columns else None,
+    }
     
-    dfs = []
-    for chunk_file in chunk_files:
-        chunk_path = os.path.join(chunk_dir, chunk_file)
-        try:
-            df_chunk = pl.read_parquet(chunk_path)
-            exprs = []
-            for col in all_columns:
-                if col in df_chunk.columns:
-                    if df_chunk[col].dtype != final_schema[col]:
-                        exprs.append(pl.col(col).cast(final_schema[col]))
-                    else:
-                        exprs.append(pl.col(col))
-                else:
-                    exprs.append(pl.lit(None).cast(final_schema[col]).alias(col))
-            
-            df_chunk = df_chunk.select(exprs)
-            dfs.append(df_chunk)
-        except Exception as e:
-            logger.warning(f"Failed to read {chunk_file}: {e}")
-            continue
+    # Status distribution
+    if "STATUS" in df.columns:
+        status_counts = (
+            df.group_by("STATUS")
+            .agg(pl.len().alias("count"))
+            .sort("count", descending=True)
+        )
+        summary["status_distribution"] = {
+            row["STATUS"]: row["count"]
+            for row in status_counts.iter_rows(named=True)
+        }
     
-    if not dfs:
-        raise ValueError("No valid chunk files found!")
+    # SEON state distribution (benchmark)
+    if "seon_state" in df.columns:
+        seon_counts = (
+            df.group_by("seon_state")
+            .agg(pl.len().alias("count"))
+            .sort("count", descending=True)
+        )
+        summary["seon_state_distribution"] = {
+            str(row["seon_state"]): row["count"]
+            for row in seon_counts.iter_rows(named=True)
+        }
     
-    logger.info(f"Concatenating {len(dfs)} chunks...")
-    return pl.concat(dfs)
+    # Save
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2)
+    
+    logger.info(f"Saved summary to {path}")
+
+
+def load_data(df: pl.DataFrame, output_path: str) -> None:
+    """
+    Main load function - saves processed data.
+    
+    Args:
+        df: Processed DataFrame
+        output_path: Path for output parquet file
+    """
+    # Save main data
+    save_parquet(df, output_path)
+    
+    # Save summary
+    summary_path = str(output_path).replace(".parquet", "_summary.json")
+    save_summary(df, summary_path)

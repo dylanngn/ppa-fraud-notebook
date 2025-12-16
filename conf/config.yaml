@@ -1,8 +1,8 @@
 defaults:
   - _self_
   - data: default
-  - model: xgboost
-  - gnn: default
+  - optional model: xgboost
+  - optional gnn: default
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 

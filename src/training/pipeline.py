@@ -13,10 +13,10 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 import os
 
-from src.data.schema import ModelVariant, FEATURE_SCHEMA
-from src.data.feature_store import FeatureStore
-from src.graph.builder import TemporalGraphBuilder, GraphConfig
-from src.graph.features import HandcraftedGraphFeatures
+from src.features.schema import ModelVariant, FEATURE_SCHEMA
+from src.features.store import FeatureStore
+from src.features.graph_builder import TemporalGraphBuilder, GraphConfig
+from src.features.graph_features import HandcraftedGraphFeatures
 from src.models.hybrid import HybridPipeline
 from src.models.xgboost_classifier import XGBoostClassifier
 from src.models.graphsage import GraphSAGEEmbedder

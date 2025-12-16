@@ -9,9 +9,9 @@ import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 
-from src.data.schema import FEATURE_SCHEMA, ModelVariant
-from src.graph.builder import TemporalGraphBuilder
-from src.graph.features import HandcraftedGraphFeatures
+from src.features.schema import FEATURE_SCHEMA, ModelVariant
+from src.features.graph_builder import TemporalGraphBuilder
+from src.features.graph_features import HandcraftedGraphFeatures
 from src.models.base import HybridFraudDetector, BaseEmbedder, BaseClassifier
 
 class HybridPipeline(HybridFraudDetector):

@@ -5,6 +5,7 @@ Splits identifiers into components and hashes each separately for graph construc
 import copy
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -27,8 +28,6 @@ CONTACT_PHONE_FIELDS = ["phone", "mobile"]
 # Regex patterns
 PHONE_INTERNATIONAL_PATTERN = re.compile(r'^\+(\d{1,3})(\d{2,4})(\d+)$')
 PHONE_NATIONAL_PATTERN = re.compile(r'^(\d{2,4})(\d+)$')
-IPV4_PATTERN = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
-IPV6_PATTERN = re.compile(r'^([0-9a-fA-F:]+)::?([0-9a-fA-F:]+)$')
 
 # Column name constants for flattened data
 EMAIL_COLS = [
@@ -170,28 +169,67 @@ def anonymize_phone(phone: str) -> Tuple[Optional[str], Optional[str], Optional[
     return full_hash, country_hash, area_hash, number_hash
 
 
-def _parse_ipv4(ip: str) -> Tuple[Optional[str], Optional[str]]:
-    """Parse IPv4 address and return network and host parts."""
-    match = IPV4_PATTERN.match(ip)
-    if match:
-        network = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
-        host = match.group(4)
-        return network, host
-    return None, None
-
-
-def _parse_ipv6(ip: str) -> Tuple[Optional[str], Optional[str]]:
-    """Parse IPv6 address and return network and host parts."""
-    match = IPV6_PATTERN.match(ip)
-    if match:
-        network = match.group(1) if match.group(1) else "::"
-        host = match.group(2) if match.group(2) else ""
-        return network, host
+def _parse_ip_components(ip: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse IP address using Python's ipaddress module for robust handling.
+    
+    Handles:
+    - IPv4: Returns /24 network and host octet
+    - IPv6: Returns /64 network and interface identifier
+    - Zone IDs (e.g., fe80::1%eth0): Stripped before parsing
+    
+    Args:
+        ip: IP address string (IPv4 or IPv6)
+        
+    Returns:
+        Tuple of (network_str, host_str) or (None, None) if invalid
+    """
+    try:
+        # Strip zone ID for link-local addresses (e.g., fe80::1%eth0)
+        ip_clean = ip.split('%')[0].strip()
+        
+        addr = ipaddress.ip_address(ip_clean)
+        
+        if isinstance(addr, ipaddress.IPv4Address):
+            # IPv4: Use /24 network (first 3 octets)
+            network = ipaddress.IPv4Network(f"{ip_clean}/24", strict=False)
+            network_str = str(network.network_address)
+            # Host part is the last octet
+            host_str = str(addr).split('.')[-1]
+            return network_str, host_str
+            
+        elif isinstance(addr, ipaddress.IPv6Address):
+            # IPv6: Use /64 network (standard subnet size)
+            network = ipaddress.IPv6Network(f"{ip_clean}/64", strict=False)
+            network_str = str(network.network_address)
+            # Host part is the interface identifier (last 64 bits)
+            # Represented as the full address for hashing purposes
+            host_str = str(addr)
+            return network_str, host_str
+            
+    except ValueError as e:
+        logger.debug(f"Failed to parse IP address '{ip}': {e}")
+        return None, None
+    
     return None, None
 
 
 def anonymize_ip(ip: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Hash IP into (full_hash, network_hash, host_hash)."""
+    """
+    Hash IP into (full_hash, network_hash, host_hash).
+    
+    Uses Python's ipaddress module for robust parsing of:
+    - Standard IPv4 (e.g., 192.168.1.1)
+    - Standard IPv6 (e.g., 2001:db8::1)
+    - Compressed IPv6 (e.g., ::1, ::ffff:192.0.2.1)
+    - Link-local with zone ID (e.g., fe80::1%eth0)
+    
+    Args:
+        ip: IP address string
+        
+    Returns:
+        Tuple of (full_hash, network_hash, host_hash)
+    """
     if not ip or ip.strip() == "":
         return None, None, None
     
@@ -199,19 +237,15 @@ def anonymize_ip(ip: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     salt = get_salt("ip")
     full_hash = hash_value(ip, salt)
     
-    # Try IPv4 first
-    network, host = _parse_ipv4(ip)
-    if network and host:
-        return full_hash, hash_value(network, salt), hash_value(host, salt)
+    # Parse IP using robust ipaddress module
+    network, host = _parse_ip_components(ip)
     
-    # Try IPv6
-    network, host = _parse_ipv6(ip)
-    if network or host:
-        network_hash = hash_value(network, salt) if network else None
-        host_hash = hash_value(host, salt) if host else None
+    if network and host:
+        network_hash = hash_value(network, salt)
+        host_hash = hash_value(host, salt)
         return full_hash, network_hash, host_hash
     
-    # Unknown format, hash as-is
+    # Unknown format, return only full hash
     return full_hash, None, None
 
 
@@ -573,19 +607,306 @@ def _anonymize_person_name_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df_anon
 
 
+def _anonymize_owner_id_column(df: pl.DataFrame) -> pl.DataFrame:
+    """Anonymize owner_id column - this is a direct user identifier."""
+    if "owner_id" not in df.columns:
+        return df
+    
+    salt = get_salt("owner")
+    owner_ids = df["owner_id"].to_list()
+    hashes = [hash_value(str(oid), salt) if oid else None for oid in owner_ids]
+    
+    df = df.with_columns([
+        pl.Series("owner_id_hash", hashes, dtype=pl.Utf8)
+    ])
+    return df.drop("owner_id")
+
+
+def _anonymize_object_reference_column(df: pl.DataFrame) -> pl.DataFrame:
+    """Anonymize object_reference column - may contain identifiable patterns."""
+    if "object_reference" not in df.columns:
+        return df
+    
+    salt = get_salt("object")
+    refs = df["object_reference"].to_list()
+    hashes = [hash_value(str(ref), salt) if ref else None for ref in refs]
+    
+    df = df.with_columns([
+        pl.Series("object_reference_hash", hashes, dtype=pl.Utf8)
+    ])
+    return df.drop("object_reference")
+
+
 def anonymize_listings_pii(df: pl.DataFrame) -> pl.DataFrame:
     """Anonymize all PII fields in DataFrame after JSON extraction."""
     df_anon = df.clone()
     
+    # Anonymize structured PII columns
     df_anon = _anonymize_email_columns(df_anon)
     df_anon = _anonymize_phone_columns(df_anon)
     df_anon = _anonymize_address_columns(df_anon)
     df_anon = _anonymize_person_name_columns(df_anon)
+    
+    # Anonymize direct identifiers
+    df_anon = _anonymize_owner_id_column(df_anon)
+    df_anon = _anonymize_object_reference_column(df_anon)
     
     if "user_ip_address" in df_anon.columns and "user_ip_address_hash" not in df_anon.columns:
         df_anon = _anonymize_ip_column(df_anon)
     
     if "contact_emails" in df_anon.columns and "contact_emails_hash" not in df_anon.columns:
         df_anon = _anonymize_email_list_column(df_anon)
+    
+    return df_anon
+
+
+# =============================================================================
+# NEW: Anonymization for merged SEON + Events data
+# =============================================================================
+
+# PII columns from Events (flattened Snowflake data)
+EVENTS_PII_PATTERNS = {
+    "email": [
+        "LISTING_LISTER_EMAIL",
+        "LISTING_LISTER_BILLING_EMAIL",
+        "LISTING_LISTER_CONTACTS_INQUIRY_EMAIL",
+        "LISTING_LISTER_CONTACTS_VIEWING_EMAIL",
+        "CREATEDATUSERNAME",  # Contains email in format timestamp#email
+    ],
+    "phone": [
+        "LISTING_LISTER_PHONE",
+        "LISTING_LISTER_MOBILE",
+        "LISTING_LISTER_BILLING_PHONEDAY",
+        "LISTING_LISTER_BILLING_PHONEMOBILE",
+        "LISTING_LISTER_CONTACTS_INQUIRY_PHONE",
+        "LISTING_LISTER_CONTACTS_INQUIRY_MOBILE",
+        "LISTING_LISTER_CONTACTS_VIEWING_PHONE",
+        "LISTING_LISTER_CONTACTS_VIEWING_MOBILE",
+    ],
+    "name": [
+        "LISTING_LISTER_NAME",
+        "LISTING_LISTER_LEGALNAME",
+        "LISTING_LISTER_BILLING_NAME",
+        "LISTING_LISTER_BILLING_COMPANYNAME",
+        "LISTING_LISTER_CONTACTS_INQUIRY_GIVENNAME",
+        "LISTING_LISTER_CONTACTS_INQUIRY_FAMILYNAME",
+        "LISTING_LISTER_USERNAME",
+    ],
+    "address": [
+        "LISTING_ADDRESS_STREET",
+        "LISTING_ADDRESS_LOCALITY",
+        "LISTING_ADDRESS_POSTALCODE",
+        "LISTING_LISTER_ADDRESS_STREET",
+        "LISTING_LISTER_ADDRESS_LOCALITY",
+        "LISTING_LISTER_ADDRESS_POSTALCODE",
+        "LISTING_LISTER_BILLING_ADDRESS_STREET",
+        "LISTING_LISTER_BILLING_ADDRESS_LOCALITY",
+        "LISTING_LISTER_BILLING_ADDRESS_POSTALCODE",
+    ],
+    "geo": [
+        "LISTING_ADDRESS_GEOCOORDINATES_LATITUDE",
+        "LISTING_ADDRESS_GEOCOORDINATES_LONGITUDE",
+    ],
+}
+
+# PII columns from SEON
+SEON_PII_PATTERNS = {
+    "email": [
+        "email/email",
+        "email/raw_email",
+        "user_name",  # Often contains email
+    ],
+    "phone": [
+        "phone_number",
+        "billing_phone",
+        "bin_phone",
+    ],
+    "name": [
+        "user_fullname",
+    ],
+    "address": [
+        "billing_street",
+        "billing_city",
+        "billing_zip",
+    ],
+    "ip": [
+        "ip",
+        "session/device_ip_address",
+        "session/dns_ip",
+    ],
+    "user_id": [
+        "user_id",
+    ],
+}
+
+
+def _anonymize_column_generic(
+    df: pl.DataFrame,
+    col: str,
+    salt_type: str,
+    hash_suffix: str = "_hash",
+) -> pl.DataFrame:
+    """Anonymize a single column with generic hashing."""
+    if col not in df.columns:
+        return df
+    
+    salt = get_salt(salt_type)
+    values = df[col].to_list()
+    hashes = [hash_value(str(v), salt) if v is not None else None for v in values]
+    
+    df = df.with_columns([
+        pl.Series(f"{col}{hash_suffix}", hashes, dtype=pl.Utf8)
+    ])
+    return df.drop(col)
+
+
+def _anonymize_geo_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Anonymize geo coordinates by rounding to reduce precision.
+    This preserves approximate location (city-level) while removing exact address.
+    """
+    geo_cols = EVENTS_PII_PATTERNS.get("geo", [])
+    
+    for col in geo_cols:
+        if col in df.columns:
+            # Round to 2 decimal places (~1km precision)
+            df = df.with_columns(
+                pl.col(col).cast(pl.Float64, strict=False).round(2).alias(col)
+            )
+    
+    return df
+
+
+def _anonymize_createdatusername(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Anonymize CREATEDATUSERNAME which contains timestamp#email format.
+    Extract and hash just the email part.
+    """
+    col = "CREATEDATUSERNAME"
+    if col not in df.columns:
+        return df
+    
+    salt = get_salt("email")
+    values = df[col].to_list()
+    
+    def extract_and_hash_email(val):
+        if val is None:
+            return None
+        # Format: 2025-07-24T10:15:40.218729Z#email@domain.com
+        if "#" in str(val):
+            parts = str(val).split("#", 1)
+            if len(parts) > 1:
+                email = parts[1]
+                return hash_value(email, salt)
+        return hash_value(str(val), salt)
+    
+    hashes = [extract_and_hash_email(v) for v in values]
+    
+    df = df.with_columns([
+        pl.Series(f"{col}_hash", hashes, dtype=pl.Utf8)
+    ])
+    return df.drop(col)
+
+
+def anonymize_merged_data(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Anonymize all PII in merged SEON + Events DataFrame.
+    
+    This handles:
+    - Events PII: emails, phones, names, addresses from LISTING_* columns
+    - SEON PII: emails, phones, IPs, user IDs from SEON columns
+    - Geo coordinates: rounded for privacy
+    
+    Args:
+        df: Merged DataFrame with both events and SEON columns
+        
+    Returns:
+        Anonymized DataFrame
+    """
+    logger.info("Anonymizing merged data...")
+    df_anon = df.clone()
+    
+    # Track columns anonymized
+    anonymized_count = 0
+    
+    # Handle special case: CREATEDATUSERNAME
+    if "CREATEDATUSERNAME" in df_anon.columns:
+        df_anon = _anonymize_createdatusername(df_anon)
+        anonymized_count += 1
+    
+    # Anonymize Events email columns
+    for col in EVENTS_PII_PATTERNS.get("email", []):
+        if col in df_anon.columns and col != "CREATEDATUSERNAME":
+            df_anon = _anonymize_column_generic(df_anon, col, "email")
+            anonymized_count += 1
+    
+    # Anonymize Events phone columns
+    for col in EVENTS_PII_PATTERNS.get("phone", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "phone")
+            anonymized_count += 1
+    
+    # Anonymize Events name columns
+    for col in EVENTS_PII_PATTERNS.get("name", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "person")
+            anonymized_count += 1
+    
+    # Anonymize Events address columns
+    for col in EVENTS_PII_PATTERNS.get("address", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "address")
+            anonymized_count += 1
+    
+    # Round geo coordinates
+    df_anon = _anonymize_geo_columns(df_anon)
+    
+    # Anonymize SEON email columns
+    for col in SEON_PII_PATTERNS.get("email", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "email")
+            anonymized_count += 1
+    
+    # Anonymize SEON phone columns
+    for col in SEON_PII_PATTERNS.get("phone", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "phone")
+            anonymized_count += 1
+    
+    # Anonymize SEON name columns
+    for col in SEON_PII_PATTERNS.get("name", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "person")
+            anonymized_count += 1
+    
+    # Anonymize SEON address columns
+    for col in SEON_PII_PATTERNS.get("address", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "address")
+            anonymized_count += 1
+    
+    # Anonymize SEON IP columns
+    for col in SEON_PII_PATTERNS.get("ip", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "ip")
+            anonymized_count += 1
+    
+    # Anonymize SEON user_id columns
+    for col in SEON_PII_PATTERNS.get("user_id", []):
+        if col in df_anon.columns:
+            df_anon = _anonymize_column_generic(df_anon, col, "owner")
+            anonymized_count += 1
+    
+    # Anonymize INSERTION_ID (contains user-generated reference)
+    if "INSERTION_ID" in df_anon.columns:
+        df_anon = _anonymize_column_generic(df_anon, "INSERTION_ID", "object")
+        anonymized_count += 1
+    
+    # Anonymize OBJECTREFERENCE
+    if "OBJECTREFERENCE" in df_anon.columns:
+        df_anon = _anonymize_column_generic(df_anon, "OBJECTREFERENCE", "object")
+        anonymized_count += 1
+    
+    logger.info(f"  Anonymized {anonymized_count} PII columns")
     
     return df_anon

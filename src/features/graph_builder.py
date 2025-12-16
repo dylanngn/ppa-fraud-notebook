@@ -9,7 +9,7 @@ import polars as pl
 import torch
 from torch_geometric.data import HeteroData
 
-from src.data.schema import FEATURE_SCHEMA
+from src.features.schema import FEATURE_SCHEMA
 
 
 @dataclass

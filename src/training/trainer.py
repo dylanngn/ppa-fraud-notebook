@@ -13,7 +13,7 @@ import os
 import mlflow
 
 from src.training.pipeline import SingleTrainingPipeline
-from src.data.feature_store import FeatureStore
+from src.features.store import FeatureStore
 
 logger = logging.getLogger(__name__)
 

@@ -7,9 +7,8 @@ import logging
 from typing import Optional, Union, List
 from pathlib import Path
 import polars as pl
-import polars.selectors as cs
 
-from src.data.schema import FEATURE_SCHEMA, ModelVariant
+from src.features.schema import FEATURE_SCHEMA, ModelVariant
 
 logger = logging.getLogger(__name__)
 
