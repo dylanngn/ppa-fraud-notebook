@@ -739,6 +739,9 @@ SEON_PII_PATTERNS = {
     ],
 }
 
+# Events IP column (needs special handling to create graph-compatible names)
+EVENTS_IP_COLUMN = "USERIPADDRESS"
+
 
 def _anonymize_column_generic(
     df: pl.DataFrame,
@@ -890,6 +893,19 @@ def anonymize_merged_data(df: pl.DataFrame) -> pl.DataFrame:
         if col in df_anon.columns:
             df_anon = _anonymize_column_generic(df_anon, col, "ip")
             anonymized_count += 1
+    
+    # Anonymize Events IP column (USERIPADDRESS) with graph-compatible output names
+    if EVENTS_IP_COLUMN in df_anon.columns:
+        ip_values = df_anon[EVENTS_IP_COLUMN].to_list()
+        ip_results = [anonymize_ip(ip) if ip else (None, None, None) for ip in ip_values]
+        
+        df_anon = df_anon.with_columns([
+            pl.Series("ip_hash", [r[0] for r in ip_results], dtype=pl.Utf8),
+            pl.Series("ip_network_hash", [r[1] for r in ip_results], dtype=pl.Utf8),
+        ])
+        df_anon = df_anon.drop(EVENTS_IP_COLUMN)
+        anonymized_count += 1
+        logger.debug(f"  Created ip_hash and ip_network_hash from {EVENTS_IP_COLUMN}")
     
     # Anonymize SEON user_id columns
     for col in SEON_PII_PATTERNS.get("user_id", []):

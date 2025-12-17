@@ -3,8 +3,8 @@
 
 # Input paths (CSV files)
 sources:
-  events_csv: "dataset/insertion_events.csv"
-  seon_csv: "dataset/seon_transactions.csv"
+  events_csv: "artifacts/insertion_events.csv"
+  seon_csv: "artifacts/seon_transactions.csv"
 
 # Output paths
 paths:
@@ -13,14 +13,8 @@ paths:
 
 # Processing settings
 processing:
-  # Batch size for reading large CSV files
-  batch_size: 500000
-  
-  # Event deduplication: keep first/last per status + all fraud-flagged
-  deduplicate_events: true
-  
-  # Remove events after fraud flag or DELETED status
-  remove_post_terminal_events: true
+  # Enable streaming mode for memory-efficient processing of large files
+  streaming: true
 
 # Column configurations
 columns:
@@ -28,56 +22,12 @@ columns:
   events:
     id_source: "OBJECTREFERENCE"  # Contains INSERTION_ID
     id_pattern: "#(.+?)##"  # Regex to extract INSERTION_ID
-    time_col: "TIME"
+    time_col: "DATAPIPELINE_EVENT_SENT_AT"
     status_col: "STATUS"
     fraud_flag_col: "FLAGGEDFORFRAUD"
   
   # SEON columns
   seon:
     id_col: "transaction_id"  # Maps to INSERTION_ID
+    unique_col: "id"          # Unique SEON transaction identifier
     time_col: "date"
-    state_col: "state"  # Benchmark only, not a feature
-    score_col: "fraud_score"
-
-# SEON columns to use as features (anonymized where needed)
-seon_feature_groups:
-  # Risk scores (numeric)
-  scores:
-    - fraud_score
-    - blackbox_score
-    - phone_score
-    - email_score
-    - proxy_score
-  
-  # IP features
-  ip:
-    - ip_type
-    - ip_country
-    - ip_isp_name
-    - data_center_proxy
-    - residential_proxy
-    - public_proxy
-  
-  # Email features  
-  email:
-    - email/domain/disposable
-    - email/domain/free
-    - email/deliverable
-    - email/haveibeenpwned_listed
-  
-  # Phone features
-  phone:
-    - phone_type
-    - phone_country
-    - phone_is_disposable
-  
-  # Device/session features
-  session:
-    - session/device_type
-    - session/os
-    - session/browser
-    - session/private
-    - session/device_vpn
-
-# Benchmark column (not used as feature, for evaluation only)
-benchmark_col: "seon_state"

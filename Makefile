@@ -4,26 +4,29 @@ PYTHON := python
 TRAINER := src.training.trainer
 
 # Default train/test split dates
-# Note: Adjust these to match your data range
-TRAIN_END := 2024-06-01
-TEST_END := 2024-09-01
+# Note: SEON data starts 2024-11-16, use 2024-12-01 as safe start
+TRAIN_START := 2024-12-01
+TRAIN_END := 2025-06-01
+TEST_END := 2025-07-01
 
-.PHONY: help install etl etl-refresh train-vanilla train-handcrafted train-gnn compare-all hpo hpo-quick mlflow clean
+.PHONY: help install etl train-vanilla train-gnn compare-all hpo hpo-quick expanding-vanilla expanding-gnn mlflow clean
 
 help:
 	@echo "Available commands:"
 	@echo ""
-	@echo "  Data Extraction:"
-	@echo "    make etl                   - Extract data from DB (resumable)"
-	@echo "    make etl-refresh           - Force re-extract all data"
+	@echo "  Data Pipeline:"
+	@echo "    make etl                   - Run ETL pipeline (CSV → Parquet)"
 	@echo ""
-	@echo "  Training (single model):"
+	@echo "  Training (single split):"
 	@echo "    make train-vanilla         - Train Baseline XGBoost"
-	@echo "    make train-handcrafted     - Train XGBoost + Handcrafted Graph Features"
 	@echo "    make train-gnn             - Train XGBoost + GraphSAGE Embeddings"
 	@echo ""
+	@echo "  Expanding Window (concept drift / RQ3):"
+	@echo "    make expanding-vanilla     - Expanding window with Vanilla XGBoost"
+	@echo "    make expanding-gnn         - Expanding window with GNN+XGBoost"
+	@echo ""
 	@echo "  Comparison (all variants on same test set):"
-	@echo "    make compare-all           - Train all 3 variants for A/B comparison"
+	@echo "    make compare-all           - Train both variants for A/B comparison"
 	@echo ""
 	@echo "  Hyperparameter Optimization:"
 	@echo "    make hpo                   - Run XGBoost HPO (50 trials)"
@@ -34,8 +37,7 @@ help:
 	@echo "    make clean                 - Remove artifacts"
 	@echo ""
 	@echo "  Custom dates:"
-	@echo "    make etl ETL_START=2024-01-01 ETL_END=2024-06-01"
-	@echo "    make train-vanilla TRAIN_END=2024-03-01 TEST_END=2024-06-01"
+	@echo "    make train-vanilla TRAIN_START=2024-12-01 TRAIN_END=2025-03-01 TEST_END=2025-04-01"
 
 install:
 	pip install -r requirements.txt
@@ -46,22 +48,16 @@ train-vanilla:
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="Exp_Vanilla_XGBoost" \
 		model.variant="vanilla_xgboost" \
-		data.train_end_date=$(TRAIN_END) \
-		data.test_end_date=$(TEST_END)
-
-train-handcrafted:
-	$(PYTHON) -m $(TRAINER) \
-		experiment.name="Exp_Handcrafted_XGBoost" \
-		model.variant="handcrafted_xgboost" \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
 train-gnn:
 	$(PYTHON) -m $(TRAINER) \
-		experiment.name="Exp_Hybrid_GraphSAGE" \
-		model.variant="graphsage_xgboost" \
-		model.gnn.epochs=100 \
-		model.gnn.device="mps" \
+		experiment.name="Exp_GNN_XGBoost" \
+		model.variant="gnn_xgboost" \
+		model.gnn.epochs=50 \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
@@ -69,27 +65,22 @@ train-gnn:
 
 compare-all:
 	@echo "=== Training all variants for A/B comparison ==="
-	@echo "Train end: $(TRAIN_END), Test end: $(TEST_END)"
+	@echo "Train: $(TRAIN_START) → $(TRAIN_END), Test end: $(TEST_END)"
 	@echo ""
 	@echo "--- Vanilla XGBoost ---"
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="AB_Comparison" \
 		model.variant="vanilla_xgboost" \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 	@echo ""
-	@echo "--- Handcrafted XGBoost ---"
+	@echo "--- GNN + XGBoost ---"
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="AB_Comparison" \
-		model.variant="handcrafted_xgboost" \
-		data.train_end_date=$(TRAIN_END) \
-		data.test_end_date=$(TEST_END)
-	@echo ""
-	@echo "--- GraphSAGE + XGBoost ---"
-	$(PYTHON) -m $(TRAINER) \
-		experiment.name="AB_Comparison" \
-		model.variant="graphsage_xgboost" \
-		model.gnn.epochs=100 \
+		model.variant="gnn_xgboost" \
+		model.gnn.epochs=50 \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 	@echo ""
@@ -101,6 +92,7 @@ hpo:
 	$(PYTHON) -m $(TRAINER) \
 		--config-name=hpo_xgboost \
 		experiment.name="HPO_XGBoost" \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
@@ -108,6 +100,7 @@ hpo-quick:
 	$(PYTHON) -m $(TRAINER) \
 		--config-name=hpo_xgboost \
 		hydra.sweeper.n_trials=10 \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
@@ -116,54 +109,74 @@ hpo-custom:
 	$(PYTHON) -m $(TRAINER) \
 		--config-name=hpo_xgboost \
 		hydra.sweeper.n_trials=$(TRIALS) \
+		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
+# --- Expanding Window (Concept Drift / RQ3) ---
+
+# Default: 30-day windows, end at TEST_END
+WINDOW_DAYS := 30
+
+expanding-vanilla:
+	@echo "=== Expanding Window Training: Vanilla XGBoost ==="
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Expanding_Window" \
+		model.variant="vanilla_xgboost" \
+		training.mode="expanding" \
+		data.train_start_date=$(TRAIN_START) \
+		data.test_end_date=$(TEST_END) \
+		expanding_window.window_days=$(WINDOW_DAYS) \
+		expanding_window.min_train_windows=2
+
+expanding-gnn:
+	@echo "=== Expanding Window Training: GNN + XGBoost ==="
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Expanding_Window" \
+		model.variant="gnn_xgboost" \
+		model.gnn.epochs=50 \
+		training.mode="expanding" \
+		data.train_start_date=$(TRAIN_START) \
+		data.test_end_date=$(TEST_END) \
+		expanding_window.window_days=$(WINDOW_DAYS) \
+		expanding_window.min_train_windows=2
+
 # --- Temporal Robustness Check ---
-# Run same model across different time periods to verify stability
 
 temporal-check:
 	@echo "=== Temporal Robustness Check ==="
 	@echo "Training vanilla_xgboost across 3 time periods"
 	@echo ""
-	@echo "--- Period 1: Early (train→2024-03-01, test→2024-06-01) ---"
+	@echo "--- Period 1: Early (2024-12 → 2025-03, test → 2025-04) ---"
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="Temporal_Check" \
 		model.variant="vanilla_xgboost" \
-		data.train_end_date="2024-03-01" \
-		data.test_end_date="2024-06-01"
+		data.train_start_date="2024-12-01" \
+		data.train_end_date="2025-03-01" \
+		data.test_end_date="2025-04-01"
 	@echo ""
-	@echo "--- Period 2: Mid (train→2024-06-01, test→2024-09-01) ---"
+	@echo "--- Period 2: Mid (2024-12 → 2025-06, test → 2025-07) ---"
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="Temporal_Check" \
 		model.variant="vanilla_xgboost" \
-		data.train_end_date="2024-06-01" \
-		data.test_end_date="2024-09-01"
+		data.train_start_date="2024-12-01" \
+		data.train_end_date="2025-06-01" \
+		data.test_end_date="2025-07-01"
 	@echo ""
-	@echo "--- Period 3: Recent (train→2024-09-01, test→2024-12-01) ---"
+	@echo "--- Period 3: Recent (2024-12 → 2025-09, test → 2025-10) ---"
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="Temporal_Check" \
 		model.variant="vanilla_xgboost" \
-		data.train_end_date="2024-09-01" \
-		data.test_end_date="2024-12-01"
+		data.train_start_date="2024-12-01" \
+		data.train_end_date="2025-09-01" \
+		data.test_end_date="2025-10-01"
 	@echo ""
 	@echo "=== Temporal check complete! Compare AUC-PR across periods ==="
 
-# --- Data Extraction (ETL) ---
-
-ETL_START := 2023-01-01
-ETL_END := 2024-12-01
+# --- Data Pipeline (ETL) ---
 
 etl:
-	$(PYTHON) -m src.data.etl \
-		data.extract.start_date=$(ETL_START) \
-		data.extract.end_date=$(ETL_END)
-
-etl-refresh:
-	$(PYTHON) -m src.data.etl \
-		data.extract.start_date=$(ETL_START) \
-		data.extract.end_date=$(ETL_END) \
-		data.extract.force_refresh=true
+	$(PYTHON) -m src.data.etl
 
 # --- Utilities ---
 

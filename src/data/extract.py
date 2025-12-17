@@ -1,10 +1,9 @@
 """
 Data extraction module for SEON + Snowflake events pipeline.
-Loads data from CSV files with memory-efficient batch processing.
 """
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 
 import polars as pl
 from omegaconf import DictConfig
@@ -12,88 +11,77 @@ from omegaconf import DictConfig
 logger = logging.getLogger(__name__)
 
 
-def load_events_batched(
+def scan_events_lazy(
     path: str,
-    batch_size: int = 500_000,
+    id_source_col: str = "OBJECTREFERENCE",
     id_pattern: str = r"#(.+?)##",
-) -> pl.DataFrame:
+    time_col: str = "DATAPIPELINE_EVENT_SENT_AT",
+    status_col: str = "STATUS",
+) -> pl.LazyFrame:
     """
-    Load events CSV in batches for memory efficiency.
-    
+    Create a LazyFrame for streaming events processing.
+
     Args:
         path: Path to events CSV file
-        batch_size: Number of rows per batch
-        id_pattern: Regex pattern to extract INSERTION_ID from OBJECTREFERENCE
-        
+        id_source_col: Column containing INSERTION_ID (to be extracted via regex)
+        id_pattern: Regex pattern to extract INSERTION_ID
+        time_col: Timestamp column name
+        status_col: Status column name
+
     Returns:
-        DataFrame with all events and extracted INSERTION_ID
+        LazyFrame for streaming processing
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Events file not found: {path}")
-    
-    logger.info(f"Loading events from {path} (batch_size={batch_size:,})...")
-    
-    reader = pl.read_csv_batched(
-        path,
-        separator=",",
-        batch_size=batch_size,
-        ignore_errors=True,
-        infer_schema_length=10000,
+
+    logger.info(f"Scanning events from {path}...")
+
+    events_lf = (
+        pl.scan_csv(
+            path,
+            separator=",",
+            ignore_errors=True,
+            infer_schema_length=10000,
+        )
+        .with_columns([
+            pl.col(id_source_col).str.extract(id_pattern, 1).alias("INSERTION_ID"),
+            pl.col(time_col)
+            .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f %z", strict=False)
+            .alias("event_dt"),
+        ])
+        .filter(
+            pl.col("INSERTION_ID").is_not_null()
+            & pl.col("event_dt").is_not_null()
+            & pl.col(status_col).is_not_null()
+        )
     )
-    
-    dfs = []
-    batch_idx = 0
-    total_rows = 0
-    
-    while True:
-        batches = reader.next_batches(1)
-        if batches is None or len(batches) == 0:
-            break
-        
-        batch = batches[0]
-        
-        # Extract INSERTION_ID from OBJECTREFERENCE
-        if "OBJECTREFERENCE" in batch.columns:
-            batch = batch.with_columns(
-                pl.col("OBJECTREFERENCE")
-                .str.extract(id_pattern, 1)
-                .alias("INSERTION_ID")
-            )
-        
-        dfs.append(batch)
-        total_rows += len(batch)
-        batch_idx += 1
-        
-        if batch_idx % 10 == 0:
-            logger.info(f"  Processed {batch_idx} batches ({total_rows:,} rows)...")
-    
-    if not dfs:
-        raise ValueError("No data found in events file")
-    
-    logger.info(f"  Concatenating {len(dfs)} batches...")
-    events_df = pl.concat(dfs)
-    
-    logger.info(f"  Loaded {len(events_df):,} events")
-    return events_df
+
+    return events_lf
 
 
-def load_seon(path: str) -> pl.DataFrame:
+def load_seon(
+    path: str,
+    id_col: str = "transaction_id",
+    time_col: str = "date",
+) -> pl.DataFrame:
     """
     Load SEON transactions CSV.
-    
+
     Args:
         path: Path to SEON CSV file
-        
+        id_col: Column containing INSERTION_ID equivalent
+        time_col: Timestamp column name
+
     Returns:
-        DataFrame with SEON transactions
+        DataFrame with SEON transactions prepared for joining
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"SEON file not found: {path}")
-    
+
     logger.info(f"Loading SEON transactions from {path}...")
-    
+
     seon_df = pl.read_csv(
         path,
         separator=";",
@@ -101,62 +89,53 @@ def load_seon(path: str) -> pl.DataFrame:
         truncate_ragged_lines=True,
         infer_schema_length=10000,
     )
-    
+
+    seon_df = (
+        seon_df
+        .rename({id_col: "INSERTION_ID"})
+        .with_columns([
+            pl.col("INSERTION_ID").cast(pl.Utf8),
+            pl.col(time_col)
+            .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.f%z", strict=False)
+            .alias("seon_dt"),
+        ])
+        .filter(pl.col("INSERTION_ID").is_not_null() & pl.col("seon_dt").is_not_null())
+        .sort(["INSERTION_ID", "seon_dt"])
+    )
+
     logger.info(f"  Loaded {len(seon_df):,} SEON transactions")
-    logger.info(f"  Unique insertion IDs: {seon_df.select('transaction_id').n_unique():,}")
-    
+    logger.info(f"  Unique insertion IDs: {seon_df.select('INSERTION_ID').n_unique():,}")
+
     return seon_df
 
 
-def extract_data(cfg: DictConfig) -> Tuple[pl.DataFrame, pl.DataFrame]:
+def extract_data(cfg: DictConfig) -> Tuple[pl.LazyFrame, pl.DataFrame]:
     """
-    Main extraction function - loads both events and SEON data.
-    
+    Main extraction function.
+
     Args:
         cfg: Hydra config with data.sources paths
-        
+
     Returns:
-        Tuple of (events_df, seon_df)
+        Tuple of (events_lazy, seon_df)
     """
-    # Load events
-    events_df = load_events_batched(
-        path=cfg.sources.events_csv,
-        batch_size=cfg.processing.batch_size,
-        id_pattern=cfg.columns.events.id_pattern,
+    import hydra.utils
+
+    events_path = hydra.utils.to_absolute_path(cfg.sources.events_csv)
+    seon_path = hydra.utils.to_absolute_path(cfg.sources.seon_csv)
+
+    seon_df = load_seon(
+        path=seon_path,
+        id_col=cfg.columns.seon.id_col,
+        time_col=cfg.columns.seon.time_col,
     )
-    
-    # Load SEON
-    seon_df = load_seon(path=cfg.sources.seon_csv)
-    
-    # Log correlation stats
-    event_ids = set(events_df.select("INSERTION_ID").drop_nulls().unique().to_series().to_list())
-    seon_ids = set(seon_df.select("transaction_id").drop_nulls().unique().to_series().to_list())
-    
-    common_ids = event_ids & seon_ids
-    events_only = event_ids - seon_ids
-    seon_only = seon_ids - event_ids
-    
-    logger.info("Correlation stats:")
-    logger.info(f"  Events with SEON match: {len(common_ids):,}")
-    logger.info(f"  Events without SEON: {len(events_only):,}")
-    logger.info(f"  SEON without events: {len(seon_only):,}")
-    
-    return events_df, seon_df
 
+    events_lf = scan_events_lazy(
+        path=events_path,
+        id_source_col=cfg.columns.events.id_source,
+        id_pattern=cfg.columns.events.id_pattern,
+        time_col=cfg.columns.events.time_col,
+        status_col=cfg.columns.events.status_col,
+    )
 
-def get_seon_feature_columns(cfg: DictConfig) -> list:
-    """
-    Get list of SEON columns to use as features.
-    
-    Args:
-        cfg: Hydra config with seon_feature_groups
-        
-    Returns:
-        List of column names
-    """
-    feature_cols = []
-    
-    for group_name, columns in cfg.seon_feature_groups.items():
-        feature_cols.extend(columns)
-    
-    return feature_cols
+    return events_lf, seon_df
