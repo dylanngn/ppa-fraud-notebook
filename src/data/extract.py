@@ -20,30 +20,30 @@ def scan_events_lazy(
 ) -> pl.LazyFrame:
     """
     Create a LazyFrame for streaming events processing.
-
+    
     Args:
         path: Path to events CSV file
         id_source_col: Column containing INSERTION_ID (to be extracted via regex)
         id_pattern: Regex pattern to extract INSERTION_ID
         time_col: Timestamp column name
         status_col: Status column name
-
+        
     Returns:
         LazyFrame for streaming processing
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Events file not found: {path}")
-
+    
     logger.info(f"Scanning events from {path}...")
-
+    
     events_lf = (
         pl.scan_csv(
-            path,
-            separator=",",
-            ignore_errors=True,
-            infer_schema_length=10000,
-        )
+        path,
+        separator=",",
+        ignore_errors=True,
+        infer_schema_length=10000,
+    )
         .with_columns([
             pl.col(id_source_col).str.extract(id_pattern, 1).alias("INSERTION_ID"),
             pl.col(time_col)
@@ -67,21 +67,21 @@ def load_seon(
 ) -> pl.DataFrame:
     """
     Load SEON transactions CSV.
-
+    
     Args:
         path: Path to SEON CSV file
         id_col: Column containing INSERTION_ID equivalent
         time_col: Timestamp column name
-
+        
     Returns:
         DataFrame with SEON transactions prepared for joining
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"SEON file not found: {path}")
-
+    
     logger.info(f"Loading SEON transactions from {path}...")
-
+    
     seon_df = pl.read_csv(
         path,
         separator=";",
@@ -102,20 +102,20 @@ def load_seon(
         .filter(pl.col("INSERTION_ID").is_not_null() & pl.col("seon_dt").is_not_null())
         .sort(["INSERTION_ID", "seon_dt"])
     )
-
+    
     logger.info(f"  Loaded {len(seon_df):,} SEON transactions")
     logger.info(f"  Unique insertion IDs: {seon_df.select('INSERTION_ID').n_unique():,}")
-
+    
     return seon_df
 
 
 def extract_data(cfg: DictConfig) -> Tuple[pl.LazyFrame, pl.DataFrame]:
     """
     Main extraction function.
-
+    
     Args:
         cfg: Hydra config with data.sources paths
-
+        
     Returns:
         Tuple of (events_lazy, seon_df)
     """
@@ -137,5 +137,5 @@ def extract_data(cfg: DictConfig) -> Tuple[pl.LazyFrame, pl.DataFrame]:
         time_col=cfg.columns.events.time_col,
         status_col=cfg.columns.events.status_col,
     )
-
+    
     return events_lf, seon_df

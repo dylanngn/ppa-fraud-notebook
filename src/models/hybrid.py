@@ -83,9 +83,13 @@ class HybridPipeline(HybridFraudDetector):
                 raise ValueError(
                     "GNN variant requires graph_builder, embedder, and classifier"
                 )
-        elif self.variant == ModelVariant.VANILLA_XGBOOST:
+        elif self.variant in (
+            ModelVariant.VANILLA_XGBOOST,
+            ModelVariant.LOGISTIC_REGRESSION,
+            ModelVariant.RANDOM_FOREST,
+        ):
             if not self.classifier:
-                raise ValueError("Vanilla variant requires classifier")
+                raise ValueError(f"{self.variant.value} requires classifier")
     
     def fit(
         self,
@@ -138,42 +142,57 @@ class HybridPipeline(HybridFraudDetector):
         train_df: pl.DataFrame,
         graph: HeteroData,
     ) -> np.ndarray:
-        """Fit GNN embedder and get embeddings for training nodes."""
-        # Get node features for listings
-        listing_features = self._get_listing_features(train_df)
+        """
+        Fit GNN embedder and get embeddings for training nodes.
+        
+        Uses the node features pre-computed by graph_builder (graph["listing"].x)
+        and maps embeddings back to DataFrame rows.
+        """
+        # Use node features from graph (already built by graph_builder)
+        listing_features = graph["listing"].x
         
         # Fit GNN embedder
         self.embedder.fit(graph, listing_features, train_mask=None)
         
-        # Get embeddings
-        embeddings = self.embedder.transform(graph, listing_features)
+        # Get embeddings for all nodes
+        node_embeddings = self.embedder.transform(graph, listing_features)
         
-        return embeddings
+        # Map node embeddings back to DataFrame rows using graph's stored mappings
+        return self._map_embeddings_to_rows(train_df, graph, node_embeddings)
     
-    def _get_listing_features(self, df: pl.DataFrame) -> torch.Tensor:
-        """Extract listing features as tensor for GNN."""
-        gnn_cols = FEATURE_SCHEMA.get_gnn_input_features()
-        available_cols = [c for c in gnn_cols if c in df.columns]
+    def _map_embeddings_to_rows(
+        self,
+        df: pl.DataFrame,
+        graph: HeteroData,
+        node_embeddings: np.ndarray,
+    ) -> np.ndarray:
+        """Map graph node embeddings back to DataFrame rows."""
+        listing_id_col = FEATURE_SCHEMA.temporal_config.insertion_id_column
         
-        if not available_cols:
-            logger.warning("No GNN input features found, using zeros")
-            return torch.zeros((len(df), 1), dtype=torch.float32)
+        # Use node mappings stored in graph (set by graph_builder.build_graph)
+        node_mapping = getattr(graph, 'node_mappings', {}).get("listing", {})
         
-        x_np = df.select(available_cols).to_numpy()
-        x_tensor = torch.tensor(x_np, dtype=torch.float32)
+        if not node_mapping:
+            logger.warning("No node mapping found in graph, using zeros")
+            return np.zeros((len(df), node_embeddings.shape[1]), dtype=np.float32)
         
-        # Handle NaN with column medians
-        if torch.isnan(x_tensor).any():
-            for j in range(x_tensor.size(1)):
-                col = x_tensor[:, j]
-                mask = torch.isnan(col)
-                if mask.any():
-                    median = torch.nanmedian(col)
-                    if torch.isnan(median):
-                        median = torch.tensor(0.0)
-                    x_tensor[mask, j] = median
+        listing_ids = df[listing_id_col].to_list()
+        row_embeddings = []
         
-        return x_tensor
+        default_embedding = np.zeros(node_embeddings.shape[1], dtype=np.float32)
+        
+        for lid in listing_ids:
+            if lid in node_mapping:
+                node_idx = node_mapping[lid]
+                if node_idx < len(node_embeddings):
+                    row_embeddings.append(node_embeddings[node_idx])
+                else:
+                    row_embeddings.append(default_embedding)
+            else:
+                # Listing not in graph (new listing in test), use zeros
+                row_embeddings.append(default_embedding)
+        
+        return np.array(row_embeddings, dtype=np.float32)
     
     def _prepare_base_features(
         self,
@@ -239,8 +258,42 @@ class HybridPipeline(HybridFraudDetector):
         else:
             X = X_base
         
+        # Store for potential SHAP analysis
+        self._last_prediction_features = X
+        
         # Predict
         return self.classifier.predict_proba(X)
+    
+    def get_prediction_features(
+        self,
+        df: pl.DataFrame,
+        graph: Optional[HeteroData] = None,
+    ) -> pd.DataFrame:
+        """
+        Get the feature DataFrame used for prediction (for SHAP analysis).
+        
+        Args:
+            df: Data to prepare
+            graph: Inference graph (for GNN variant)
+            
+        Returns:
+            Prepared feature DataFrame matching classifier input
+        """
+        # Prepare base features
+        X_base = self._prepare_base_features_for_prediction(df)
+        
+        # Get GNN embeddings if using GNN variant
+        if self.variant == ModelVariant.GNN_XGBOOST:
+            if graph is None:
+                raise ValueError("Graph required for GNN prediction")
+            
+            embeddings = self._predict_gnn(df, graph)
+            emb_df = self._embeddings_to_dataframe(embeddings, X_base.index)
+            X = pd.concat([X_base, emb_df], axis=1)
+        else:
+            X = X_base
+        
+        return X
     
     def _prepare_base_features_for_prediction(
         self,
@@ -274,9 +327,18 @@ class HybridPipeline(HybridFraudDetector):
         df: pl.DataFrame,
         graph: HeteroData,
     ) -> np.ndarray:
-        """Get GNN embeddings for prediction (model is frozen)."""
-        listing_features = self._get_listing_features(df)
-        return self.embedder.transform(graph, listing_features)
+        """
+        Get GNN embeddings for prediction (model is frozen).
+        
+        Maps graph node embeddings back to DataFrame rows.
+        Each row gets the embedding of its corresponding listing node.
+        """
+        # Get embeddings for all nodes in the graph
+        # graph["listing"].x already has features from graph_builder
+        node_embeddings = self.embedder.transform(graph, graph["listing"].x)
+        
+        # Map node embeddings back to DataFrame rows using graph's stored mappings
+        return self._map_embeddings_to_rows(df, graph, node_embeddings)
     
     def get_feature_importance(self) -> Optional[pd.DataFrame]:
         """Get feature importance from the classifier."""

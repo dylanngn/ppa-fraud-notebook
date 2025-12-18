@@ -36,7 +36,7 @@ class HeteroGraphConfig:
         },
         "ip": {
             "id_columns": ["ip_hash"],
-            "feature_columns": ["ip_type", "ip_country", "ip_isp_name",
+            "feature_columns": ["ip_type", "ip_country", "ip_isp_name", 
                                "data_center_proxy", "residential_proxy", "public_proxy"],
         },
     })
@@ -83,6 +83,10 @@ class HeterogeneousGraphBuilder:
             self._add_reverse_edges(data)
         
         data.cutoff_date = cutoff_date.isoformat()
+        
+        # Store node mappings in graph for later use in predictions
+        data.node_mappings = dict(self._node_mappings)
+        
         self._log_graph_summary(data)
         
         return data
@@ -114,7 +118,7 @@ class HeterogeneousGraphBuilder:
                                 occurrence_counts[val] += 1
                 
                 entity_ids = {
-                    eid for eid in entity_ids
+                    eid for eid in entity_ids 
                     if occurrence_counts[eid] >= self.config.min_entity_occurrences
                 }
             
@@ -254,7 +258,7 @@ class HeterogeneousGraphBuilder:
             return "shares_phone"
         elif "user" in col_lower:
             return "shares_user"
-        return f"shares_{identity_col.replace('/', '_')}"
+            return f"shares_{identity_col.replace('/', '_')}"
     
     def _add_reverse_edges(self, data: HeteroData):
         """Add reverse edges for bidirectional message passing."""

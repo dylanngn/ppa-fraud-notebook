@@ -18,11 +18,34 @@ data:
   test_end_date: "2025-07-01"     # Test on data from train_end + gap to this date
 
 training:
+  mode: "single"  # "single" or "expanding"
   gap_days: 7  # Gap between train and test to prevent leakage
+  run_shap: false  # Set to true to run SHAP analysis after training
+
+# Expanding window configuration (for mode="expanding")
+expanding_window:
+  window_days: 30  # Length of each test window
+  min_train_windows: 2  # Minimum training windows before first evaluation
 
 model:
-  variant: "vanilla_xgboost"  # vanilla_xgboost or gnn_xgboost
+  # Variants: logistic_regression, random_forest, vanilla_xgboost, gnn_xgboost
+  variant: "vanilla_xgboost"
   
+  # Logistic Regression baseline
+  logistic_regression:
+    C: 1.0
+    max_iter: 1000
+    class_weight: "balanced"
+  
+  # Random Forest baseline
+  random_forest:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 5
+    min_samples_leaf: 2
+    class_weight: "balanced"
+  
+  # XGBoost (main model)
   xgboost:
     n_estimators: 100
     max_depth: 3
@@ -35,6 +58,7 @@ model:
     reg_lambda: 1.0
     scale_pos_weight: 1.0
     
+  # GNN embedder
   gnn:
     device: "cpu"
     hidden_dim: 32

@@ -111,7 +111,7 @@ class FeatureStore:
         bool_cols = list(FEATURE_SCHEMA.all_seon_boolean)
         
         cast_exprs = [
-            pl.col(col).cast(pl.Int8, strict=False).alias(col)
+                    pl.col(col).cast(pl.Int8, strict=False).alias(col)
             for col in bool_cols if col in available
         ]
         

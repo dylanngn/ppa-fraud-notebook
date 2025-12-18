@@ -207,7 +207,7 @@ class TemporalSplitter:
                 .cast(pl.Int8)
                 .alias(cfg.label_column)
             )
-        
+            
         # Clean up temp column
         df = df.drop("_fraud_timestamp")
         

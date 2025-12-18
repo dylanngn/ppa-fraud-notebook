@@ -11,6 +11,8 @@ from enum import Enum
 
 class ModelVariant(Enum):
     """Model variants for hybrid pipeline."""
+    LOGISTIC_REGRESSION = "logistic_regression"
+    RANDOM_FOREST = "random_forest"
     VANILLA_XGBOOST = "vanilla_xgboost"
     GNN_XGBOOST = "gnn_xgboost"
 

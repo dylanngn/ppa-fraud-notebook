@@ -19,7 +19,7 @@ def correlate_events_to_seon(
 ) -> Tuple[pl.DataFrame, Dict[str, int]]:
     """
     Correlate each event to the closest SEON transaction by timestamp.
-
+    
     Strategy: Find the closest SEON transaction AFTER the event.
     If none exists, fall back to the closest SEON BEFORE the event.
 
@@ -46,9 +46,9 @@ def correlate_events_to_seon(
         .select(["INSERTION_ID", "seon_dt", seon_unique_col])
         .sort(["INSERTION_ID", "seon_dt"])
     )
-
+    
     events_sorted = events_df.sort(["INSERTION_ID", "event_dt"])
-
+    
     # Forward: closest SEON after the event
     fwd_cols = (
         events_sorted
@@ -64,7 +64,7 @@ def correlate_events_to_seon(
             pl.col(seon_unique_col).alias(f"{seon_unique_col}_fwd"),
         ])
     )
-
+    
     # Backward: closest SEON before the event
     bwd_cols = (
         events_sorted
@@ -77,31 +77,31 @@ def correlate_events_to_seon(
         )
         .select([pl.col(seon_unique_col).alias(f"{seon_unique_col}_bwd")])
     )
-
+    
     # Combine and pick forward if available, else backward
     combined = pl.concat([fwd_cols, bwd_cols], how="horizontal")
     result = combined.with_columns(
-        pl.when(pl.col(f"{seon_unique_col}_fwd").is_not_null())
-        .then(pl.col(f"{seon_unique_col}_fwd"))
-        .otherwise(pl.col(f"{seon_unique_col}_bwd"))
+            pl.when(pl.col(f"{seon_unique_col}_fwd").is_not_null())
+            .then(pl.col(f"{seon_unique_col}_fwd"))
+            .otherwise(pl.col(f"{seon_unique_col}_bwd"))
         .alias(seon_unique_col)
     ).drop([f"{seon_unique_col}_fwd", f"{seon_unique_col}_bwd"])
 
     matched = result.filter(pl.col(seon_unique_col).is_not_null())
-
+    
     stats = {
         "total_events": total_events,
         "matched_events": len(matched),
         "unmatched_events": total_events - len(matched),
     }
-
+    
     if stats["unmatched_events"] > 0:
         logger.warning(
             "Events without SEON match: %s (%.2f%%)",
             f"{stats['unmatched_events']:,}",
             stats['unmatched_events'] / total_events * 100,
         )
-
+    
     logger.info("  Correlated: %s → %s rows", f"{total_events:,}", f"{len(matched):,}")
     return matched, stats
 
@@ -123,14 +123,14 @@ def merge_seon_features(
         Merged DataFrame with all columns from both sources
     """
     logger.info("Merging SEON features...")
-
+    
     merged = events_df.join(
         seon_df,
         on=seon_unique_col,
         how="inner",
         suffix="_seon",
     )
-
+    
     logger.info("  Merged: %s columns", f"{len(merged.columns):,}")
     return merged
 
@@ -144,15 +144,15 @@ def derive_label(
     Derive binary fraud label from fraud flag column.
     """
     logger.info("Deriving fraud label...")
-
+    
     df = df.with_columns(
         pl.col(fraud_col).is_not_null().cast(pl.Int8).alias(label_col)
     )
-
+    
     fraud_count = df.filter(pl.col(label_col) == 1).height
     total_count = len(df)
     logger.info(f"  Fraud: {fraud_count:,} / {total_count:,} ({fraud_count/total_count*100:.2f}%)")
-
+    
     return df
 
 
@@ -162,19 +162,19 @@ def drop_all_null_columns(df: pl.DataFrame) -> Tuple[pl.DataFrame, Dict[str, Opt
     """
     if df.is_empty():
         return df, {"dropped": [], "savings_mb": None}
-
-    before_bytes = df.estimated_size()
+    
+        before_bytes = df.estimated_size()
     null_counts = df.null_count()
     row_counts = null_counts.row(0)
     empty_cols = [col for col, count in zip(null_counts.columns, row_counts) if count == len(df)]
-
+    
     if not empty_cols:
         return df, {"dropped": [], "savings_mb": 0.0}
-
+    
     pruned = df.drop(empty_cols)
-    after_bytes = pruned.estimated_size()
-    savings_mb = (before_bytes - after_bytes) / (1024 * 1024)
-
+        after_bytes = pruned.estimated_size()
+        savings_mb = (before_bytes - after_bytes) / (1024 * 1024)
+    
     return pruned, {"dropped": empty_cols, "savings_mb": savings_mb}
 
 
@@ -186,7 +186,7 @@ def transform_data(
 ) -> pl.DataFrame:
     """
     Main transformation pipeline.
-
+    
     Steps:
     1. Collect events from LazyFrame
     2. Filter to events with matching SEON IDs
@@ -225,7 +225,7 @@ def transform_data(
     seon_ids = seon_df.select("INSERTION_ID").unique()
     events_df = events_df.join(seon_ids, on="INSERTION_ID", how="semi")
     logger.info("  After SEON filter: %s events", f"{len(events_df):,}")
-
+    
     if events_df.is_empty():
         logger.warning("No events match SEON IDs.")
         return events_df
@@ -234,16 +234,16 @@ def transform_data(
     events_df, stats = correlate_events_to_seon(events_df, seon_df, seon_unique_col)
     if stats["matched_events"] == 0:
         return events_df
-
+    
     # Merge SEON features
     events_df = merge_seon_features(events_df, seon_df, seon_unique_col)
-
+    
     # Derive label
     events_df = derive_label(events_df, fraud_col=cfg.columns.events.fraud_flag_col)
-
+    
     # Anonymize
     events_df = anonymize_merged_data(events_df)
-
+    
     # Drop null columns
     events_df, drop_info = drop_all_null_columns(events_df)
     if drop_info["dropped"]:
@@ -253,6 +253,6 @@ def transform_data(
     for col in ["event_dt", "seon_dt"]:
         if col in events_df.columns:
             events_df = events_df.drop(col)
-
+    
     logger.info("Transform complete: %s rows, %s columns", f"{len(events_df):,}", f"{len(events_df.columns):,}")
     return events_df

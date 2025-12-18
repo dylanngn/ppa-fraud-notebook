@@ -9,7 +9,7 @@ TRAIN_START := 2024-12-01
 TRAIN_END := 2025-06-01
 TEST_END := 2025-07-01
 
-.PHONY: help install etl train-vanilla train-gnn compare-all hpo hpo-quick expanding-vanilla expanding-gnn mlflow clean
+.PHONY: help install etl train-lr train-rf train-vanilla train-gnn train-vanilla-shap train-gnn-shap compare-all hpo hpo-quick hpo-high-recall hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb expanding-vanilla expanding-gnn api api-dev mlflow clean
 
 help:
 	@echo "Available commands:"
@@ -18,19 +18,31 @@ help:
 	@echo "    make etl                   - Run ETL pipeline (CSV → Parquet)"
 	@echo ""
 	@echo "  Training (single split):"
-	@echo "    make train-vanilla         - Train Baseline XGBoost"
+	@echo "    make train-lr              - Train Logistic Regression (baseline)"
+	@echo "    make train-rf              - Train Random Forest (baseline)"
+	@echo "    make train-vanilla         - Train Vanilla XGBoost"
 	@echo "    make train-gnn             - Train XGBoost + GraphSAGE Embeddings"
+	@echo "    make train-vanilla-shap    - Train Vanilla XGBoost + SHAP analysis"
+	@echo "    make train-gnn-shap        - Train GNN+XGBoost + SHAP analysis"
 	@echo ""
 	@echo "  Expanding Window (concept drift / RQ3):"
 	@echo "    make expanding-vanilla     - Expanding window with Vanilla XGBoost"
 	@echo "    make expanding-gnn         - Expanding window with GNN+XGBoost"
 	@echo ""
 	@echo "  Comparison (all variants on same test set):"
-	@echo "    make compare-all           - Train both variants for A/B comparison"
+	@echo "    make compare-all           - Train all 4 variants (LR, RF, XGB, GNN+XGB)"
 	@echo ""
 	@echo "  Hyperparameter Optimization:"
 	@echo "    make hpo                   - Run XGBoost HPO (50 trials)"
 	@echo "    make hpo-quick             - Run XGBoost HPO quick test (10 trials)"
+	@echo "    make hpo-high-recall       - HPO optimized for high recall"
+	@echo "    make hpo-gnn               - GNN+XGBoost joint HPO (30 trials, slower)"
+	@echo "    make hpo-gnn-quick         - GNN+XGBoost HPO quick test (10 trials)"
+	@echo "    make hpo-gnn-with-best-xgb - GNN HPO using best XGBoost params (recommended)"
+	@echo ""
+	@echo "  API Service:"
+	@echo "    make api                   - Start Fraud Detection API (port 8000)"
+	@echo "    make api-dev               - Start API with hot reload"
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    make mlflow                - Start MLflow UI"
@@ -43,6 +55,22 @@ install:
 	pip install -r requirements.txt
 
 # --- Training Commands (Single Model) ---
+
+train-lr:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_Baselines" \
+		model.variant="logistic_regression" \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+train-rf:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_Baselines" \
+		model.variant="random_forest" \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
 
 train-vanilla:
 	$(PYTHON) -m $(TRAINER) \
@@ -61,30 +89,74 @@ train-gnn:
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
+# --- Training with SHAP Analysis (RQ4) ---
+
+train-vanilla-shap:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_Vanilla_SHAP" \
+		model.variant="vanilla_xgboost" \
+		training.run_shap=true \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "SHAP analysis saved to artifacts/shap/"
+	@echo "Check MLflow for shap artifacts"
+
+train-gnn-shap:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_GNN_SHAP" \
+		model.variant="gnn_xgboost" \
+		model.gnn.epochs=30 \
+		training.run_shap=true \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "SHAP analysis saved to artifacts/shap/"
+	@echo "Check MLflow for shap artifacts"
+
 # --- A/B Comparison (all variants, same test set) ---
 
 compare-all:
-	@echo "=== Training all variants for A/B comparison ==="
+	@echo "=== Training all variants for comparison ==="
 	@echo "Train: $(TRAIN_START) → $(TRAIN_END), Test end: $(TEST_END)"
 	@echo ""
-	@echo "--- Vanilla XGBoost ---"
+	@echo "--- 1/4: Logistic Regression (baseline) ---"
 	$(PYTHON) -m $(TRAINER) \
-		experiment.name="AB_Comparison" \
+		experiment.name="Model_Comparison" \
+		model.variant="logistic_regression" \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "--- 2/4: Random Forest (baseline) ---"
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Model_Comparison" \
+		model.variant="random_forest" \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "--- 3/4: Vanilla XGBoost ---"
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Model_Comparison" \
 		model.variant="vanilla_xgboost" \
 		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 	@echo ""
-	@echo "--- GNN + XGBoost ---"
+	@echo "--- 4/4: GNN + XGBoost ---"
 	$(PYTHON) -m $(TRAINER) \
-		experiment.name="AB_Comparison" \
+		experiment.name="Model_Comparison" \
 		model.variant="gnn_xgboost" \
-		model.gnn.epochs=50 \
+		model.gnn.epochs=30 \
 		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 	@echo ""
 	@echo "=== Comparison complete! Check MLflow for results ==="
+	@echo "Run 'make mlflow' to view results"
 
 # --- Hyperparameter Optimization ---
 
@@ -112,6 +184,39 @@ hpo-custom:
 		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
+
+# HPO for high recall (aggressive fraud catching)
+hpo-high-recall:
+	$(PYTHON) -m $(TRAINER) \
+		--config-name=hpo_high_recall \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+# HPO for GNN + XGBoost (joint tuning)
+hpo-gnn:
+	$(PYTHON) -m $(TRAINER) \
+		--config-name=hpo_gnn_xgboost \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+# HPO for GNN + XGBoost (quick, fewer trials)
+hpo-gnn-quick:
+	$(PYTHON) -m $(TRAINER) \
+		--config-name=hpo_gnn_xgboost \
+		hydra.sweeper.n_trials=10 \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+# HPO for GNN only (uses best XGBoost params from previous HPO)
+hpo-gnn-with-best-xgb:
+	$(PYTHON) scripts/run_gnn_hpo_with_best_xgb.py \
+		--trials=20 \
+		--train-start=$(TRAIN_START) \
+		--train-end=$(TRAIN_END) \
+		--test-end=$(TEST_END)
 
 # --- Expanding Window (Concept Drift / RQ3) ---
 
@@ -178,6 +283,21 @@ temporal-check:
 etl:
 	$(PYTHON) -m src.data.etl
 
+# --- API Service ---
+
+api:
+	@echo "Starting Fraud Detection API..."
+	uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+api-dev:
+	@echo "Starting Fraud Detection API (dev mode with reload)..."
+	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+api-docs:
+	@echo "API documentation available at:"
+	@echo "  - Swagger UI: http://localhost:8000/docs"
+	@echo "  - ReDoc: http://localhost:8000/redoc"
+
 # --- Utilities ---
 
 mlflow:
@@ -187,4 +307,5 @@ clean:
 	rm -rf tmp/
 	rm -rf outputs/
 	rm -rf multirun/
+	rm -rf artifacts/api/
 	find . -type d -name "__pycache__" -exec rm -rf {} +

@@ -122,7 +122,19 @@ class GraphSAGEEmbedder(BaseEmbedder):
         graph["listing"].x = node_features
         graph = graph.to(self.device)
         
-        target_edge_type = graph.edge_types[0]
+        # Find listing-to-listing edges for link prediction
+        # These are the edges we use to learn embeddings (shared attributes between listings)
+        listing_edges = [
+            et for et in graph.edge_types 
+            if et[0] == "listing" and et[2] == "listing"
+        ]
+        
+        if not listing_edges:
+            logger.warning("No listing-to-listing edges found, using all edges")
+            target_edge_type = graph.edge_types[0]
+        else:
+            target_edge_type = listing_edges[0]
+        
         pos_edge_index = graph[target_edge_type].edge_index
         
         self.model.train()
@@ -130,7 +142,7 @@ class GraphSAGEEmbedder(BaseEmbedder):
             optimizer.zero_grad()
             z = self.model(graph.x_dict, graph.edge_index_dict)
             
-            # Link prediction loss
+            # Link prediction loss using listing-to-listing edges
             src, dst = pos_edge_index
             pos_score = (z[src] * z[dst]).sum(dim=-1)
             

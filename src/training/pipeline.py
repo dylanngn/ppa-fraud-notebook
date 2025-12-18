@@ -33,7 +33,9 @@ from src.features.temporal_split import (
 from src.models.hybrid import HybridPipeline
 from src.models.xgboost_classifier import XGBoostClassifier
 from src.models.graphsage import GraphSAGEEmbedder
+from src.models.baselines import LogisticRegressionClassifier, RandomForestBaseline
 from src.utils.metrics import calculate_metrics
+from src.evaluation.shap_analysis import SHAPAnalyzer, SHAPConfig
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +146,10 @@ class SingleTrainingPipeline:
         # 6. Predict
         _log("Generating predictions...")
         
-        if self.variant == ModelVariant.GNN_XGBOOST:
-            inference_df = df.filter(pl.col(time_col) <= self.test_end)
-            all_probs = pipeline.predict(inference_df, inference_graph)
-            test_start = self.train_end + timedelta(days=self.gap_days)
-            test_mask = (inference_df[time_col] > test_start) & (inference_df[time_col] <= self.test_end)
-            probs = all_probs[test_mask.to_numpy()]
-        else:
-            probs = pipeline.predict(test_df, None)
+        # For GNN: use inference_graph to get embeddings, but predict on test_df
+        # test_df has proper overlap handling from temporal split
+        # inference_graph has embeddings for all listings including test_df listings
+        probs = pipeline.predict(test_df, inference_graph)
         
         labels = test_df[FEATURE_SCHEMA.target].to_numpy()
         
@@ -175,42 +173,113 @@ class SingleTrainingPipeline:
             _log(f"Seon Baseline: {seon_metrics}")
             mlflow.log_metrics(seon_metrics)
         
+        # 8. SHAP Analysis (if enabled)
+        run_shap = self.cfg.get("training", {}).get("run_shap", False)
+        if run_shap:
+            self._run_shap_analysis(pipeline, test_df, labels, probs, inference_graph)
+        
         self._log_model(pipeline)
         
         return metrics
     
     def _build_pipeline(self) -> HybridPipeline:
         """Instantiate pipeline components based on variant."""
-        xgb_params = self.cfg["model"]["xgboost"]
-        classifier = XGBoostClassifier(**xgb_params)
-        
         graph_builder = None
         embedder = None
+        classifier = None
         
-        if self.variant == ModelVariant.GNN_XGBOOST:
-            # Build heterogeneous graph with multiple node/edge types
-            graph_config = HeteroGraphConfig(
-                primary_id_column=FEATURE_SCHEMA.temporal_config.insertion_id_column,
-                time_column=FEATURE_SCHEMA.time_column,
-                temporal_identity_columns=list(FEATURE_SCHEMA.graph_config.high_signal_columns),
-            )
-            graph_builder = HeterogeneousGraphBuilder(graph_config)
+        # Build classifier based on variant
+        if self.variant == ModelVariant.LOGISTIC_REGRESSION:
+            lr_params = self.cfg["model"].get("logistic_regression", {})
+            classifier = LogisticRegressionClassifier(**lr_params)
             
-            # GNN embedder for heterogeneous graph
-            gnn_params = self.cfg["model"].get("gnn", {})
-            embedder = GraphSAGEEmbedder(
-                in_channels=len(FEATURE_SCHEMA.get_gnn_input_features()),
-                hidden_channels=gnn_params.get("hidden_dim", FEATURE_SCHEMA.gnn_hidden_dim),
-                out_channels=gnn_params.get("output_dim", FEATURE_SCHEMA.gnn_embedding_dim),
-                num_layers=gnn_params.get("num_layers", FEATURE_SCHEMA.gnn_num_layers),
-            )
+        elif self.variant == ModelVariant.RANDOM_FOREST:
+            rf_params = self.cfg["model"].get("random_forest", {})
+            classifier = RandomForestBaseline(**rf_params)
             
+        elif self.variant in (ModelVariant.VANILLA_XGBOOST, ModelVariant.GNN_XGBOOST):
+            xgb_params = self.cfg["model"]["xgboost"]
+            classifier = XGBoostClassifier(**xgb_params)
+            
+            if self.variant == ModelVariant.GNN_XGBOOST:
+                # Build heterogeneous graph with multiple node/edge types
+                graph_config = HeteroGraphConfig(
+                    primary_id_column=FEATURE_SCHEMA.temporal_config.insertion_id_column,
+                    time_column=FEATURE_SCHEMA.time_column,
+                    temporal_identity_columns=list(FEATURE_SCHEMA.graph_config.high_signal_columns),
+                )
+                graph_builder = HeterogeneousGraphBuilder(graph_config)
+                
+                # GNN embedder for heterogeneous graph
+                gnn_params = self.cfg["model"].get("gnn", {})
+                embedder = GraphSAGEEmbedder(
+                    in_channels=len(FEATURE_SCHEMA.get_gnn_input_features()),
+                    hidden_channels=gnn_params.get("hidden_dim", FEATURE_SCHEMA.gnn_hidden_dim),
+                    out_channels=gnn_params.get("output_dim", FEATURE_SCHEMA.gnn_embedding_dim),
+                    num_layers=gnn_params.get("num_layers", FEATURE_SCHEMA.gnn_num_layers),
+                )
+        
         return HybridPipeline(
             variant=self.variant,
             graph_builder=graph_builder,
             embedder=embedder,
             classifier=classifier,
         )
+    
+    def _run_shap_analysis(
+        self,
+        pipeline: HybridPipeline,
+        test_df: pl.DataFrame,
+        labels: np.ndarray,
+        probs: np.ndarray,
+        inference_graph=None,
+    ):
+        """Run SHAP analysis and log results to MLflow."""
+        _log("Running SHAP analysis...")
+        
+        try:
+            # Get XGBoost model
+            xgb_model = pipeline.classifier.model
+            
+            # Get the prepared features (same preprocessing as prediction)
+            # Use the cached features from the last prediction if available
+            if hasattr(pipeline, '_last_prediction_features') and pipeline._last_prediction_features is not None:
+                X_test = pipeline._last_prediction_features
+                _log(f"Using {len(X_test)} samples with {X_test.shape[1]} features for SHAP")
+            else:
+                # Rebuild features
+                X_test = pipeline.get_prediction_features(test_df, inference_graph)
+            
+            # Initialize SHAP analyzer
+            shap_config = SHAPConfig(
+                max_samples=min(1000, len(X_test)),
+                top_k_features=20,
+                output_dir="artifacts/shap",
+            )
+            analyzer = SHAPAnalyzer(xgb_model, config=shap_config)
+            
+            # Generate comprehensive report
+            report = analyzer.generate_report(X_test, labels, probs)
+            
+            # Log key insights
+            _log(f"Top 10 features: {report['top_10_features']}")
+            if "gnn_contribution" in report:
+                gnn_pct = report["gnn_contribution"]["percentage"]
+                _log(f"GNN embedding contribution: {gnn_pct:.1f}%")
+            
+            # Log artifacts to MLflow
+            mlflow.log_artifacts("artifacts/shap", artifact_path="shap")
+            
+            # Log top feature names as params
+            for i, feat in enumerate(report["top_10_features"][:5]):
+                mlflow.log_param(f"top_feature_{i+1}", feat)
+            
+            _log("SHAP analysis complete")
+            
+        except Exception as e:
+            _log(f"SHAP analysis failed: {e}", "WARNING")
+            import traceback
+            traceback.print_exc()
     
     def _log_model(self, pipeline: HybridPipeline):
         """Log trained model to MLflow."""
