@@ -175,17 +175,18 @@ async def predict(event: EventPayload, background_tasks: BackgroundTasks):
     # Compute features
     features_df = feature_engineer.compute_features(event)
     
-    # Run prediction
+    # Run prediction using trained model
     if model is not None:
         try:
             proba = model.predict_proba(features_df)[0, 1]
         except Exception as e:
             logger.error(f"Prediction error: {e}")
-            # Fallback: use fraud_score if available
-            proba = (event.seon_fraud_score or 0) / 100.0
+            # Fallback: return 0.5 (uncertain) if model fails
+            proba = 0.5
     else:
-        # Placeholder: use SEON fraud score as proxy
-        proba = (event.seon_fraud_score or 0) / 100.0
+        # No model loaded - return uncertain probability
+        logger.warning("No model loaded, returning default probability")
+        proba = 0.5
     
     # Determine risk tier and decision
     if proba >= THRESHOLD_HIGH:
@@ -328,14 +329,7 @@ def _generate_risk_factors(
     """
     factors = []
     
-    # Check SEON scores
-    if event.seon_fraud_score and event.seon_fraud_score > 50:
-        factors.append(RiskFactor(
-            feature="seon_fraud_score",
-            value=str(event.seon_fraud_score),
-            impact=0.3,
-            direction="increases_risk",
-        ))
+    # Report raw SEON signals as risk factors
     
     if event.seon_tor:
         factors.append(RiskFactor(

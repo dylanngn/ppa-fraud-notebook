@@ -87,6 +87,7 @@ class HybridPipeline(HybridFraudDetector):
             ModelVariant.VANILLA_XGBOOST,
             ModelVariant.LOGISTIC_REGRESSION,
             ModelVariant.RANDOM_FOREST,
+            ModelVariant.GRAPH_FEATURES_XGBOOST,
         ):
             if not self.classifier:
                 raise ValueError(f"{self.variant.value} requires classifier")
@@ -202,21 +203,25 @@ class HybridPipeline(HybridFraudDetector):
         base_cols = list(FEATURE_SCHEMA.all_base_features)
         available_cols = [c for c in base_cols if c in df.columns]
         
+        # Also include handcrafted features (gf_* or cf_* prefix)
+        extra_feature_cols = [c for c in df.columns if c.startswith(("gf_", "cf_"))]
+        available_cols = available_cols + extra_feature_cols
+
         X = df.select(available_cols).to_pandas()
-        
+
         # Convert boolean columns to int8
         bool_cols = list(FEATURE_SCHEMA.all_seon_boolean)
         for col in bool_cols:
             if col in X.columns:
                 X[col] = X[col].astype("Int8")  # nullable int
-        
+
         # Handle categorical columns (string types only)
         cat_cols = list(FEATURE_SCHEMA.all_categorical_features)
         for col in cat_cols:
             if col in X.columns:
                 X[col] = X[col].astype("category")
                 self.train_categoricals[col] = X[col].cat.categories
-        
+
         return X
     
     def _embeddings_to_dataframe(
@@ -303,14 +308,18 @@ class HybridPipeline(HybridFraudDetector):
         base_cols = list(FEATURE_SCHEMA.all_base_features)
         available_cols = [c for c in base_cols if c in df.columns]
         
+        # Also include handcrafted features (gf_* or cf_* prefix)
+        extra_feature_cols = [c for c in df.columns if c.startswith(("gf_", "cf_"))]
+        available_cols = available_cols + extra_feature_cols
+
         X = df.select(available_cols).to_pandas()
-        
+
         # Convert boolean columns to int8
         bool_cols = list(FEATURE_SCHEMA.all_seon_boolean)
         for col in bool_cols:
             if col in X.columns:
                 X[col] = X[col].astype("Int8")
-        
+
         # Apply categorical encoding from training
         cat_cols = list(FEATURE_SCHEMA.all_categorical_features)
         for col in cat_cols:
@@ -319,7 +328,7 @@ class HybridPipeline(HybridFraudDetector):
                 X[col] = X[col].astype(
                     pd.CategoricalDtype(categories=known_cats, ordered=False)
                 )
-        
+
         return X
     
     def _predict_gnn(

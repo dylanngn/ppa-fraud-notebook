@@ -9,7 +9,7 @@ TRAIN_START := 2024-12-01
 TRAIN_END := 2025-06-01
 TEST_END := 2025-07-01
 
-.PHONY: help install etl train-lr train-rf train-vanilla train-gnn train-vanilla-shap train-gnn-shap compare-all hpo hpo-quick hpo-high-recall hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb expanding-vanilla expanding-gnn api api-dev mlflow clean
+.PHONY: help install etl train-lr train-rf train-vanilla train-graph-features train-gnn train-hgt train-care train-vanilla-shap train-gnn-shap compare-all compare-gnn-encoders hpo hpo-quick hpo-high-recall hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb hpo-hgt expanding-vanilla expanding-gnn api api-dev mlflow clean
 
 help:
 	@echo "Available commands:"
@@ -21,7 +21,10 @@ help:
 	@echo "    make train-lr              - Train Logistic Regression (baseline)"
 	@echo "    make train-rf              - Train Random Forest (baseline)"
 	@echo "    make train-vanilla         - Train Vanilla XGBoost"
+	@echo "    make train-graph-features  - Train XGBoost + Handcrafted Graph Features"
 	@echo "    make train-gnn             - Train XGBoost + GraphSAGE Embeddings"
+	@echo "    make train-hgt             - Train XGBoost + HGT Embeddings"
+	@echo "    make train-care            - Train XGBoost + CARE-GNN (camouflage-resistant)"
 	@echo "    make train-vanilla-shap    - Train Vanilla XGBoost + SHAP analysis"
 	@echo "    make train-gnn-shap        - Train GNN+XGBoost + SHAP analysis"
 	@echo ""
@@ -31,6 +34,7 @@ help:
 	@echo ""
 	@echo "  Comparison (all variants on same test set):"
 	@echo "    make compare-all           - Train all 4 variants (LR, RF, XGB, GNN+XGB)"
+	@echo "    make compare-gnn-encoders  - Compare GraphSAGE vs HGT encoders"
 	@echo ""
 	@echo "  Hyperparameter Optimization:"
 	@echo "    make hpo                   - Run XGBoost HPO (50 trials)"
@@ -80,14 +84,73 @@ train-vanilla:
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
 
+train-graph-features:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_Graph_Features_XGBoost" \
+		model.variant="graph_features_xgboost" \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
 train-gnn:
 	$(PYTHON) -m $(TRAINER) \
 		experiment.name="Exp_GNN_XGBoost" \
 		model.variant="gnn_xgboost" \
-		model.gnn.epochs=50 \
+		model.gnn.encoder="graphsage" \
+		model.gnn.epochs=30 \
 		data.train_start_date=$(TRAIN_START) \
 		data.train_end_date=$(TRAIN_END) \
 		data.test_end_date=$(TEST_END)
+
+train-hgt:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_HGT_XGBoost" \
+		model.variant="gnn_xgboost" \
+		model.gnn.encoder="hgt" \
+		model.gnn.num_heads=4 \
+		model.gnn.epochs=30 \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+train-care:
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="Exp_CARE_GNN_XGBoost" \
+		model.variant="gnn_xgboost" \
+		model.gnn.encoder="care" \
+		model.gnn.similarity_dim=32 \
+		model.gnn.epochs=30 \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+
+# Compare GraphSAGE vs HGT on same test set
+compare-gnn-encoders:
+	@echo "=== Comparing GNN Encoders ==="
+	@echo "Train: $(TRAIN_START) → $(TRAIN_END), Test end: $(TEST_END)"
+	@echo ""
+	@echo "--- 1/2: GraphSAGE + XGBoost ---"
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="GNN_Encoder_Comparison" \
+		model.variant="gnn_xgboost" \
+		model.gnn.encoder="graphsage" \
+		model.gnn.epochs=30 \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "--- 2/2: HGT + XGBoost ---"
+	$(PYTHON) -m $(TRAINER) \
+		experiment.name="GNN_Encoder_Comparison" \
+		model.variant="gnn_xgboost" \
+		model.gnn.encoder="hgt" \
+		model.gnn.num_heads=4 \
+		model.gnn.epochs=30 \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
+	@echo ""
+	@echo "=== Done! Check MLflow for comparison ==="
 
 # --- Training with SHAP Analysis (RQ4) ---
 
@@ -217,6 +280,16 @@ hpo-gnn-with-best-xgb:
 		--train-start=$(TRAIN_START) \
 		--train-end=$(TRAIN_END) \
 		--test-end=$(TEST_END)
+
+# HPO for HGT (Heterogeneous Graph Transformer) - 20 trials
+hpo-hgt:
+	@echo "=== HGT Hyperparameter Optimization (20 trials) ==="
+	$(PYTHON) -m $(TRAINER) \
+		--multirun \
+		--config-name=hpo_hgt \
+		data.train_start_date=$(TRAIN_START) \
+		data.train_end_date=$(TRAIN_END) \
+		data.test_end_date=$(TEST_END)
 
 # --- Expanding Window (Concept Drift / RQ3) ---
 

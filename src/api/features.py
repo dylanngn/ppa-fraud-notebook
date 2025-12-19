@@ -30,15 +30,9 @@ class FeatureEngineer:
     """
     
     # Expected feature order (must match training)
+    # Uses raw SEON signals only, not SEON's ML prediction scores
     FEATURE_ORDER = [
-        # SEON Scores
-        "fraud_score",
-        "blackbox_score",
-        "phone_score",
-        "email_score",
-        "proxy_score",
-        
-        # SEON IP
+        # SEON IP (raw signals)
         "ip_latitude",
         "ip_longitude",
         "data_center_proxy",
@@ -129,11 +123,10 @@ class FeatureEngineer:
             DataFrame with single row of features
         """
         features = {}
-        
-        # 1. SEON Score Features
-        features.update(self._extract_seon_scores(event))
-        
-        # 2. SEON IP Features
+
+        # Extract raw SEON signals (not SEON's ML prediction scores)
+
+        # 1. SEON IP Features
         features.update(self._extract_seon_ip(event))
         
         # 3. SEON Email Features
@@ -171,15 +164,6 @@ class FeatureEngineer:
         
         return df
     
-    def _extract_seon_scores(self, event: EventPayload) -> Dict[str, Any]:
-        """Extract SEON score features."""
-        return {
-            "fraud_score": event.seon_fraud_score,
-            "blackbox_score": event.seon_blackbox_score,
-            "phone_score": event.seon_phone_score,
-            "email_score": event.seon_email_score,
-            "proxy_score": event.seon_proxy_score,
-        }
     
     def _extract_seon_ip(self, event: EventPayload) -> Dict[str, Any]:
         """Extract SEON IP features."""

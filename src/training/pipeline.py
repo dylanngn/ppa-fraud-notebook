@@ -33,11 +33,48 @@ from src.features.temporal_split import (
 from src.models.hybrid import HybridPipeline
 from src.models.xgboost_classifier import XGBoostClassifier
 from src.models.graphsage import GraphSAGEEmbedder
+from src.models.hgt import HGTEmbedder
+from src.models.care_gnn import CAREGNNEmbedder
 from src.models.baselines import LogisticRegressionClassifier, RandomForestBaseline
+from src.features.graph_features import GraphFeatureExtractor, GraphFeatureConfig
 from src.utils.metrics import calculate_metrics
 from src.evaluation.shap_analysis import SHAPAnalyzer, SHAPConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _create_gnn_embedder(gnn_params: Dict[str, Any]):
+    """Create GNN embedder based on encoder type in config."""
+    encoder_type = gnn_params.get("encoder", "graphsage").lower()
+    
+    # Use total input dim (base features + temporal encoding)
+    in_channels = FEATURE_SCHEMA.get_gnn_total_input_dim()
+    _log(f"GNN input dimension: {in_channels} (base: {len(FEATURE_SCHEMA.get_gnn_input_features())}, temporal: {FEATURE_SCHEMA.get_gnn_temporal_feature_count()})")
+    
+    common_params = {
+        "in_channels": in_channels,
+        "hidden_channels": gnn_params.get("hidden_dim", FEATURE_SCHEMA.gnn_hidden_dim),
+        "out_channels": gnn_params.get("output_dim", FEATURE_SCHEMA.gnn_embedding_dim),
+        "num_layers": gnn_params.get("num_layers", FEATURE_SCHEMA.gnn_num_layers),
+        "epochs": gnn_params.get("epochs", 10),
+        "device": gnn_params.get("device", "cpu"),
+    }
+    
+    if encoder_type == "hgt":
+        _log(f"Using HGT encoder with {gnn_params.get('num_heads', 4)} attention heads")
+        return HGTEmbedder(
+            **common_params,
+            num_heads=gnn_params.get("num_heads", 4),
+        )
+    elif encoder_type == "care" or encoder_type == "care_gnn":
+        _log(f"Using CARE-GNN encoder (camouflage-resistant)")
+        return CAREGNNEmbedder(
+            **common_params,
+            similarity_dim=gnn_params.get("similarity_dim", 32),
+        )
+    else:
+        _log(f"Using GraphSAGE encoder")
+        return GraphSAGEEmbedder(**common_params)
 
 
 def _log(msg: str, level: str = "INFO"):
@@ -121,10 +158,19 @@ class SingleTrainingPipeline:
             _log("Empty train or test set!")
             return {}
         
-        # 3. Build Pipeline
+        # 3. Add Graph Features (if using graph_features variant)
+        if self.variant == ModelVariant.GRAPH_FEATURES_XGBOOST:
+            _log("Extracting handcrafted graph features...")
+            gf_extractor = GraphFeatureExtractor(GraphFeatureConfig())
+            gf_extractor.fit(train_df)
+            train_df = gf_extractor.transform(train_df, is_training=True)
+            test_df = gf_extractor.transform(test_df, is_training=False)
+            _log(f"Added {len(gf_extractor.get_feature_names())} graph features")
+        
+        # 4. Build Pipeline
         pipeline = self._build_pipeline()
         
-        # 4. Build Graphs (if needed)
+        # 5. Build Graphs (if needed)
         train_graph = None
         inference_graph = None
         
@@ -197,10 +243,10 @@ class SingleTrainingPipeline:
             rf_params = self.cfg["model"].get("random_forest", {})
             classifier = RandomForestBaseline(**rf_params)
             
-        elif self.variant in (ModelVariant.VANILLA_XGBOOST, ModelVariant.GNN_XGBOOST):
+        elif self.variant in (ModelVariant.VANILLA_XGBOOST, ModelVariant.GNN_XGBOOST, ModelVariant.GRAPH_FEATURES_XGBOOST):
             xgb_params = self.cfg["model"]["xgboost"]
             classifier = XGBoostClassifier(**xgb_params)
-            
+
             if self.variant == ModelVariant.GNN_XGBOOST:
                 # Build heterogeneous graph with multiple node/edge types
                 graph_config = HeteroGraphConfig(
@@ -209,15 +255,12 @@ class SingleTrainingPipeline:
                     temporal_identity_columns=list(FEATURE_SCHEMA.graph_config.high_signal_columns),
                 )
                 graph_builder = HeterogeneousGraphBuilder(graph_config)
-                
-                # GNN embedder for heterogeneous graph
+
+                # GNN embedder (GraphSAGE or HGT based on config)
                 gnn_params = self.cfg["model"].get("gnn", {})
-                embedder = GraphSAGEEmbedder(
-                    in_channels=len(FEATURE_SCHEMA.get_gnn_input_features()),
-                    hidden_channels=gnn_params.get("hidden_dim", FEATURE_SCHEMA.gnn_hidden_dim),
-                    out_channels=gnn_params.get("output_dim", FEATURE_SCHEMA.gnn_embedding_dim),
-                    num_layers=gnn_params.get("num_layers", FEATURE_SCHEMA.gnn_num_layers),
-                )
+                embedder = _create_gnn_embedder(gnn_params)
+            
+            # GRAPH_FEATURES_XGBOOST uses same classifier but with graph features added to data
         
         return HybridPipeline(
             variant=self.variant,
@@ -500,13 +543,9 @@ class ExpandingWindowPipeline:
             )
             graph_builder = HeterogeneousGraphBuilder(graph_config)
             
+            # GNN embedder (GraphSAGE or HGT based on config)
             gnn_params = self.cfg["model"].get("gnn", {})
-            embedder = GraphSAGEEmbedder(
-                in_channels=len(FEATURE_SCHEMA.get_gnn_input_features()),
-                hidden_channels=gnn_params.get("hidden_dim", FEATURE_SCHEMA.gnn_hidden_dim),
-                out_channels=gnn_params.get("output_dim", FEATURE_SCHEMA.gnn_embedding_dim),
-                num_layers=gnn_params.get("num_layers", FEATURE_SCHEMA.gnn_num_layers),
-            )
+            embedder = _create_gnn_embedder(gnn_params)
             
         return HybridPipeline(
             variant=self.variant,

@@ -58,11 +58,12 @@ class EventPayload(BaseModel):
     listing_living_space: Optional[float] = Field(None, description="Living space m²")
     
     # === SEON Fraud Scores ===
-    seon_fraud_score: Optional[float] = Field(None, ge=0, le=100, description="Overall fraud score")
-    seon_email_score: Optional[float] = Field(None, ge=0, le=100, description="Email risk score")
-    seon_phone_score: Optional[float] = Field(None, ge=0, le=100, description="Phone risk score")
-    seon_blackbox_score: Optional[float] = Field(None, ge=0, le=100, description="Device risk score")
-    seon_proxy_score: Optional[float] = Field(None, ge=0, le=100, description="Proxy risk score")
+    # SEON ML prediction scores (accepted for logging, not used as model features)
+    seon_fraud_score: Optional[float] = Field(None, ge=0, le=100, description="SEON fraud score")
+    seon_email_score: Optional[float] = Field(None, ge=0, le=100, description="SEON email score")
+    seon_phone_score: Optional[float] = Field(None, ge=0, le=100, description="SEON phone score")
+    seon_blackbox_score: Optional[float] = Field(None, ge=0, le=100, description="SEON device score")
+    seon_proxy_score: Optional[float] = Field(None, ge=0, le=100, description="SEON proxy score")
     
     # === SEON IP Analysis ===
     seon_ip_type: Optional[str] = Field(None, description="IP type (residential, mobile, etc)")
@@ -109,10 +110,10 @@ class EventPayload(BaseModel):
                 "listing_category": "APARTMENT",
                 "listing_platform": "ImmoScout24",
                 "listing_price": 500000,
-                "seon_fraud_score": 25.5,
-                "seon_email_score": 30.0,
+                # Raw SEON signals (used as features)
                 "seon_tor": False,
                 "seon_vpn": False,
+                "seon_datacenter": False,
                 "email_hash": "e3b0c44298fc...",
                 "phone_hash": "d7a8fbb307d7...",
                 "ip_hash": "5e884898da28...",
@@ -157,8 +158,8 @@ class PredictResponse(BaseModel):
                 "decision": "DECLINE",
                 "confidence": 0.92,
                 "top_risk_factors": [
-                    {"feature": "seon_fraud_score", "value": "85", "impact": 0.35, "direction": "increases_risk"},
-                    {"feature": "seon_tor", "value": "true", "impact": 0.25, "direction": "increases_risk"},
+                    {"feature": "seon_tor", "value": "true", "impact": 0.35, "direction": "increases_risk"},
+                    {"feature": "seon_datacenter", "value": "true", "impact": 0.25, "direction": "increases_risk"},
                 ],
                 "model_version": "v1.2.0",
                 "prediction_timestamp": "2025-01-15T10:30:05Z",

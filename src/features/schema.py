@@ -15,6 +15,7 @@ class ModelVariant(Enum):
     RANDOM_FOREST = "random_forest"
     VANILLA_XGBOOST = "vanilla_xgboost"
     GNN_XGBOOST = "gnn_xgboost"
+    GRAPH_FEATURES_XGBOOST = "graph_features_xgboost"
 
 
 class TemporalSplitStrategy(Enum):
@@ -91,12 +92,32 @@ class GraphIdentityConfig:
     
     @property
     def high_signal_columns(self) -> Tuple[str, ...]:
+        """All potential connection columns (some have inverse fraud correlation)."""
         return (
             "ip_hash",
             "session/device_hash",
             "user_id_hash",
             "LISTING_LISTER_EMAIL_hash",
             "LISTING_LISTER_PHONE_hash",
+        )
+    
+    @property
+    def positive_signal_columns(self) -> Tuple[str, ...]:
+        """Only columns where high connectivity correlates with MORE fraud.
+        
+        Based on analysis:
+        - IP address: 6.4% (solo) → 10.6% (5+ conn) - POSITIVE
+        - Browser FP: 4.1% (solo) → 11.7% (5+ conn) - POSITIVE
+        
+        Excluded (inverse correlation - high connectivity = LESS fraud):
+        - Device hash: 16.7% → 5.3%
+        - Email: 10.2% → 2.6%
+        - Phone: 6.0% → 3.8%
+        - User ID: 9.1% → 2.7%
+        """
+        return (
+            "ip_hash",
+            "session/similarity_hash",  # Browser fingerprint
         )
 
 
@@ -114,14 +135,9 @@ class FeatureSchema:
     # Time column
     time_column: str = "DATAPIPELINE_EVENT_SENT_AT"
     
-    # SEON risk scores
-    seon_score_features: Tuple[str, ...] = (
-        "fraud_score",
-        "blackbox_score",
-        "phone_score",
-        "email_score",
-        "proxy_score",
-    )
+    # SEON ML prediction scores (not used as features - these are SEON's predictions)
+    # We use raw SEON signals instead
+    seon_score_features: Tuple[str, ...] = ()
     
     # SEON IP features (categorical - string)
     seon_ip_categorical: Tuple[str, ...] = (
@@ -212,8 +228,10 @@ class FeatureSchema:
     )
     
     # Event features
+    # NOTE: STATUS is EXCLUDED - it has label leakage!
+    # (Fraud-flagged listings get STATUS=DELETED after detection)
     event_features: Tuple[str, ...] = (
-        "STATUS",
+        # "STATUS",  # EXCLUDED - label leakage
     )
     
     # Listing numeric features
@@ -317,11 +335,11 @@ class FeatureSchema:
     @property
     def all_categorical_features(self) -> Tuple[str, ...]:
         """All categorical features (string types only)."""
+        # NOTE: STATUS excluded due to label leakage
         return (
             self.all_seon_categorical +
             self.listing_categorical_features +
-            self.billing_categorical_features +
-            ("STATUS",)
+            self.billing_categorical_features
         )
     
     @property
@@ -336,8 +354,26 @@ class FeatureSchema:
         return base
     
     def get_gnn_input_features(self) -> List[str]:
-        return list(self.seon_score_features) + list(self.listing_numeric_features[:6])
+        """Get base GNN input features (before temporal encoding).
+        
+        Uses raw SEON signals (booleans) and listing numeric features.
+        Does NOT use SEON scores (which are ML outputs, not raw features).
+        """
+        # Use raw SEON boolean signals + listing numeric features
+        raw_seon_signals = list(self.seon_ip_boolean)  # data_center_proxy, residential_proxy, etc.
+        listing_features = list(self.listing_numeric_features[:6])
+        return raw_seon_signals + listing_features
     
+    def get_gnn_temporal_feature_count(self) -> int:
+        """Number of temporal encoding features added to GNN input."""
+        # 7 features: days_since_start, relative_position, 
+        # hour_sin, hour_cos, weekday_sin, weekday_cos, recency
+        return 7
+    
+    def get_gnn_total_input_dim(self) -> int:
+        """Total GNN input dimension including temporal features."""
+        return len(self.get_gnn_input_features()) + self.get_gnn_temporal_feature_count()
+
     def get_graph_identity_columns(self) -> List[str]:
         return list(self.graph_config.all_identity_columns)
 

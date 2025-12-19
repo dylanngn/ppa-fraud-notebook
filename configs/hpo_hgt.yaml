@@ -1,0 +1,63 @@
+# HGT HPO Config
+# Memory-constrained search space for Heterogeneous Graph Transformer
+
+defaults:
+  - experiment
+  - override hydra/sweeper: optuna
+  - _self_
+
+experiment:
+  name: "HPO_HGT"
+
+training:
+  gap_days: 7
+
+model:
+  variant: "gnn_xgboost"
+  
+  gnn:
+    encoder: "hgt"
+    device: "cpu"
+  
+  # Best XGBoost params (fixed from previous HPO)
+  xgboost:
+    n_estimators: 350
+    max_depth: 8
+    learning_rate: 0.0147
+    min_child_weight: 10
+    subsample: 0.869
+    colsample_bytree: 0.648
+    gamma: 1.09
+    reg_alpha: 0.24
+    reg_lambda: 1.59
+    scale_pos_weight: 1.62
+
+hydra:
+  mode: MULTIRUN
+  
+  sweeper:
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+      n_startup_trials: 5
+      multivariate: true
+    
+    direction: maximize  # Maximize AUC-PR
+    
+    study_name: hgt_hpo
+    storage: null
+    
+    n_trials: 20
+    n_jobs: 1
+    
+    params:
+      # HGT parameters (memory-constrained)
+      model.gnn.hidden_dim: choice(32, 48, 64, 80)
+      model.gnn.output_dim: choice(8, 16, 24)
+      model.gnn.num_heads: choice(1, 2, 4)
+      model.gnn.num_layers: choice(1, 2)
+      model.gnn.epochs: range(10, 25, step=5)
+
+  sweep:
+    dir: mlruns/hpo_hgt/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: trial_${hydra.job.num}

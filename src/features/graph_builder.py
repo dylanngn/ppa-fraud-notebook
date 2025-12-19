@@ -41,11 +41,13 @@ class HeteroGraphConfig:
         },
     })
     
+    # Only use columns with POSITIVE fraud correlation
+    # (high connectivity = more fraud)
+    # Based on analysis: IP and Browser FP have positive signal
+    # Device, Email, Phone, User have INVERSE signal (removed)
     temporal_identity_columns: List[str] = field(default_factory=lambda: [
-        "ip_hash",
-        "LISTING_LISTER_EMAIL_hash",
-        "LISTING_LISTER_PHONE_hash",
-        "session/device_hash",
+        "ip_hash",                    # 6.4% → 10.6% (positive)
+        "session/similarity_hash",    # 4.1% → 11.7% (positive, browser FP)
     ])
     
     time_column: str = "DATAPIPELINE_EVENT_SENT_AT"
@@ -141,12 +143,19 @@ class HeterogeneousGraphBuilder:
                 .sort(self.config.primary_id_column)
             )
             
+            # Base features
             x = listing_features.select(available_cols).to_numpy().astype(np.float32)
             for j in range(x.shape[1]):
                 mask = np.isnan(x[:, j])
                 if mask.any():
                     median = np.nanmedian(x[:, j])
                     x[mask, j] = median if not np.isnan(median) else 0.0
+            
+            # Add temporal encoding features
+            temporal_features = self._compute_temporal_features(df, listing_features)
+            if temporal_features is not None:
+                x = np.concatenate([x, temporal_features], axis=1)
+                logger.info(f"Added {temporal_features.shape[1]} temporal features to node embeddings")
             
             data["listing"].x = torch.tensor(x, dtype=torch.float32)
         
@@ -156,6 +165,108 @@ class HeterogeneousGraphBuilder:
                 continue
             
             data[entity_type].num_nodes = num_entities
+    
+    def _compute_temporal_features(
+        self, 
+        df: pl.DataFrame, 
+        listing_features: pl.DataFrame
+    ) -> Optional[np.ndarray]:
+        """
+        Compute temporal encoding features for each listing node.
+        
+        Features:
+        1. time_since_start: Days since first event in dataset (normalized)
+        2. time_until_cutoff: Days until cutoff date (normalized)
+        3. relative_position: Position in timeline [0, 1]
+        4. hour_sin/cos: Cyclical encoding of hour of day
+        5. weekday_sin/cos: Cyclical encoding of day of week
+        """
+        time_col = self.config.time_column
+        id_col = self.config.primary_id_column
+        
+        if time_col not in df.columns or id_col not in listing_features.columns:
+            return None
+        
+        try:
+            # Get first event time per listing (already sorted by primary_id in listing_features)
+            time_df = (
+                df.group_by(id_col)
+                .agg(pl.col(time_col).first().alias("first_event_time"))
+                .sort(id_col)
+            )
+            
+            # Extract timestamps
+            timestamps = time_df["first_event_time"].to_numpy()
+            
+            # Convert to numeric (seconds since epoch)
+            # Handle both datetime and string types
+            if hasattr(timestamps[0], 'timestamp'):
+                ts_numeric = np.array([t.timestamp() for t in timestamps])
+            else:
+                # Already numeric or needs conversion
+                ts_numeric = timestamps.astype(np.float64)
+            
+            # Handle NaNs
+            valid_mask = ~np.isnan(ts_numeric)
+            if not valid_mask.any():
+                return None
+            
+            min_ts = np.nanmin(ts_numeric)
+            max_ts = np.nanmax(ts_numeric)
+            ts_range = max_ts - min_ts if max_ts > min_ts else 1.0
+            
+            # Feature 1: Days since start (normalized to [0, 1])
+            days_since_start = (ts_numeric - min_ts) / ts_range
+            days_since_start = np.nan_to_num(days_since_start, nan=0.5)
+            
+            # Feature 2: Relative position in timeline
+            relative_position = days_since_start  # Same as normalized time
+            
+            # Features 3-4: Cyclical hour encoding
+            # Convert to datetime for hour/weekday extraction
+            try:
+                hours = np.array([
+                    (t.hour if hasattr(t, 'hour') else 
+                     (np.datetime64(int(t), 's').astype('datetime64[h]').astype(int) % 24))
+                    for t in timestamps
+                ])
+            except:
+                hours = np.zeros(len(timestamps))
+            
+            hour_sin = np.sin(2 * np.pi * hours / 24)
+            hour_cos = np.cos(2 * np.pi * hours / 24)
+            
+            # Features 5-6: Cyclical weekday encoding
+            try:
+                weekdays = np.array([
+                    (t.weekday() if hasattr(t, 'weekday') else 0)
+                    for t in timestamps
+                ])
+            except:
+                weekdays = np.zeros(len(timestamps))
+            
+            weekday_sin = np.sin(2 * np.pi * weekdays / 7)
+            weekday_cos = np.cos(2 * np.pi * weekdays / 7)
+            
+            # Feature 7: Recency (inverse of time since start, more recent = higher)
+            recency = 1.0 - days_since_start
+            
+            # Stack all temporal features
+            temporal_features = np.column_stack([
+                days_since_start,
+                relative_position,
+                hour_sin,
+                hour_cos,
+                weekday_sin,
+                weekday_cos,
+                recency,
+            ]).astype(np.float32)
+            
+            return temporal_features
+            
+        except Exception as e:
+            logger.warning(f"Could not compute temporal features: {e}")
+            return None
     
     def _add_listing_to_entity_edges(self, data: HeteroData, df: pl.DataFrame):
         """Add edges from listings to entity nodes."""
