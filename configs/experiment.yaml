@@ -45,26 +45,27 @@ model:
     min_samples_leaf: 2
     class_weight: "balanced"
   
-  # XGBoost (main model) - Best HPO parameters
+  # XGBoost (main model) - Best HPO parameters (2025-12-19)
   xgboost:
-    n_estimators: 350
-    max_depth: 8
-    learning_rate: 0.0147
-    min_child_weight: 10
-    subsample: 0.869
-    colsample_bytree: 0.648
-    gamma: 1.09
-    reg_alpha: 0.24
-    reg_lambda: 1.59
-    scale_pos_weight: 1.62
+    n_estimators: 500
+    max_depth: 12
+    learning_rate: 0.151
+    min_child_weight: 8
+    subsample: 0.818
+    colsample_bytree: 0.985
+    gamma: 0.236
+    reg_alpha: 0.078
+    reg_lambda: 0.406
+    scale_pos_weight: 5.297
     
-  # GNN embedder - Best HPO parameters
+  # GNN embedder - Best HPO parameters (2025-12-19)
   gnn:
     encoder: "graphsage"  # "graphsage", "hgt", or "care"
     device: "cpu"
-    hidden_dim: 128
+    hidden_dim: 32
     output_dim: 16
     num_layers: 2
     num_heads: 4  # For HGT only
     similarity_dim: 32  # For CARE-GNN only
-    epochs: 30
+    epochs: 10
+    supervised: true  # true = node classification, false = link prediction

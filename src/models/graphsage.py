@@ -100,7 +100,8 @@ class GraphSAGEEmbedder(BaseEmbedder):
         self,
         graph: HeteroData,
         node_features: torch.Tensor,
-        train_mask: torch.Tensor, # Unused
+        y: Optional[torch.Tensor] = None,  # Added labels for supervised training
+        train_mask: Optional[torch.Tensor] = None, 
     ) -> "GraphSAGEEmbedder":
         
         edge_types = [e[1] for e in graph.edge_types]
@@ -129,31 +130,63 @@ class GraphSAGEEmbedder(BaseEmbedder):
             if et[0] == "listing" and et[2] == "listing"
         ]
         
-        if not listing_edges:
-            logger.warning("No listing-to-listing edges found, using all edges")
-            target_edge_type = graph.edge_types[0]
+        if y is None:
+            # Self-supervised Link Prediction Setup
+            if not listing_edges:
+                logger.warning("No listing-to-listing edges found, using all edges")
+                target_edge_type = graph.edge_types[0]
+            else:
+                target_edge_type = listing_edges[0]
+            
+            pos_edge_index = graph[target_edge_type].edge_index
         else:
-            target_edge_type = listing_edges[0]
-        
-        pos_edge_index = graph[target_edge_type].edge_index
+            # Supervised Node Classification Setup
+            # Create a temporary classification head
+            self.predictor = nn.Linear(self.config["out_channels"], 1).to(self.device)
+            # Add predictor parameters to optimizer
+            optimizer.add_param_group({'params': self.predictor.parameters()})
+            
+            # Ensure y is float for BCEWithLogits
+            y = y.float().to(self.device)
+            if train_mask is not None:
+                train_mask = train_mask.bool().to(self.device)
+            else:
+                 # Default to using all labeled data if no mask provided
+                train_mask = torch.ones(y.size(0), dtype=torch.bool, device=self.device)
         
         self.model.train()
         for epoch in range(self.config["epochs"]):
             optimizer.zero_grad()
             z = self.model(graph.x_dict, graph.edge_index_dict)
             
-            # Link prediction loss using listing-to-listing edges
-            src, dst = pos_edge_index
-            pos_score = (z[src] * z[dst]).sum(dim=-1)
+            if y is None:
+                # ---------------------------
+                # Self-Supervised Link Prediction
+                # ---------------------------
+                src, dst = pos_edge_index
+                pos_score = (z[src] * z[dst]).sum(dim=-1)
+                
+                neg_src = torch.randint(0, z.size(0), (src.size(0),), device=self.device)
+                neg_dst = torch.randint(0, z.size(0), (dst.size(0),), device=self.device)
+                neg_score = (z[neg_src] * z[neg_dst]).sum(dim=-1)
+                
+                scores = torch.cat([pos_score, neg_score])
+                labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
+                
+                loss = F.binary_cross_entropy_with_logits(scores, labels)
+            else:
+                # ---------------------------
+                # Supervised Node Classification
+                # ---------------------------
+                # Project embeddings to logits
+                logits = self.predictor(z).squeeze(-1)
+                
+                # Compute loss only on training nodes
+                loss = F.binary_cross_entropy_with_logits(
+                    logits[train_mask], 
+                    y[train_mask]
+                )
             
-            neg_src = torch.randint(0, z.size(0), (src.size(0),), device=self.device)
-            neg_dst = torch.randint(0, z.size(0), (dst.size(0),), device=self.device)
-            neg_score = (z[neg_src] * z[neg_dst]).sum(dim=-1)
-            
-            scores = torch.cat([pos_score, neg_score])
-            labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
-            
-            loss = F.binary_cross_entropy_with_logits(scores, labels)
             loss.backward()
             optimizer.step()
             

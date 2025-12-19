@@ -122,7 +122,8 @@ class HGTEmbedder(BaseEmbedder):
         self,
         graph: HeteroData,
         node_features: torch.Tensor,
-        train_mask: torch.Tensor,  # Unused
+        y: Optional[torch.Tensor] = None,  # Added labels for supervised training
+        train_mask: Optional[torch.Tensor] = None,
     ) -> "HGTEmbedder":
         
         # Filter to listing-only subgraph (HGT requires features for all node types)
@@ -164,13 +165,25 @@ class HGTEmbedder(BaseEmbedder):
             if et[0] == "listing" and et[2] == "listing"
         ]
         
-        if not listing_edges:
-            logger.warning("No listing-to-listing edges found, using all edges")
-            target_edge_type = graph.edge_types[0]
+        if y is None:
+            # Self-Supervised Setup
+            if not listing_edges:
+                logger.warning("No listing-to-listing edges found, using all edges")
+                target_edge_type = graph.edge_types[0]
+            else:
+                target_edge_type = listing_edges[0]
+            
+            pos_edge_index = graph[target_edge_type].edge_index
         else:
-            target_edge_type = listing_edges[0]
-        
-        pos_edge_index = graph[target_edge_type].edge_index
+            # Supervised Setup
+            self.predictor = nn.Linear(self.config["out_channels"], 1).to(self.device)
+            optimizer.add_param_group({'params': self.predictor.parameters()})
+            
+            y = y.float().to(self.device)
+            if train_mask is not None:
+                train_mask = train_mask.bool().to(self.device)
+            else:
+                train_mask = torch.ones(y.size(0), dtype=torch.bool, device=self.device)
         
         # Filter to only listing nodes and listing-to-listing edges
         x_dict_filtered = {"listing": graph["listing"].x}
@@ -188,18 +201,27 @@ class HGTEmbedder(BaseEmbedder):
             optimizer.zero_grad()
             z = self.model(x_dict_filtered, edge_index_dict_filtered)
             
-            # Link prediction loss
-            src, dst = pos_edge_index
-            pos_score = (z[src] * z[dst]).sum(dim=-1)
+            if y is None:
+                # Link prediction loss
+                src, dst = pos_edge_index
+                pos_score = (z[src] * z[dst]).sum(dim=-1)
+                
+                neg_src = torch.randint(0, z.size(0), (src.size(0),), device=self.device)
+                neg_dst = torch.randint(0, z.size(0), (dst.size(0),), device=self.device)
+                neg_score = (z[neg_src] * z[neg_dst]).sum(dim=-1)
+                
+                scores = torch.cat([pos_score, neg_score])
+                labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
+                
+                loss = F.binary_cross_entropy_with_logits(scores, labels)
+            else:
+                # Supervised loss
+                logits = self.predictor(z).squeeze(-1)
+                loss = F.binary_cross_entropy_with_logits(
+                    logits[train_mask], 
+                    y[train_mask]
+                )
             
-            neg_src = torch.randint(0, z.size(0), (src.size(0),), device=self.device)
-            neg_dst = torch.randint(0, z.size(0), (dst.size(0),), device=self.device)
-            neg_score = (z[neg_src] * z[neg_dst]).sum(dim=-1)
-            
-            scores = torch.cat([pos_score, neg_score])
-            labels = torch.cat([torch.ones_like(pos_score), torch.zeros_like(neg_score)])
-            
-            loss = F.binary_cross_entropy_with_logits(scores, labels)
             loss.backward()
             optimizer.step()
             

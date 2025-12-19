@@ -262,11 +262,15 @@ class SingleTrainingPipeline:
             
             # GRAPH_FEATURES_XGBOOST uses same classifier but with graph features added to data
         
+        # Check if supervised GNN training is enabled (default: True)
+        supervised_gnn = self.cfg["model"].get("gnn", {}).get("supervised", True)
+        
         return HybridPipeline(
             variant=self.variant,
             graph_builder=graph_builder,
             embedder=embedder,
             classifier=classifier,
+            supervised_gnn=supervised_gnn,
         )
     
     def _run_shap_analysis(
@@ -480,10 +484,11 @@ class ExpandingWindowPipeline:
                 test_start = train_end + timedelta(days=self.gap_days)
                 test_mask = (inference_df[time_col] > test_start) & (inference_df[time_col] <= test_end)
                 probs = all_probs[test_mask.to_numpy()]
+                # Get labels from the same filtered data to ensure alignment
+                labels = inference_df.filter(test_mask)[FEATURE_SCHEMA.target].to_numpy()
             else:
                 probs = pipeline.predict(test_df, None)
-            
-            labels = test_df[FEATURE_SCHEMA.target].to_numpy()
+                labels = test_df[FEATURE_SCHEMA.target].to_numpy()
             
             # Calculate metrics
             metrics = calculate_metrics(labels, probs, include_confusion_matrix=False)
@@ -546,11 +551,15 @@ class ExpandingWindowPipeline:
             # GNN embedder (GraphSAGE or HGT based on config)
             gnn_params = self.cfg["model"].get("gnn", {})
             embedder = _create_gnn_embedder(gnn_params)
-            
+        
+        # Check if supervised GNN training is enabled (default: True)
+        supervised_gnn = self.cfg["model"].get("gnn", {}).get("supervised", True)
+        
         return HybridPipeline(
             variant=self.variant,
             graph_builder=graph_builder,
             embedder=embedder,
             classifier=classifier,
+            supervised_gnn=supervised_gnn,
         )
 

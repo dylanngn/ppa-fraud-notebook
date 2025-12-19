@@ -54,6 +54,7 @@ class HybridPipeline(HybridFraudDetector):
         graph_builder: Optional[HeterogeneousGraphBuilder] = None,
         embedder: Optional[BaseEmbedder] = None,
         classifier: BaseClassifier = None,
+        supervised_gnn: bool = True,
     ):
         """
         Initialize pipeline.
@@ -63,11 +64,14 @@ class HybridPipeline(HybridFraudDetector):
             graph_builder: For graph construction (required for GNN variant)
             embedder: GNN embedder (required for GNN variant)
             classifier: XGBoost classifier (required for all variants)
+            supervised_gnn: If True, use fraud labels for GNN training (node classification).
+                           If False, use self-supervised link prediction.
         """
         self.variant = variant
         self.graph_builder = graph_builder
         self.embedder = embedder
         self.classifier = classifier
+        self.supervised_gnn = supervised_gnn
         
         # Categorical encoding state
         self.train_categoricals: Dict[str, pd.CategoricalDtype] = {}
@@ -153,7 +157,42 @@ class HybridPipeline(HybridFraudDetector):
         listing_features = graph["listing"].x
         
         # Fit GNN embedder
-        self.embedder.fit(graph, listing_features, train_mask=None)
+        # Extract labels for supervised training and align with graph nodes
+        y_node = None
+        train_mask = None
+        
+        if self.supervised_gnn and FEATURE_SCHEMA.target in train_df.columns:
+            node_mapping = getattr(graph, 'node_mappings', {}).get("listing", {})
+            num_nodes = graph["listing"].num_nodes
+            
+            # Initialize tensors
+            y_node = torch.zeros(num_nodes, dtype=torch.float32)
+            train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+            
+            # Create mapping: listing_id -> label
+            # Ensure we efficiently map using pandas/polars
+            target_col = FEATURE_SCHEMA.target
+            id_col = FEATURE_SCHEMA.temporal_config.insertion_id_column
+            
+            # Filter df to only rows with labels (should be all for train_df)
+            labeled_df = train_df.select([id_col, target_col]).drop_nulls()
+            
+            # Iterate and fill (could be optimized but loop is safe for now)
+            # For 40k nodes this is fast enough
+            for row in labeled_df.iter_rows(named=True):
+                lid = row[id_col]
+                label = row[target_col]
+                
+                if lid in node_mapping:
+                    idx = node_mapping[lid]
+                    y_node[idx] = float(label)
+                    train_mask[idx] = True
+            
+            logger.info(f"Supervised GNN: Found labels for {train_mask.sum().item()} / {num_nodes} nodes")
+        else:
+            logger.info("Self-supervised GNN: Using link prediction (no fraud labels)")
+        
+        self.embedder.fit(graph, listing_features, y=y_node, train_mask=train_mask)
         
         # Get embeddings for all nodes
         node_embeddings = self.embedder.transform(graph, listing_features)

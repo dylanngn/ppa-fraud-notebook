@@ -356,19 +356,21 @@ class FeatureSchema:
     def get_gnn_input_features(self) -> List[str]:
         """Get base GNN input features (before temporal encoding).
         
-        Uses raw SEON signals (booleans) and listing numeric features.
+        Uses raw SEON signals (booleans), SEON numeric, and listing numeric features.
         Does NOT use SEON scores (which are ML outputs, not raw features).
         """
-        # Use raw SEON boolean signals + listing numeric features
-        raw_seon_signals = list(self.seon_ip_boolean)  # data_center_proxy, residential_proxy, etc.
-        listing_features = list(self.listing_numeric_features[:6])
-        return raw_seon_signals + listing_features
+        # Enriched feature set per investigation recommendations
+        return (
+            list(self.all_seon_boolean) + 
+            list(self.all_seon_numeric) + 
+            list(self.listing_numeric_features)
+        )
     
     def get_gnn_temporal_feature_count(self) -> int:
         """Number of temporal encoding features added to GNN input."""
         # 7 features: days_since_start, relative_position, 
         # hour_sin, hour_cos, weekday_sin, weekday_cos, recency
-        return 7
+        return 8
     
     def get_gnn_total_input_dim(self) -> int:
         """Total GNN input dimension including temporal features."""

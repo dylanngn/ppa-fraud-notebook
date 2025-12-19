@@ -46,13 +46,18 @@ class HeteroGraphConfig:
     # Based on analysis: IP and Browser FP have positive signal
     # Device, Email, Phone, User have INVERSE signal (removed)
     temporal_identity_columns: List[str] = field(default_factory=lambda: [
-        "ip_hash",                    # 6.4% → 10.6% (positive)
-        "session/similarity_hash",    # 4.1% → 11.7% (positive, browser FP)
+        # Expanded identity set to let model learn weights
+        "ip_hash",
+        "session/device_hash",
+        "session/similarity_hash", 
+        "user_id_hash",
+        "LISTING_LISTER_EMAIL_hash",
+        "LISTING_LISTER_PHONE_hash",
     ])
     
     time_column: str = "DATAPIPELINE_EVENT_SENT_AT"
-    max_neighbors_per_edge_type: int = 50
-    min_entity_occurrences: int = 2
+    max_neighbors_per_edge_type: int = 100
+    min_entity_occurrences: int = 1
     add_reverse_edges: bool = True
 
 
@@ -137,9 +142,30 @@ class HeterogeneousGraphBuilder:
         available_cols = [c for c in listing_feature_cols if c in df.columns]
         
         if available_cols and self.config.primary_id_column in df.columns:
+            # Smart Aggregation Strategy
+            # 1. SEON Booleans (signals) -> MAX (did it ever happen?)
+            # 2. SEON Numerics (counts) -> MEAN (average behavior)
+            # 3. Listing Numerics (static) -> FIRST (property of listing)
+            
+            agg_exprs = []
+            seon_bools = set(FEATURE_SCHEMA.all_seon_boolean)
+            seon_nums = set(FEATURE_SCHEMA.all_seon_numeric)
+            
+            for col in available_cols:
+                if col in seon_bools:
+                    agg_exprs.append(pl.col(col).max().alias(col))
+                elif col in seon_nums:
+                    agg_exprs.append(pl.col(col).mean().alias(col))
+                else:
+                    # Default/Listing features -> First
+                    agg_exprs.append(pl.col(col).first().alias(col))
+            
+            # Additional feature: Event count (proxy for velocity/updates)
+            agg_exprs.append(pl.len().alias("event_count"))
+            
             listing_features = (
                 df.group_by(self.config.primary_id_column)
-                .first()
+                .agg(agg_exprs)
                 .sort(self.config.primary_id_column)
             )
             
@@ -148,8 +174,12 @@ class HeterogeneousGraphBuilder:
             for j in range(x.shape[1]):
                 mask = np.isnan(x[:, j])
                 if mask.any():
-                    median = np.nanmedian(x[:, j])
-                    x[mask, j] = median if not np.isnan(median) else 0.0
+                    # If column is all NaNs, fill with 0.0 directly to avoid RuntimeWarning from nanmedian
+                    if mask.all():
+                        x[:, j] = 0.0
+                    else:
+                        median = np.nanmedian(x[:, j])
+                        x[mask, j] = median if not np.isnan(median) else 0.0
             
             # Add temporal encoding features
             temporal_features = self._compute_temporal_features(df, listing_features)
@@ -260,6 +290,8 @@ class HeterogeneousGraphBuilder:
                 weekday_sin,
                 weekday_cos,
                 recency,
+                # Feature 8: Event Count (log normalized)
+                np.log1p(listing_features["event_count"].to_numpy()),
             ]).astype(np.float32)
             
             return temporal_features
