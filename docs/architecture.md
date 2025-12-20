@@ -91,7 +91,7 @@ This framework implements a hybrid fraud detection system combining:
   │   │  • Linear baseline      │         │  • Tree ensemble        │                │
   │   │  • Fast training        │         │  • 100 trees            │                │
   │   │  • Interpretable        │         │  • max_depth: 10        │                │
-  │   │  • AUC-PR: 0.49         │         │  • AUC-PR: 0.59         │                │
+  │   │  • AUC-PR: 0.5099       │         │  • AUC-PR: 0.5646       │                │
   │   └─────────────────────────┘         └─────────────────────────┘                │
   │                                                                                   │
   └───────────────────────────────────────────────────────────────────────────────────┘
@@ -106,11 +106,11 @@ This framework implements a hybrid fraud detection system combining:
   │   │                                                                             ││
   │   │   ┌─────────────────┐                                                       ││
   │   │   │ Base Features   │ ──────────► ┌─────────────┐ ──────► Fraud            ││
-  │   │   │ (71 features)   │             │  XGBoost    │         Probability       ││
+  │   │   │ (65 features)   │             │  XGBoost    │         Probability       ││
   │   │   └─────────────────┘             └─────────────┘                           ││
   │   │                                                                             ││
-  │   │   • AUC-PR: 0.8250                                                          ││
-  │   │   • Precision@0.5: 78.5%                                                    ││
+  │   │   • AUC-PR: 0.6639                                                          ││
+  │   │   • Precision@0.5: 67.51%                                                   ││
   │   │   • Fast training (~30s)                                                    ││
   │   └─────────────────────────────────────────────────────────────────────────────┘│
   │                                                                                   │
@@ -120,12 +120,12 @@ This framework implements a hybrid fraud detection system combining:
   │   │                                                                             ││
   │   │   ┌─────────────────┐                                                       ││
   │   │   │ Base Features   │─────────┐                                             ││
-  │   │   │ (71 features)   │         │                                             ││
+  │   │   │ (65 features)   │         │                                             ││
   │   │   └─────────────────┘         │                                             ││
   │   │                               ▼                                             ││
   │   │   ┌─────────────────┐    ┌─────────────┐    ┌─────────────┐                ││
   │   │   │ Heterogeneous   │───►│  GraphSAGE  │───►│ Embeddings  │────┐           ││
-  │   │   │ Graph (20M edges)│    │  (2 layers) │    │ (16 dims)   │    │           ││
+  │   │   │ Graph (31M edges)│    │  (2 layers) │    │ (16 dims)   │    │           ││
   │   │   └─────────────────┘    └─────────────┘    └─────────────┘    │           ││
   │   │                                                                │           ││
   │   │                               ┌────────────────────────────────┘           ││
@@ -133,12 +133,12 @@ This framework implements a hybrid fraud detection system combining:
   │   │                               ▼                                             ││
   │   │                    ┌───────────────────────┐    ┌─────────────┐             ││
   │   │                    │  Combined Features    │───►│  XGBoost    │──► Fraud   ││
-  │   │                    │  (87 = 71 + 16)       │    │             │    Prob.   ││
+  │   │                    │  (81 = 65 + 16)       │    │             │    Prob.   ││
   │   │                    └───────────────────────┘    └─────────────┘             ││
   │   │                                                                             ││
-  │   │   • AUC-PR: 0.8233                                                          ││
-  │   │   • Precision@0.5: 79.2% (+0.8%)                                            ││
-  │   │   • Catches 12 more fraud cases                                             ││
+  │   │   • AUC-PR: 0.6990                                                          ││
+  │   │   • Precision@0.5: 72.41% (+7.3%)                                           ││
+  │   │   • 18.5% fewer false positives                                             ││
   │   │   • Slower training (~5min)                                                 ││
   │   └─────────────────────────────────────────────────────────────────────────────┘│
   │                                                                                   │
@@ -504,7 +504,7 @@ class FeatureStore:
 | Listing Numeric | 10 | `LISTING_PRICES_RENT_NET`, `LISTING_CHARACTERISTICS_NUMBEROFROOMS` |
 | Listing Categorical | 7 | `LISTING_OFFERTYPE`, `LISTING_CATEGORIES` |
 | Temporal | 4 | `event_hour`, `event_weekday`, `event_is_weekend` |
-| **Total Base** | **~71** | - |
+| **Total Base** | **65** | - |
 | GNN Embeddings | 16-64 | `gnn_emb_0`, `gnn_emb_1`, ... |
 
 ### 6.4 Feature Flow Diagram
@@ -543,7 +543,7 @@ class FeatureStore:
   │    │  ─────────────────                      ───────────────                   │ │
   │    │                                                                           │ │
   │    │  ┌─────────────────────┐                ┌─────────────────────┐          │ │
-  │    │  │ Base Features (66)  │                │ Base Features (66)  │          │ │
+  │    │  │ Base Features (65)  │                │ Base Features (65)  │          │ │
   │    │  │ • SEON Boolean (21) │                │ • SEON Boolean (21) │          │ │
   │    │  │ • SEON Categ. (12)  │                │ • SEON Categ. (12)  │          │ │
   │    │  │ • (No SEON Scores)  │                │ • (No SEON Scores)  │          │ │
@@ -559,7 +559,7 @@ class FeatureStore:
   │    │           │                                        │                      │ │
   │    │           ▼                                        ▼                      │ │
   │    │  ┌─────────────────────┐                ┌─────────────────────┐          │ │
-  │    │  │ Total: 71 features  │                │ Total: 87 features  │          │ │
+  │    │  │ Total: 65 features  │                │ Total: 81 features  │          │ │
   │    │  └─────────────────────┘                └─────────────────────┘          │ │
   │    └───────────────────────────────────────────────────────────────────────────┘ │
   └──────────────────────────────────────────────────────────────────────────────────┘
@@ -861,7 +861,7 @@ class HybridPipeline:
   │  ─────────────────────────────────────────────────────────────────────────────  │
   │                                                                                  │
   │   ┌───────────────────────────────┐    ┌───────────────────────────────┐       │
-  │   │   Base Features (66 cols)     │ +  │   GNN Embeddings (16 cols)    │       │
+  │   │   Base Features (65 cols)     │ +  │   GNN Embeddings (16 cols)    │       │
   │   │   • Raw SEON signals          │    │   • gnn_emb_0 ... gnn_emb_15  │       │
   │   │   • Listing attributes        │    │   • Network patterns encoded  │       │
   │   │   • Temporal features         │    │   • Fraud ring signals        │       │
@@ -869,7 +869,7 @@ class HybridPipeline:
   │                                    │                                            │
   │                                    ▼                                            │
   │                    ┌───────────────────────────────┐                           │
-  │                    │   Combined: 87 features       │                           │
+  │                    │   Combined: 81 features       │                           │
   │                    └───────────────────────────────┘                           │
   └─────────────────────────────────────────────────────────────────────────────────┘
                                        │
@@ -905,7 +905,7 @@ class HybridPipeline:
            │                           │
            ▼                           ▼
   ┌─────────────────────────────────────────────────────────────────────────────────┐
-  │   Base Features + GNN Embeddings → Combined Features (87)                       │
+  │   Base Features + GNN Embeddings → Combined Features (81)                       │
   └─────────────────────────────────────────────────────────────────────────────────┘
                                        │
                                        ▼
@@ -1338,7 +1338,7 @@ make hpo-gnn-with-best-xgb
   │                └───────────────────────┼───────────────────────┘                 │
   │                                        ▼                                         │
   │                          ┌────────────────────────┐                             │
-  │                          │  Combined: 71 features │                             │
+  │                          │  Combined: 65 features │                             │
   │                          └────────────────────────┘                             │
   └─────────────────────────────────────────────────────────────────────────────────┘
         │
