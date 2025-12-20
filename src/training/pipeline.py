@@ -483,7 +483,8 @@ class ExpandingWindowPipeline:
                 all_probs = pipeline.predict(inference_df, inference_graph)
                 test_start = train_end + timedelta(days=self.gap_days)
                 test_mask = (inference_df[time_col] > test_start) & (inference_df[time_col] <= test_end)
-                probs = all_probs[test_mask.to_numpy()]
+                test_indices = test_mask.to_numpy()
+                probs = all_probs[test_indices]
                 # Get labels from the same filtered data to ensure alignment
                 labels = inference_df.filter(test_mask)[FEATURE_SCHEMA.target].to_numpy()
             else:

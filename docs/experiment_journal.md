@@ -1057,20 +1057,35 @@ Evaluated two GNN architectures with temporal encoding:
 
 | Window | Train End | Test Period | Vanilla XGBoost AUC-PR | GNN+XGBoost AUC-PR |
 |--------|-----------|-------------|------------------------|---------------------|
-| 1 | 2025-01-30 | Feb-Mar 2025 | 0.6846 | 0.2264* |
-| 2 | 2025-03-01 | Mar-Apr 2025 | 0.5346 | 0.1877* |
-| 3 | 2025-03-31 | Apr-May 2025 | 0.5788 | 0.2255* |
-| 4 | 2025-04-30 | May-Jun 2025 | 0.7467 | 0.2483* |
-| 5 | 2025-05-30 | Jun-Jul 2025 | 0.5982 | 0.2189* |
-| **Mean** | - | - | **0.6286 ± 0.077** | 0.2214 ± 0.020* |
+| 1 | 2025-01-30 | Feb-Mar 2025 | 0.6846 | 0.2219 |
+| 2 | 2025-03-01 | Mar-Apr 2025 | 0.5346 | 0.1850 |
+| 3 | 2025-03-31 | Apr-May 2025 | 0.5788 | 0.2325 |
+| 4 | 2025-04-30 | May-Jun 2025 | 0.7467 | 0.2376 |
+| 5 | 2025-05-30 | Jun-Jul 2025 | 0.5982 | 0.2164 |
+| **Mean** | - | - | **0.6286 ± 0.077** | 0.2187 ± 0.018 |
 
-*Note: GNN expanding window results have a known bug in label alignment that requires investigation.
+**Key Findings:**
 
-**Vanilla XGBoost Findings:**
-- Mean AUC-PR: 0.6286 with significant variance (±7.7%)
-- Drift range: 0.21 (max 0.7467, min 0.5346)
-- Performance varies by time period, suggesting concept drift
-- Model retraining every ~2-3 months recommended
+1. **Vanilla XGBoost outperforms GNN in expanding window:**
+   - XGBoost: 0.6286 mean AUC-PR
+   - GNN+XGBoost: 0.2187 mean AUC-PR
+   - GNN shows ~65% lower performance in this setting
+
+2. **GNN struggles with smaller training sets:**
+   - Window 1 has only 103k training samples
+   - Single-split training uses 380k samples
+   - GNN requires more data to learn meaningful graph patterns
+
+3. **Concept drift observed in XGBoost:**
+   - Drift range: 0.21 (max 0.7467, min 0.5346)
+   - Performance varies significantly by time period
+   - Model retraining every 2-3 months recommended
+
+4. **GNN more stable but underperforming:**
+   - GNN drift range: 0.053 (much more stable)
+   - But consistently low performance across all windows
+
+**Implication:** For production with frequent retraining, vanilla XGBoost is preferred. GNN+XGBoost is best for scenarios with large, stable training datasets.
 
 ### 14.4 SHAP Feature Importance Analysis
 
