@@ -1,0 +1,59 @@
+\section{Real-Time Inference Design}
+\label{sec:3_11}
+
+Operational deployment requires real-time scoring of new listings as they are submitted. This section details the streaming architecture and API service design.
+
+\subsection{Streaming Architecture}
+
+\textbf{Event Ingestion:} New listing events stream from the marketplace platform via message queue. Each event contains listing attributes and SEON transaction data from the submission-time fraud check.
+
+\textbf{Graph Update Strategy:} Two approaches were evaluated:
+
+\textit{Batch Graph Reconstruction:} Rebuild the full graph periodically (daily/weekly) incorporating new listings. Simple but introduces latency---new listings lack graph context until the next rebuild.
+
+\textit{Incremental Graph Updates:} Add new listing nodes and edges in real-time as events arrive. The internal event store tracks entity-to-listing mappings, enabling immediate edge creation when a new listing shares a device/IP/email with existing listings.
+
+The incremental approach is implemented for production, with batch reconstruction as fallback for consistency validation.
+
+\subsection{API Service Design}
+
+\textbf{FastAPI Microservice:} The inference service exposes REST endpoints for integration with the marketplace platform:
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
+POST /predict
+  Input: EventPayload (listing attributes + SEON signals)
+  Output: PredictResponse (fraud probability, risk factors)
+
+POST /ingest
+  Input: EventPayload
+  Output: IngestResponse (confirmation, graph update status)
+\end{lstlisting}
+
+\textbf{Internal Event Store:} An in-memory store tracks recent events for graph-like feature computation:
+\begin{itemize}
+    \item Entity-to-listing mappings (device $\rightarrow$ listings, IP $\rightarrow$ listings, etc.)
+    \item Enables \texttt{count\_related(entity\_type, value)} queries.
+    \item Supports incremental graph context without full graph access.
+\end{itemize}
+
+\textbf{Prediction Flow:}
+\begin{enumerate}
+    \item Extract tabular features from event payload.
+    \item Query event store for graph-like counts (device links, IP links).
+    \item If GNN mode: generate embedding using cached GNN model.
+    \item Concatenate features, score with XGBoost.
+    \item Generate SHAP explanation for risk factors.
+    \item Return probability with top contributing features.
+\end{enumerate}
+
+\subsection{Latency Considerations}
+
+\textbf{Embedding Precomputation vs Real-Time:} Full GNN inference on the 31M-edge graph is computationally expensive. Two strategies address latency:
+
+\textit{Precomputed Embeddings:} Generate embeddings for all known listings in batch. New listings without precomputed embeddings use neighbor-averaged embeddings or tabular-only scoring.
+
+\textit{Graph-Like Feature Approximation:} Replace relational pattern representations with count-based features (number of device links, IP links) computable in $O(1)$ from the event store. This sacrifices some accuracy for guaranteed low latency.
+
+\textbf{Production Recommendation:} Deploy with graph-like count features for real-time scoring (sub-100ms latency), with full GNN inference in batch for periodic model retraining and historical analysis.
+
+The inference infrastructure enables the pattern-based fraud detection developed in this research to operate in production with acceptable latency while maintaining the ability to leverage graph structure for improved detection.

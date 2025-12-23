@@ -1,0 +1,30 @@
+\section{Interpretability Analysis}
+\label{sec:3_10}
+
+\subsection{SHAP for XGBoost}
+
+SHAP (SHapley Additive exPlanations) provides theoretically grounded feature attribution for model interpretability.
+
+\textbf{TreeSHAP Implementation:} XGBoost's tree structure enables exact Shapley value computation in polynomial time via TreeSHAP. For each prediction, SHAP computes the contribution of each feature to the deviation from the base prediction:
+
+\begin{equation}
+f(x) = \phi_0 + \sum_{i=1}^{M} \phi_i
+\end{equation}
+
+where $\phi_0$ is the base value (average prediction) and $\phi_i$ is feature $i$'s contribution.
+
+\textbf{Global Explanations:} Aggregated across the dataset to identify overall feature importance:
+\begin{itemize}
+    \item Mean $|SHAP|$ value per feature $\rightarrow$ importance ranking.
+    \item Beeswarm plots showing feature impact distributions.
+    \item Feature interaction analysis for combined effects.
+\end{itemize}
+
+\textbf{Local Explanations:} Individual prediction decomposition for fraud analyst support:
+\begin{itemize}
+    \item Waterfall plots showing feature contributions for specific flagged listings.
+    \item Force plots visualizing push/pull factors.
+    \item Enables investigation prioritization based on fraud indicators.
+\end{itemize}
+
+\textbf{GNN Embedding Contribution:} The 16 GNN embedding dimensions (\texttt{gnn\_emb\_0} through \texttt{gnn\_emb\_15}) are treated as features in SHAP analysis. Summing their SHAP contributions quantifies the aggregate value of relational patterns relative to tabular features, directly addressing RQ1 (whether graph patterns provide predictive signal).

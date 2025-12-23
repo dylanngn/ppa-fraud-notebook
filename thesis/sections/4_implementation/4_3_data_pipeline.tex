@@ -1,0 +1,29 @@
+\section{Data Pipeline Implementation}
+\label{sec:4_3}
+
+\subsection{ETL Pipeline}
+\label{sec:4_3_1}
+
+The ETL pipeline processes raw data sources into analysis-ready format using Polars for memory-efficient operations. The pipeline uses Polars lazy evaluation for streaming processing on commodity hardware. The critical \texttt{correlate\_events\_to\_seon} function matches each event to its closest SEON fraud score transaction using bidirectional as-of joins: (1) a forward join finds the nearest SEON record after the event timestamp, (2) a backward join finds the nearest SEON record before the event, and (3) the results are merged with preference for forward matches. This ensures each event is paired with temporally-proximate fraud signals while handling edge cases where SEON data may be missing before or after specific events. Complete implementation is provided in Appendix~B.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_4_4_2_1.png}
+    \caption{ETL Pipeline Flow: Extract → Transform → Load}
+    \label{fig:4_2}
+\end{figure}
+
+\textbf{Datetime Standardization:} Two source formats are normalized:
+\begin{itemize}
+    \item Events: \texttt{\%Y-\%m-\%d \%H:\%M:\%S\%.\%f \%z}
+    \item SEON: \texttt{\%Y-\%m-\%dT\%H:\%M:\%S\%.\%f\%z}
+\end{itemize}
+
+\textbf{PII Anonymization:} Identity columns are hashed before any analysis using HMAC-SHA256 with type-specific salts. The implementation in \texttt{src/utils/anonymize.py} handles component-based anonymization for emails (user/domain), phones (country/area/number), IPs (network/host), and addresses.
+
+Output Parquet files use Snappy compression, reducing storage by $\sim$70\% while maintaining fast read performance.
+
+\subsection{Temporal Splitting}
+\label{sec:4_3_2}
+
+The \texttt{TemporalSplitter} class implements point-in-time label assignment to prevent label leakage. Only fraud flags occurring before the cutoff date are assigned as positive labels, ensuring temporal integrity of the training and test sets.

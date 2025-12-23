@@ -1,0 +1,319 @@
+\documentclass[11pt,a4paper]{report}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage[style=ieee,backend=biber]{biblatex}
+\usepackage{hyperref}
+\usepackage{bookmark}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{subcaption}
+\usepackage{booktabs}
+
+% Professional formatting packages
+\usepackage[margin=2.5cm]{geometry}  % 1 inch margins (2.5cm)
+\usepackage{setspace}                 % Line spacing control
+\usepackage{microtype}                % Better typography and spacing
+\usepackage{titlesec}                 % Customizable section headings
+\usepackage{titletoc}                 % Table of contents formatting
+\usepackage{ragged2e}                 % Better text alignment control
+\usepackage{needspace}                 % Prevent page breaks before sections
+\usepackage{afterpage}                 % Better page break control
+\usepackage{enumitem}                 % Better list formatting
+
+% Professional font: Times New Roman (standard for academic theses)
+% Use times package and ensure it's the default font family
+\usepackage{times}
+\renewcommand{\rmdefault}{ptm}  % Times Roman as default roman font
+\renewcommand{\sfdefault}{phv}   % Helvetica as default sans-serif
+\renewcommand{\ttdefault}{pcr}   % Courier as default typewriter
+
+% ============================================================================
+% LINE SPACING: Consistent 1.5x spacing throughout
+% ============================================================================
+\onehalfspacing
+
+% ============================================================================
+% PARAGRAPH FORMATTING: Standard academic indentation
+% ============================================================================
+\setlength{\parindent}{0.4in}  % Standard paragraph indent
+\setlength{\parskip}{0pt}      % No space between paragraphs
+
+% ============================================================================
+% TEXT ALIGNMENT: Left-aligned for readability
+% ============================================================================
+% Ensure Times font is used consistently for body text
+\rmfamily
+\RaggedRight
+
+% ============================================================================
+% ORPHAN/WIDOW CONTROL
+% ============================================================================
+\widowpenalty=10000
+\clubpenalty=10000
+\displaywidowpenalty=10000
+\brokenpenalty=10000
+\interlinepenalty=100
+\predisplaypenalty=10000
+\postdisplaypenalty=0
+\sloppy
+\setlength{\emergencystretch}{2em}
+
+% ============================================================================
+% PAGE STYLING
+% ============================================================================
+\pagestyle{plain}
+
+% ============================================================================
+% HYPERREF CONFIGURATION
+% ============================================================================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue,
+    pdfborder={0 0 0}
+}
+
+% ============================================================================
+% SECTION HEADING FORMATTING: Consistent font sizes
+% ============================================================================
+% Chapter: 16pt bold, minimal spacing to avoid page breaks (ensure Times font)
+\titleformat{\chapter}
+  {\rmfamily\fontsize{16}{20}\bfseries\selectfont}
+  {\thechapter}{1em}{}
+\titlespacing*{\chapter}{0pt}{15pt}{10pt}
+
+% Section: 14pt bold, minimal spacing to avoid page breaks (ensure Times font)
+\titleformat{\section}
+  {\rmfamily\fontsize{14}{18}\bfseries\selectfont}
+  {\thesection}{1em}{}
+\titlespacing*{\section}{0pt}{0.8ex plus 0.2ex minus .1ex}{0.6ex plus .1ex}
+
+% Subsection: 12pt bold, consistent spacing (ensure Times font)
+\titleformat{\subsection}
+  {\rmfamily\fontsize{12}{16}\bfseries\selectfont}
+  {\thesubsection}{1em}{}
+\titlespacing*{\subsection}{0pt}{0.8ex plus 0.3ex minus .1ex}{0.8ex plus .1ex}
+
+% Prevent page breaks immediately after section headings
+% Also ensure font resets to Times after section headings (outside math mode)
+\makeatletter
+\let\old@section\section
+\renewcommand{\section}[1]{\needspace{2.5\baselineskip}\old@section{#1}\@ifmmode{}{\rmfamily\selectfont}}
+\let\old@subsection\subsection
+\renewcommand{\subsection}[1]{\needspace{2.5\baselineskip}\old@subsection{#1}\@ifmmode{}{\rmfamily\selectfont}}
+\makeatother
+
+% ============================================================================
+% TABLE OF CONTENTS FORMATTING
+% ============================================================================
+\titlecontents{chapter}
+  [0pt]
+  {\addvspace{1pc}\bfseries}
+  {\contentslabel{1.5em}}
+  {\hspace*{-1.5em}}
+  {\titlerule*[.5pc]{.}\contentspage}
+
+% ============================================================================
+% TABLE AND FIGURE FORMATTING
+% ============================================================================
+\renewcommand{\arraystretch}{1.15}  % Slightly reduced for better density
+\setlength{\abovecaptionskip}{8pt}
+\setlength{\belowcaptionskip}{8pt}
+
+% Ensure figures and tables are properly centered
+\makeatletter
+\g@addto@macro\@floatboxreset\centering
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.15}
+\renewcommand{\floatpagefraction}{0.7}
+\makeatother
+
+% ============================================================================
+% LIST FORMATTING: Consistent spacing
+% ============================================================================
+\setlist{
+    leftmargin=*,
+    itemsep=0.2em,
+    parsep=0pt,
+    topsep=0.3em,
+    before=\needspace{2\baselineskip}
+}
+
+% ============================================================================
+% CODE LISTING CONFIGURATION: Professional styling (improved)
+% ============================================================================
+\lstset{
+    basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont,  % Minimum 11pt font
+    keywordstyle=\color{blue!70!black}\bfseries,
+    commentstyle=\color{green!50!black}\itshape,
+    stringstyle=\color{red!70!black},
+    numbers=left,
+    numberstyle=\fontsize{11}{13.2}\selectfont\color{gray!70},
+    stepnumber=1,
+    numbersep=4pt,
+    backgroundcolor=\color{gray!8},
+    frame=leftline,  % Left border only for cleaner look
+    framerule=1pt,
+    rulecolor=\color{gray!40},
+    breaklines=true,
+    breakatwhitespace=true,
+    breakindent=0pt,
+    tabsize=2,
+    showstringspaces=false,
+    captionpos=b,
+    aboveskip=6pt,
+    belowskip=6pt,
+    xleftmargin=12pt,  % Left margin for line numbers
+    xrightmargin=4pt
+}
+
+% Ensure font resets properly after code blocks and inline code
+\makeatletter
+% Fix lstlisting to reset font after use (prevents font breakage)
+\let\oldlstlisting\lstlisting
+\let\oldendlstlisting\endlstlisting
+\renewenvironment{lstlisting}[1][]
+  {\oldlstlisting[#1]}
+  {\oldendlstlisting\rmfamily\selectfont\normalsize}
+
+% Ensure verbatim resets font (if any remain)
+\let\oldverbatim\verbatim
+\let\oldendverbatim\endverbatim
+\renewenvironment{verbatim}
+  {\oldverbatim}
+  {\oldendverbatim\rmfamily\selectfont\normalsize}
+
+% Ensure \texttt properly resets to Times after use (grouped to prevent font leakage)
+\let\oldtexttt\texttt
+\renewcommand{\texttt}[1]{{\ttfamily\selectfont #1}\rmfamily\selectfont}
+
+% Force Times font at document start and after each section
+\AtBeginDocument{\rmfamily\selectfont}
+\makeatother
+
+% ============================================================================
+% ABSTRACT FORMATTING: Title same size as content
+% ============================================================================
+% Make "ABSTRACT" title the same size as content (11pt instead of default larger size)
+\renewcommand{\abstractname}{\normalsize\bfseries ABSTRACT}
+
+\let\oldabstract\abstract
+\let\endoldabstract\endabstract
+\renewenvironment{abstract}
+  {\oldabstract\onehalfspacing\setlength{\parindent}{0pt}\setlength{\parskip}{0.6em}\rmfamily\fontsize{11}{13.2}\selectfont}
+  {\endoldabstract}
+
+% ============================================================================
+% REMOVE PARAGRAPH INDENTATION AFTER HEADINGS
+% ============================================================================
+\makeatletter
+\@afterheading
+\makeatother
+
+% ============================================================================
+% BIBLIOGRAPHY
+% ============================================================================
+\addbibresource{bib/references.bib}
+
+% ============================================================================
+% TITLE PAGE INFORMATION
+% ============================================================================
+\title{Fraud Detection in Online Real Estate Marketplaces\\Utilizing a Hybrid Graph and Gradient Boosting Model}
+\author{Nguyen Hoang Minh}
+\date{December 22, 2024}
+
+% Additional title page information
+\newcommand{\studentid}{24MSE23152}
+\newcommand{\degreeprogram}{Master of Software Engineering}
+\newcommand{\supervisor}{Professor Doan Xuan Huy Minh, Ph.D.}
+\newcommand{\institution}{FPT School of Business and Technology}
+\newcommand{\academicyear}{2024--2025}
+
+\begin{document}
+
+% ============================================================================
+% TITLE PAGE: Compact, fits on one page
+% ============================================================================
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+
+% Title
+{\fontsize{18}{22}\bfseries Fraud Detection in Online Real Estate Marketplaces}\\[0.4cm]
+{\fontsize{18}{22}\bfseries Utilizing a Hybrid Graph and Gradient Boosting Model}\\[1.5cm]
+
+% Degree statement
+{\fontsize{12}{14} A Thesis Submitted in Partial Fulfillment of the\\Requirements for the Degree of}\\[0.4cm]
+{\fontsize{14}{18}\bfseries \degreeprogram}\\[1.2cm]
+
+% Author
+{\fontsize{12}{14} Submitted by}\\[0.3cm]
+{\fontsize{14}{18}\bfseries Nguyen Hoang Minh}\\[0.2cm]
+{\fontsize{11}{13.2} Student ID: \studentid}\\[1.2cm]
+
+% Supervisor
+{\fontsize{12}{14} Supervised by}\\[0.3cm]
+{\fontsize{13}{17} \supervisor}\\[1.2cm]
+
+% Institution
+{\fontsize{12}{14} \institution}\\[0.2cm]
+{\fontsize{12}{14} Academic Year \academicyear}\\[1cm]
+
+\vfill
+
+\end{titlepage}
+
+\newpage
+
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+\begin{abstract}
+Online marketplace fraud causes significant financial losses and erodes user trust. This thesis investigates graph-based fraud pattern discovery in real estate marketplaces, analyzing 804,717 listing events from Swiss Marketplace Group to identify relational fraud signatures and validate their predictive value.
+
+We construct a heterogeneous graph with 31 million edges encoding entity-sharing relationships (device fingerprints, IP addresses, emails, phones) and apply Graph Neural Network-based pattern extraction combined with XGBoost classification. Exploratory analysis reveals distinctive fraud ring structures: super-connector devices (35.5\% fraud rate versus 8.11\% baseline), geographic clustering (West African origins showing 60--90\% fraud rates), and temporal signatures (6--7 AM activity peaks, February 2025 spike).
+
+Model comparison across three independent runs shows GNN+XGBoost achieves mean AUC-PR of 0.733 $\pm$ 0.058, comparable to tabular-only XGBoost (0.733 $\pm$ 0.063), with marginal improvement of 0.08\%. Cross-validation reveals substantial performance degradation (mean 0.28 AUC-PR, 62\% drop) due to temporal distribution shift and decreasing fraud rates (1.97\% to 0.63\%), validating the need for frequent retraining in production deployment. While GNN embeddings contribute 17.3\% of feature importance (SHAP analysis), the primary predictive signal derives from tabular features (82.7\%). Critically, expanding window validation reveals catastrophic GNN degradation (0.22 AUC-PR, 70\% performance loss) under temporal distribution shift, compared to vanilla XGBoost's temporal robustness (0.63 AUC-PR, 86\% retention). This temporal instability limits GNN practical deployment despite supplementary signal in fixed-split evaluation.
+
+Comparison of GNN architectures (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal, though all variants exhibit temporal brittleness. Expanding window analysis establishes that graph patterns require $\sim$300K training samples for meaningful extraction and demonstrates vanilla XGBoost superiority for production deployment requiring frequent retraining. SHAP-based interpretability identifies screen resolution, payment mode, and listing category as top indicators, enabling fraud analyst prioritization through local explanation decomposition.
+
+This research demonstrates that while graph-based pattern discovery reveals fraud ring structures invisible to tabular analysis, the current GNN approach suffers from temporal instability that precludes production deployment. Vanilla XGBoost provides superior operational trade-offs (temporal robustness, computational efficiency), with GNN techniques better suited for offline fraud ring analysis than real-time classification.
+
+\textbf{Keywords:} fraud detection, graph neural networks, data mining, real estate marketplaces, pattern discovery, explainable AI
+\end{abstract}
+
+% Remove page breaks between TOC, LOF, LOT, and Abbreviations
+% Temporarily disable \cleardoublepage to allow continuous flow
+\let\oldcleardoublepage\cleardoublepage
+\renewcommand{\cleardoublepage}{}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\input{sections/abbreviations}
+
+% Restore \cleardoublepage for the rest of the document
+\let\cleardoublepage\oldcleardoublepage
+
+\input{sections/1_introduction}
+\input{sections/2_literature_review/main}
+\input{sections/3_methodology/main}
+\input{sections/4_implementation/main}
+\input{sections/5_results/main}
+\input{sections/6_conclusion/main}
+
+\printbibliography[title={References}]
+
+% Appendices
+\appendix
+\input{sections/appendix_a_configurations}
+\input{sections/appendix_b_implementations}
+
+\end{document}

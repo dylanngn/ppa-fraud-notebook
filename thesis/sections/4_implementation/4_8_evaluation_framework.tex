@@ -1,0 +1,126 @@
+\section{Evaluation Framework}
+\label{sec:4_8}
+
+The evaluation framework provides comprehensive model assessment through multiple metrics, temporal validation, drift detection, and baseline comparisons. Implementation resides in \texttt{src/evaluation/} and \texttt{src/utils/metrics.py}.
+
+\subsection{Metrics Implementation}
+\label{sec:4_8_1}
+
+The framework computes multiple evaluation metrics to capture different aspects of model performance:
+
+\textbf{Primary Metric: AUC-PR (Area Under Precision-Recall Curve)}
+
+AUC-PR is chosen as the primary metric due to severe class imbalance (8.11\% fraud rate). Unlike AUC-ROC, which can be misleadingly optimistic for imbalanced datasets, AUC-PR directly measures the trade-off between precision and recall across all classification thresholds \cite{saito2015precision,davis2006relationship}. The metric is computed using scikit-learn's \texttt{average\_precision\_score} function on model probability predictions. For comparison purposes, AUC-ROC is also calculated using \texttt{roc\_auc\_score}. Implementation details are provided in Appendix~B.
+
+\textbf{Precision@K: Operational Metric}
+
+Precision@K measures accuracy among the top-K highest-scored predictions, simulating a priority review queue. The implementation sorts predictions by descending score, selects the top-K instances, and computes the fraction of true positives within this set. We report Precision@50, @100, and @200, representing daily review capacities for fraud analysts. High precision@K enables effective prioritization of manual reviews. Complete implementation is provided in Appendix~B.
+
+\textbf{Additional Metrics:}
+
+\begin{itemize}
+    \item \textbf{Precision}: Positive predictive value at threshold 0.5
+    \item \textbf{Recall}: True positive rate (sensitivity)
+    \item \textbf{F1-Score}: Harmonic mean of precision and recall
+    \item \textbf{False Positive Rate}: Proportion of legitimate listings incorrectly flagged
+\end{itemize}
+
+\subsection{Expanding Window Validation}
+\label{sec:4_8_2}
+
+The \texttt{ExpandingWindowPipeline} class enables systematic temporal validation through multiple training windows:
+
+\textbf{Window Configuration:}
+\begin{itemize}
+    \item Window 1: Train on 100K samples, test on next month
+    \item Window 2: Train on 200K samples, test on next month
+    \item Window 3: Train on 300K samples, test on next month
+    \item Window 4: Train on 400K samples, test on next month
+\end{itemize}
+
+\textbf{Pipeline Execution:}
+
+The \texttt{ExpandingWindowPipeline} class iterates through window configurations, extracting training and test data for each period. For each window, the pipeline: (1) retrieves temporally-filtered data using configured start/end dates, (2) trains the model on the training window, (3) evaluates on the subsequent test period, and (4) records comprehensive metrics including window ID, dataset sizes, and performance scores (AUC-PR, Precision@K, etc.). Results are aggregated into a DataFrame for comparative analysis. Complete implementation is provided in Appendix~B.
+
+This approach reveals: (1) minimum data requirements for stable performance, (2) performance trends over time, (3) optimal retraining frequency.
+
+\subsection{Drift Detection Algorithms}
+\label{sec:4_8_3}
+
+The framework implements two drift detection algorithms to monitor prediction degradation in production. While DDM and ADWIN remain foundational methods, recent systematic reviews \cite{arora2024drift} highlight the evolution of drift detection toward unsupervised approaches and deep learning methods. We employ the established DDM/ADWIN baseline for their proven reliability and interpretability:
+
+\textbf{DDM (Drift Detection Method):}
+
+DDM tracks error rate evolution using a binomial distribution model \cite{gama2004learning}. When error rate significantly increases beyond historical baseline, a drift warning is triggered.
+
+\begin{algorithm}[H]
+\caption{DDM Drift Detection}
+\label{alg:ddm}
+\begin{algorithmic}[1]
+\REQUIRE Stream of predictions $\hat{y}_t$ and true labels $y_t$, warning threshold $\theta_w$, drift threshold $\theta_d$
+\ENSURE Drift status $\in \{\text{STABLE}, \text{WARNING}, \text{DRIFT}\}$
+\STATE Initialize error history: $\mathcal{E} \gets []$
+\FOR{each prediction $(\hat{y}_t, y_t)$ in stream}
+    \STATE Compute prediction error: $e_t \gets \mathbb{I}[\hat{y}_t \neq y_t]$
+    \STATE Append to history: $\mathcal{E} \gets \mathcal{E} \cup \{e_t\}$
+    \STATE Compute error rate: $p \gets \frac{1}{|\mathcal{E}|}\sum_{e \in \mathcal{E}} e$
+    \STATE Compute standard deviation: $s \gets \sqrt{\frac{p(1-p)}{|\mathcal{E}|}}$
+    \STATE Compute drift statistic: $\delta \gets p + s$
+    \IF{$\delta \geq \theta_d$}
+        \STATE Reset error history: $\mathcal{E} \gets []$
+        \RETURN DRIFT
+    \ELSIF{$\delta \geq \theta_w$}
+        \RETURN WARNING
+    \ELSE
+        \RETURN STABLE
+    \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{ADWIN (Adaptive Windowing):}
+
+ADWIN maintains a sliding window of recent predictions and detects drift when the distribution of errors changes between two sub-windows \cite{bifet2007learning}:
+
+\begin{algorithm}[H]
+\caption{ADWIN Drift Detection}
+\label{alg:adwin}
+\begin{algorithmic}[1]
+\REQUIRE Stream of predictions $\hat{y}_t$ and true labels $y_t$, confidence level $\delta$
+\ENSURE Drift status $\in \{\text{STABLE}, \text{DRIFT}\}$
+\STATE Initialize sliding window: $\mathcal{W} \gets []$
+\FOR{each prediction $(\hat{y}_t, y_t)$ in stream}
+    \STATE Compute prediction error: $e_t \gets \mathbb{I}[\hat{y}_t \neq y_t]$
+    \STATE Append to window: $\mathcal{W} \gets \mathcal{W} \cup \{e_t\}$
+    \FOR{each split point $i = 1$ to $|\mathcal{W}| - 1$}
+        \STATE Define sub-windows: $\mathcal{W}_1 \gets \mathcal{W}[1:i]$, $\mathcal{W}_2 \gets \mathcal{W}[i+1:|\mathcal{W}|]$
+        \STATE Compute means: $\mu_1 \gets \frac{1}{|\mathcal{W}_1|}\sum_{e \in \mathcal{W}_1} e$, $\mu_2 \gets \frac{1}{|\mathcal{W}_2|}\sum_{e \in \mathcal{W}_2} e$
+        \STATE Compute variance estimate: $\sigma^2 \gets \frac{\mu_1(1-\mu_1)}{|\mathcal{W}_1|} + \frac{\mu_2(1-\mu_2)}{|\mathcal{W}_2|}$
+        \STATE Compute threshold: $\epsilon_{cut} \gets \sqrt{\frac{2\sigma^2 \ln(2/\delta)}{m}}$ where $m = \frac{1}{\frac{1}{|\mathcal{W}_1|} + \frac{1}{|\mathcal{W}_2|}}$
+        \IF{$|\mu_1 - \mu_2| > \epsilon_{cut}$}
+            \STATE Drop old sub-window: $\mathcal{W} \gets \mathcal{W}_2$
+            \RETURN DRIFT
+        \ENDIF
+    \ENDFOR
+    \RETURN STABLE
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+Both algorithms run continuously on the production API, logging drift events to trigger retraining workflows. Complete Python implementations are provided in Appendix~B.
+
+\subsection{Baseline Comparisons}
+\label{sec:4_8_4}
+
+The framework includes two types of baseline comparisons:
+
+\textbf{Model Baselines:} Logistic Regression and Random Forest establish lower bounds for predictive performance. These simpler models quantify the benefit of gradient boosting and graph-based features.
+
+\textbf{SEON Baseline:} The existing SEON fraud detection system (using proprietary fraud\_score and blackbox\_score) serves as a production baseline. Comparison uses:
+\begin{itemize}
+    \item Same test set for fair evaluation
+    \item AUC-PR and Precision@K metrics
+    \item Statistical significance testing (DeLong test for AUC)
+\end{itemize}
+
+All baseline results are logged to MLflow for transparent comparison and reproducibility.

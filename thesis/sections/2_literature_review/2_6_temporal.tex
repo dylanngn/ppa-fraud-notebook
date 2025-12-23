@@ -1,0 +1,36 @@
+\section{Temporal Pattern Evolution}
+\label{sec:2_6}
+
+Fraud patterns are non-stationary. Fraudsters adapt tactics in response to detection, creating concept drift that degrades pattern validity over time. This section examines drift types and validation methodologies that preserve temporal integrity.
+
+\subsection{Concept Drift in Fraud Patterns}
+
+\citeauthor{gama2014survey} \cite{gama2014survey} established the foundational taxonomy of concept drift:
+
+\textbf{Sudden drift} occurs when fraud tactics change abruptly---fraud rings adopting new infrastructure after detection, or platforms deploying new countermeasures. Pattern validity may collapse overnight.
+
+\textbf{Gradual drift} manifests as slow tactical evolution. Fraudsters incrementally modify behavior to probe detection boundaries, creating moving targets for pattern discovery.
+
+\textbf{Recurring drift} captures cyclical patterns. Fraud activity often spikes during high-volume periods when detection systems are overwhelmed, then subsides when scrutiny increases.
+
+In adversarial domains, drift is deliberate adaptation rather than statistical noise. \citeauthor{dalpozzolo2017credit} \cite{dalpozzolo2017credit} termed this ``adversarial drift''---fraudsters observe blocked accounts, infer detection patterns, and modify approach. Effective pattern discovery must accommodate this co-evolutionary dynamic.
+
+\textbf{Adaptation strategies} divide into passive (periodic retraining regardless of detected drift) and active (drift detection triggering retraining). \citeauthor{krawczyk2017ensemble} \cite{krawczyk2017ensemble} found passive strategies often outperform sophisticated active methods in industrial settings due to operational simplicity. For fraud detection with delayed labels, active drift detection faces fundamental limitations as ground truth emerges days after transactions.
+
+\subsection{Temporal Validation Methodology}
+
+Standard cross-validation assumes independent, identically distributed samples---violated by temporal fraud data. Random splits allow future information to leak into training.
+
+\citeauthor{dalpozzolo2017credit} \cite{dalpozzolo2017credit} formalized temporal validation requirements:
+
+\textbf{Temporal ordering:} Training data must precede test data. No information from the test period---labels, features, graph structure---may influence training.
+
+\textbf{Point-in-time features:} Features must reflect information available at prediction time. Using post-hoc status (e.g., ``listing was deleted'') to predict fraud at submission constitutes label leakage.
+
+\textbf{Label maturation:} Fraud labels require time to stabilize. A gap period ensures training labels are mature while test predictions reflect realistic conditions.
+
+\textbf{Expanding window} validation trains on all data up to time t, tests on subsequent period, then expands training to include former test data and repeats. This simulates production retraining with accumulating history.
+
+\textbf{Sliding window} validation maintains fixed training window size, potentially better capturing recent patterns when older data becomes stale.
+
+This thesis employs expanding window validation, directly measuring how pattern validity evolves as training data accumulates---revealing the 300K sample threshold discussed in Chapter 5.

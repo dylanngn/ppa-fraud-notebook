@@ -1,0 +1,94 @@
+\section{Pattern Extraction: GNN Methodology}
+\label{sec:3_7}
+
+Graph Neural Networks serve as pattern extractors, learning representations that encode relational fraud signatures from the heterogeneous graph structure.
+
+\subsection{Architecture Comparison}
+
+Four GNN architectures were evaluated to identify optimal pattern extraction for this fraud detection context:
+
+\textbf{GraphSAGE (Graph Sample and Aggregate)} employs learnable aggregation functions (mean, LSTM, or pooling) to combine neighborhood information. GraphSAGE's inductive capability enables embedding generation for new listings without retraining---essential for operational deployment. The mean aggregator provides computational efficiency on large graphs:
+
+\begin{equation}
+\mathbf{h}_v^{(l)} = \sigma\left(\mathbf{W} \cdot \text{AGG}\left(\{\mathbf{h}_u^{(l-1)} : u \in \mathcal{N}(v)\}\right)\right)
+\end{equation}
+
+\textbf{HGT (Heterogeneous Graph Transformer)} applies Transformer-style attention to heterogeneous graphs with node-type and edge-type specific projections. HGT's multi-head attention theoretically captures complex inter-type dependencies but introduces computational overhead:
+\begin{itemize}
+    \item Attention heads: 4
+    \item Type-specific query/key/value projections
+    \item Relative temporal encoding
+\end{itemize}
+
+\textbf{CARE-GNN (Camouflage-Resistant GNN)} specifically designed for fraud detection, CARE-GNN addresses the heterophily problem where fraudsters connect with legitimate users for camouflage. A reinforcement learning-based neighbor selector identifies and filters misleading connections using label-aware, feature-aware, and relation-aware similarity measures.
+
+\textbf{PC-GNN (Pick and Choose GNN)} addresses both heterophily and class imbalance through label-balanced neighborhood sampling. PC-GNN constructs mini-batches balancing fraudulent and legitimate nodes, then applies confidence-based neighbor selection during aggregation.
+
+\subsection{Configuration}
+
+All architectures use consistent hyperparameters for fair comparison:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+Parameter & Value \\
+\hline
+Hidden dimensions & 32 \\
+Output dimensions & 16 \\
+Number of layers & 2 \\
+Epochs & 30 \\
+Learning rate & 0.01 \\
+Dropout & 0.3 \\
+Neighbor sampling & 15 (layer 1), 10 (layer 2) \\
+\hline
+\end{tabular}
+\caption{GNN model hyperparameters.}
+\end{table}
+
+Input features: 44 dimensions (36 base + 8 temporal encoding).
+Output: 16-dimensional embedding per listing node.
+
+Neighbor sampling limits computational cost on the dense graph (31M edges) while maintaining representative neighborhood coverage.
+
+\subsection{Training Approaches}
+
+Two training paradigms were evaluated:
+
+\textbf{Supervised Training (Node Classification):} GNN parameters optimize directly for fraud classification using binary cross-entropy loss on labeled training nodes:
+
+\begin{equation}
+\mathcal{L} = -\sum_{v \in V_{train}} \left[ y_v \log(\hat{y}_v) + (1-y_v) \log(1-\hat{y}_v) \right]
+\end{equation}
+
+Class imbalance is addressed through weighted loss (\texttt{scale\_pos\_weight} matching fraud ratio).
+
+\textbf{Self-Supervised Training (Link Prediction):} GNN learns graph structure through predicting edge existence between node pairs:
+
+\begin{equation}
+\mathcal{L} = -\sum_{(u,v) \in E} \log(\sigma(\mathbf{z}_u^T \mathbf{z}_v)) - \sum_{(u,v') \notin E} \log(1 - \sigma(\mathbf{z}_u^T \mathbf{z}_{v'}))
+\end{equation}
+
+This approach captures general relational patterns without requiring fraud labels during embedding learning, potentially improving generalization to novel fraud patterns.
+
+\subsection{Embedding Generation}
+
+After GNN training, embeddings are generated for all listings:
+
+\textbf{Training Phase:}
+\begin{enumerate}
+    \item Train GNN on training graph (47,588 nodes, $\sim$31M edges).
+    \item Generate 16-dimensional embeddings for training listings.
+    \item Concatenate with tabular features $\rightarrow$ 81-dimensional vectors (65 tabular + 16 GNN).
+\end{enumerate}
+
+\textbf{Inference Phase:}
+\begin{enumerate}
+    \item Construct inference graph including test listings (54,233 nodes, $\sim$38.6M edges).
+    \item Generate embeddings for test listings using trained GNN.
+    \item Concatenate with tabular features for scoring.
+\end{enumerate}
+
+The inference graph includes test period listings to capture their graph context (shared devices, IPs with training listings), while GNN parameters remain fixed from training.
+
+This two-stage approach (relational representation extraction $\rightarrow$ pattern validation) enables pattern discovery through the GNN while maintaining interpretability through the subsequent XGBoost classifier.

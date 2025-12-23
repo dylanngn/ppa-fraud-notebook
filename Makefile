@@ -9,7 +9,7 @@ TRAIN_START := 2024-12-01
 TRAIN_END := 2025-06-01
 TEST_END := 2025-07-01
 
-.PHONY: help install etl train-lr train-rf train-vanilla train-graph-features train-gnn train-hgt train-care train-vanilla-shap train-gnn-shap compare-all compare-gnn-encoders hpo hpo-quick hpo-high-recall hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb hpo-hgt expanding-vanilla expanding-gnn api api-dev mlflow clean
+.PHONY: help install etl train-lr train-rf train-vanilla train-graph-features train-gnn train-hgt train-care train-vanilla-shap train-gnn-shap compare-all compare-gnn-encoders hpo hpo-quick hpo-high-recall hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb hpo-hgt expanding-vanilla expanding-gnn api api-dev mlflow thesis thesis-clean clean
 
 help:
 	@echo "Available commands:"
@@ -50,7 +50,9 @@ help:
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    make mlflow                - Start MLflow UI"
-	@echo "    make clean                 - Remove artifacts"
+	@echo "    make thesis                - Build LaTeX thesis (requires latexmk)"
+	@echo "    make thesis-clean          - Clean LaTeX build artifacts"
+	@echo "    make clean                 - Remove code artifacts"
 	@echo ""
 	@echo "  Custom dates:"
 	@echo "    make train-vanilla TRAIN_START=2024-12-01 TRAIN_END=2025-03-01 TEST_END=2025-04-01"
@@ -375,6 +377,20 @@ api-docs:
 
 mlflow:
 	mlflow ui --backend-store-uri sqlite:///ppa-fraud-detection-mlflow.db
+
+# --- Thesis ---
+
+thesis:
+	@echo "Compiling thesis..."
+	@cd thesis && \
+	(pdflatex -interaction=nonstopmode main.tex > /dev/null 2>&1; true) && \
+	(biber main > /dev/null 2>&1; true) && \
+	(pdflatex -interaction=nonstopmode main.tex > /dev/null 2>&1; true) && \
+	(pdflatex -interaction=nonstopmode main.tex > /dev/null 2>&1; true) && \
+	echo "✅ Thesis compiled: thesis/main.pdf"
+
+thesis-clean:
+	cd thesis && latexmk -c
 
 clean:
 	rm -rf tmp/

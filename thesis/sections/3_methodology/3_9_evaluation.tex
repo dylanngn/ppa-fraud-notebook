@@ -1,0 +1,39 @@
+\section{Evaluation Metrics}
+\label{sec:3_9}
+
+\subsection{Primary Metrics}
+
+Metric selection reflects the imbalanced nature of fraud detection and operational requirements.
+
+\textbf{AUC-PR (Area Under Precision-Recall Curve):} Primary evaluation metric. AUC-PR focuses exclusively on positive class performance, directly measuring the trade-off between precision (what fraction of flagged items are fraud) and recall (what fraction of fraud is caught). For imbalanced data where the positive class is rare, AUC-PR provides more informative assessment than AUC-ROC, which can appear inflated due to high true negative rates.
+
+\textbf{AUC-ROC (Area Under Receiver Operating Characteristic):} Secondary metric measuring overall discrimination ability across all thresholds. Reported for completeness and comparison with prior work, though less informative for imbalanced fraud detection.
+
+\textbf{Precision@K:} Operational metrics measuring precision at fixed thresholds:
+\begin{itemize}
+    \item P@50: Precision in top 50 highest-risk listings.
+    \item P@100: Precision in top 100.
+    \item P@200: Precision in top 200.
+\end{itemize}
+
+These metrics directly address operational capacity: if fraud analysts can review 100 listings daily, P@100 measures what fraction of their reviews will find actual fraud.
+
+\textbf{Threshold-Specific Metrics:} At the operating threshold (typically 0.5), we report:
+\begin{itemize}
+    \item Precision, Recall, F1-score.
+    \item False positive count (analyst workload).
+    \item False negative count (missed fraud).
+\end{itemize}
+
+\subsection{Baseline Comparison}
+
+\textbf{SEON Benchmark:} The existing fraud detection system uses SEON's \texttt{fraud\_score} and binary \texttt{state} (APPROVE/DECLINE) decisions. Comparison includes:
+
+\begin{itemize}
+    \item AUC-PR of SEON \texttt{fraud\_score} as continuous predictor.
+    \item Precision/Recall of SEON State binary decisions.
+\end{itemize}
+
+This establishes whether the developed framework improves upon the commercial baseline currently deployed in production.
+
+\textbf{Pattern Validation:} All models (LR, RF, XGBoost, GNN+XGBoost) are evaluated on identical test sets using identical preprocessing, enabling direct assessment of pattern predictive validity.

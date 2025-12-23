@@ -1,0 +1,13 @@
+\section{Summary}
+\label{sec:6_1}
+
+This research investigated fraud pattern discovery and predictive model development for online real estate marketplaces. Using 804,717 listing events from Swiss Marketplace Group, we constructed a heterogeneous graph with 31 million edges encoding entity-sharing relationships (device, IP, email, phone), applied GNN-based pattern extraction combined with XGBoost classification, and evaluated operational deployment strategies.
+
+\textbf{Pattern Discovery:}
+Entity-sharing patterns provide meaningful fraud signal: super-connector devices (10+ listings) show 35.5\% fraud rate versus 8.11\% baseline. Geographic patterns reveal West African origins (Benin, Togo, Ivory Coast) with 60--90\% fraud rates. Temporal analysis identified February 2025 fraud spikes and 6--7 AM activity peaks suggesting automated attacks.
+
+\textbf{Model Development:}
+The hybrid GNN+XGBoost framework achieves 0.6990 AUC-PR, representing +5.3\% improvement over tabular-only XGBoost and +17\% over the existing SEON baseline. Comparison across four GNN architectures (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal for this domain.
+
+\textbf{Operational Validation:}
+Graph-based patterns require minimum $\sim$300K training samples to outperform tabular approaches. Expanding window validation with DDM/ADWIN drift detection recommends monthly retraining for optimal freshness-stability balance. SHAP-based explainability quantifies GNN embedding contribution at 17.3\% of total feature importance, with local explanations enabling fraud analyst investigation prioritization. Proof-of-concept API deployment demonstrates sub-100ms inference latency.

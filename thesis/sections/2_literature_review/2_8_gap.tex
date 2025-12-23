@@ -1,0 +1,26 @@
+\section{Research Gap and Positioning}
+\label{sec:2_8}
+
+The preceding sections have surveyed graph-based pattern mining, fraud pattern discovery, hybrid validation approaches, and methodological considerations for imbalanced, temporal, and interpretable analysis. This section identifies the specific gaps this thesis addresses.
+
+\subsection{Identified Gaps}
+
+Three significant gaps emerge from the literature:
+
+\textbf{Gap 1: Limited pattern discovery in real estate marketplaces.} Graph-based fraud research has focused on financial transactions (credit cards, payments) and e-commerce (fake reviews, account fraud). Real estate marketplaces present distinct characteristics: heterogeneous listing types, longer transaction cycles, and unique fraud modalities (phantom listings, rental scams). The entity-sharing patterns distinguishing fraud rings from legitimate property managers in this domain remain uncharacterized. Mutemi and Bação (2024) surveyed marketplace fraud but focused on retail platforms with different graph structures.
+
+\textbf{Gap 2: Unquantified data requirements for graph-based discovery.} Prior work demonstrates that graph patterns improve detection but does not investigate when this occurs. Practitioners lack guidance on minimum dataset sizes, graph density thresholds, or temporal coverage required for relational patterns to provide signal beyond attributes. This gap leaves organizations unable to assess whether graph-based approaches suit their data context.
+
+\textbf{Gap 3: Limited temporal validation of discovered patterns.} Most studies employ single train-test splits without evaluating pattern validity under temporal shift. The interaction between data requirements and temporal validation---whether patterns require large recent datasets versus large historical datasets---remains unexamined.
+
+\subsection{Thesis Positioning}
+
+This thesis addresses these gaps through systematic pattern discovery and validation:
+
+\textbf{Contribution to Gap 1:} We characterize entity-sharing patterns in real estate marketplace fraud, identifying topologies distinguishing fraud rings (e.g., 6,251 listings per device, 35.5\% fraud rate for super-connectors) from legitimate property management.
+
+\textbf{Contribution to Gap 2:} Through expanding window experiments across varying training sizes, we quantify the $\sim$300,000 sample threshold at which graph patterns begin providing signal beyond attribute-only analysis.
+
+\textbf{Contribution to Gap 3:} Five-period temporal validation evaluates pattern stability under concept drift, revealing that graph pattern advantages observed in large single-split experiments do not transfer to scenarios with frequent retraining on smaller windows.
+
+By addressing these gaps with rigorous empirical methodology, this thesis contributes actionable guidance for practitioners and methodological insights for the data mining research community.

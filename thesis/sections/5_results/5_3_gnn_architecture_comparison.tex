@@ -1,0 +1,33 @@
+\section{GNN Architecture Comparison}
+\label{sec:5_3}
+
+Four GNN architectures were evaluated using identical hyperparameters for fair comparison: GraphSAGE \cite{hamilton2017inductive}, HGT (Heterogeneous Graph Transformer) \cite{hu2020heterogeneous}, CARE-GNN (Camouflage-Resistant GNN) \cite{dou2020enhancing}, and PC-GNN (Pick and Choose GNN) \cite{liu2020alleviating}.
+
+\begin{table}[htbp]
+    \centering
+    \caption{GNN Architecture Comparison}
+    \label{tab:5_3}
+    \begin{tabular}{lccccc}
+        \toprule
+        Architecture & AUC-PR & AUC-ROC & P@0.5 & R@0.5 & Training Time \\
+        \midrule
+        \textbf{GraphSAGE} & \textbf{0.6856} & 0.9363 & 72.9\% & 66.6\% & $\sim$1 min \\
+        HGT (4 heads) & 0.6351 & 0.9515 & 71.2\% & 64.5\% & $\sim$2 min \\
+        CARE-GNN & 0.6542 & 0.9421 & 71.8\% & 65.2\% & $\sim$3 min \\
+        PC-GNN & 0.6488 & 0.9398 & 71.5\% & 65.0\% & $\sim$2.5 min \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Analysis:}
+
+GraphSAGE outperforms all alternatives by +7.4\% AUC-PR over HGT, despite HGT's theoretical advantages for heterogeneous graphs. Several factors explain this:
+
+\begin{itemize}
+    \item \textbf{Graph Homogeneity:} After edge filtering, listing-to-listing edges dominate the graph structure. HGT's type-specific attention provides no benefit when most edges share the same type.
+    \item \textbf{Training Stability:} GraphSAGE's simpler mean aggregation converges more reliably on the massive graph (31M edges). HGT's attention mechanism introduces optimization challenges.
+    \item \textbf{Computational Efficiency:} GraphSAGE processes more batches per epoch within the same time budget, enabling more effective learning.
+    \item \textbf{Fraud-Specific Architectures:} CARE-GNN \cite{dou2020enhancing} and PC-GNN \cite{liu2020alleviating}, designed for fraud detection, perform comparably but do not outperform GraphSAGE. The additional complexity of neighbor selection and label-balanced sampling does not provide sufficient benefit on this dataset's specific characteristics.
+\end{itemize}
+
+\textbf{Recommendation:} GraphSAGE is selected for production deployment due to best AUC-PR, simplest architecture, and fastest training.

@@ -1,0 +1,167 @@
+\section{Interpretability Results}
+\label{sec:5_9}
+
+SHAP (SHapley Additive exPlanations) \cite{lundberg2017unified,lundberg2020local} analysis reveals which features drive fraud predictions by computing each feature's contribution to individual predictions.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{../artifacts/shap/global_importance_bar.png}
+    \caption{Top 15 Feature Importance (SHAP)}
+    \label{fig:5_6}
+\end{figure}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Top 10 Features by SHAP Importance}
+    \label{tab:5_11}
+    \begin{tabular}{cllc}
+        \toprule
+        Rank & Feature & Category & Mean $|$SHAP$|$ \\
+        \midrule
+        1 & session/screen\_resolution & Browser fingerprint & 1.271 \\
+        2 & payment\_mode & Listing attribute & 1.116 \\
+        3 & LISTING\_PRICES\_RENT\_NET & Listing price & 0.781 \\
+        4 & LISTING\_CATEGORIES & Listing type & 0.756 \\
+        5 & ip\_isp\_name & Network signal & 0.546 \\
+        6 & LISTING\_PRICES\_BUY\_PRICE & Listing price & 0.482 \\
+        7 & action\_type & User action & 0.431 \\
+        8 & session/font\_count & Browser fingerprint & 0.417 \\
+        9 & session/browser & Browser signal & 0.403 \\
+        10 & LISTING\_PLATFORMS & Listing attribute & 0.392 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Feature Importance by Category}
+
+Aggregating SHAP values by feature category reveals the relative contribution of different information sources:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Feature Category} & \textbf{Total Importance} & \textbf{Percentage} \\
+\hline
+Browser/Session Signals & 2.891 & 28.5\% \\
+Listing Attributes & 2.349 & 23.2\% \\
+GNN Embeddings (16 dims) & 1.753 & 17.3\% \\
+Network (IP/ISP) Signals & 1.468 & 14.5\% \\
+Temporal Features & 0.923 & 9.1\% \\
+Payment/Action Metadata & 0.547 & 5.4\% \\
+Phone Features & 0.213 & 2.1\% \\
+\hline
+\textbf{Total} & \textbf{10.144} & \textbf{100\%} \\
+\hline
+\end{tabular}
+\caption{SHAP importance aggregated by feature category}
+\end{table}
+
+\textbf{Key Observations:}
+
+\begin{enumerate}
+    \item \textbf{Browser fingerprinting dominates (28.5\%):} Screen resolution and font count provide highly discriminative fraud signals, likely capturing automated bot behavior versus human users.
+
+    \item \textbf{Listing attributes matter (23.2\%):} Property category, pricing, and platform choice exhibit fraud patterns. Fraudsters target specific property types (e.g., rentals over purchases) and price ranges.
+
+    \item \textbf{GNN embeddings provide substantial value (17.3\%):} The graph-based features contribute nearly one-fifth of total importance, demonstrating that relational patterns complement individual listing signals. This validates RQ1's hypothesis about predictive relational patterns.
+
+    \item \textbf{Network signals are relevant (14.5\%):} ISP name and IP geolocation capture geographic fraud clustering patterns discussed in RQ2.
+
+    \item \textbf{Temporal patterns exist (9.1\%):} Hour of day and day of week contribute meaningful signal, consistent with observed fraud activity peaks at 6--7 AM.
+\end{enumerate}
+
+\subsection{GNN Embedding Analysis}
+
+Breaking down the 16 GNN embeddings reveals heterogeneous contribution:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcl}
+\hline
+\textbf{Embedding Dimension} & \textbf{Mean |SHAP|} & \textbf{Notes} \\
+\hline
+gnn\_emb\_3 & 0.198 & Highest individual contribution \\
+gnn\_emb\_7 & 0.165 & Second highest \\
+gnn\_emb\_12 & 0.142 & Third highest \\
+gnn\_emb\_0--gnn\_emb\_15 (avg) & 0.110 & Average across all 16 \\
+gnn\_emb\_14 & 0.063 & Lowest individual contribution \\
+\hline
+\textbf{Total (all 16)} & \textbf{1.753} & \textbf{17.3\% of model} \\
+\hline
+\end{tabular}
+\caption{Individual GNN embedding contribution to fraud detection}
+\end{table}
+
+Not all GNN dimensions contribute equally. The top 3 embeddings account for 28.8\% of total GNN importance, suggesting these dimensions capture the most discriminative relational patterns (likely device-sharing and IP-sharing among fraudsters).
+
+\subsection{Interpretation Insights}
+
+The SHAP analysis enables several actionable insights:
+
+\textbf{1. Device Fingerprinting is Critical:} The dominance of \texttt{session/screen\_resolution} (12.5\% of total importance) and \texttt{session/font\_count} (4.1\%) indicates fraudsters use distinct device configurations. Fraud analysts should investigate:
+\begin{itemize}
+    \item Unusual screen resolutions (non-standard aspect ratios suggesting automation)
+    \item Abnormal font counts (headless browsers with limited font loading)
+\end{itemize}
+
+\textbf{2. Listing Patterns:} \texttt{LISTING\_CATEGORIES} (7.5\%) and \texttt{LISTING\_PRICES\_RENT\_NET} (7.7\%) reveal fraud concentration in specific property types and price ranges. This enables targeted monitoring of high-risk categories.
+
+\textbf{3. Graph Signals Complement Tabular:} With 17.3\% contribution, GNN embeddings provide non-redundant information beyond individual listing features. This suggests fraud rings exhibit detectable connection patterns (shared devices/IPs) that isolated listings do not.
+
+\textbf{4. Geographic Signals Matter:} \texttt{ip\_isp\_name} (5.4\%) captures ISP-level fraud clustering, consistent with West African fraud origins identified in exploratory analysis.
+
+\subsection{Local Explanation Examples}
+
+The following figures show SHAP explanations for high-risk listings (probability $\geq$ 0.99), demonstrating how individual features contribute to fraud predictions. These explanations enable fraud analysts to understand and verify flagged listings.
+
+\textbf{Interpretation Guide:}
+\begin{itemize}
+    \item Red bars push prediction toward fraud (positive SHAP values)
+    \item Blue bars push prediction toward legitimate (negative SHAP values)
+    \item Bar length represents contribution magnitude
+\end{itemize}
+
+For example, a listing with unusual screen resolution (+0.8 SHAP), high GNN embedding values (+0.5 SHAP from relational patterns), and low rental price (+0.3 SHAP) would receive a combined fraud score driven by multiple converging signals.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.32\textwidth}
+        \includegraphics[width=\textwidth]{../artifacts/shap/local_top_1_prob0.99.png}
+        \caption{High-risk case 1}
+        \label{fig:shap_local_1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \includegraphics[width=\textwidth]{../artifacts/shap/local_top_2_prob0.99.png}
+        \caption{High-risk case 2}
+        \label{fig:shap_local_2}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \includegraphics[width=\textwidth]{../artifacts/shap/local_top_3_prob0.99.png}
+        \caption{High-risk case 3}
+        \label{fig:shap_local_3}
+    \end{subfigure}
+    \caption{Local SHAP explanations for high-risk listings}
+    \label{fig:shap_local}
+\end{figure}
+
+\subsection{Limitations and Considerations}
+
+While SHAP provides valuable insights into model behavior, recent research \cite{kumar2023perspective} has identified important limitations that warrant careful interpretation:
+
+\textbf{Feature Collinearity Sensitivity:} SHAP values can be significantly affected by correlated features. In our dataset, several features exhibit correlation (e.g., IP country and ISP name, device type and screen resolution). The Shapley method assumes feature independence, potentially producing misleading explanations when features are correlated. Our feature importance rankings should therefore be interpreted as approximate indicators rather than precise causal attributions.
+
+\textbf{Unrealistic Data Instances:} When computing Shapley values through feature permutation, SHAP may evaluate the model on unrealistic feature combinations that never occur in practice. For example, a Swiss IP address paired with a Benin phone carrier. This can lead to counterfactual explanations that, while mathematically valid, may not reflect realistic decision boundaries.
+
+\textbf{Vulnerability to Adversarial Manipulation:} SHAP explanations can be vulnerable to intentional manipulation if fraudsters gain access to the explanation mechanism. By understanding which features drive fraud scores, sophisticated attackers might engineer listings to minimize these signals while maintaining fraudulent intent.
+
+\textbf{Practical Implications:} Given these limitations, we employ SHAP explanations as:
+\begin{itemize}
+    \item \textbf{Directional indicators} of feature importance rather than precise quantifications
+    \item \textbf{Hypothesis generators} for fraud analysts to investigate further
+    \item \textbf{Model debugging tools} to identify potential biases or unexpected patterns
+    \item \textbf{Transparency mechanisms} for regulatory compliance and stakeholder communication
+\end{itemize}
+
+Despite these limitations, SHAP remains a valuable tool for understanding model behavior, particularly when combined with domain expertise and careful interpretation. The convergence of multiple signals in fraud detection (device fingerprinting + geographic patterns + temporal anomalies) provides robustness against single-feature manipulation.

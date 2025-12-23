@@ -1,0 +1,603 @@
+\chapter{Implementation Code}
+\label{appendix:implementations}
+
+This appendix provides complete Python implementations referenced in Chapter~4.
+
+\section{Graph Construction}
+\label{appendix:graph_construction}
+
+Heterogeneous graph builder (\texttt{src/features/graph\_builder.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import polars as pl
+import torch
+from torch_geometric.data import HeteroData
+
+class HeterogeneousGraphBuilder:
+    def __init__(self, entity_types=["device", "ip", "email", "phone", "user"]):
+        self.entity_types = entity_types
+
+    def build_graph(self, events_df: pl.DataFrame, cutoff_date: str) -> HeteroData:
+        """Build heterogeneous graph with listing nodes and entity-sharing edges."""
+        # Filter events before cutoff
+        filtered = events_df.filter(pl.col("event_dt") <= cutoff_date)
+
+        # Initialize graph
+        graph = HeteroData()
+
+        # Extract node features (44 dims: 36 base + 8 temporal)
+        features = self._extract_node_features(filtered)
+        graph["listing"].x = torch.tensor(features.to_numpy(), dtype=torch.float)
+
+        # Build edges for each entity type
+        for entity_type in self.entity_types:
+            edge_index = self._build_sharing_edges(filtered, entity_type)
+            graph["listing", f"shares_{entity_type}", "listing"].edge_index = edge_index
+
+        return graph
+
+    def _build_sharing_edges(self, df: pl.DataFrame, entity_type: str) -> torch.Tensor:
+        """Create edges between listings sharing the same entity."""
+        col_name = f"{entity_type}_hash"
+
+        # Group by entity, get listing IDs
+        entity_groups = (
+            df.groupby(col_name)
+            .agg(pl.col("listing_id").unique())
+            .filter(pl.col("listing_id").list.len() > 1)  # Only shared entities
+        )
+
+        # Create edges (all pairs within each group)
+        edge_list = []
+        for group in entity_groups.iter_rows():
+            listings = group[1]
+            for i, src in enumerate(listings):
+                for dst in listings[i+1:]:
+                    edge_list.append([src, dst])
+                    edge_list.append([dst, src])  # Undirected
+
+        return torch.tensor(edge_list, dtype=torch.long).t()
+\end{lstlisting}
+
+Neighbor sampling configuration:
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+from torch_geometric.loader import NeighborLoader
+
+# 2-hop neighborhood sampling for training
+loader = NeighborLoader(
+    graph,
+    num_neighbors=[15, 10],  # 15 neighbors at layer 1, 10 at layer 2
+    batch_size=512,
+    input_nodes=("listing", train_mask),
+    shuffle=True,
+)
+\end{lstlisting}
+
+\section{Hybrid Training Pipeline}
+\label{appendix:hybrid_training}
+
+Complete hybrid pipeline (\texttt{src/training/hybrid.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import numpy as np
+import torch
+import xgboost as xgb
+
+def train_hybrid_pipeline(train_df, graph, gnn_model, best_params):
+    """Train hybrid GNN+XGBoost pipeline."""
+    # Stage 1: Generate GNN embeddings
+    gnn_model.eval()
+    with torch.no_grad():
+        embeddings = gnn_model(graph.x_dict, graph.edge_index_dict)
+        listing_emb = embeddings["listing"].cpu().numpy()  # [N, 16]
+
+    # Stage 2: Concatenate with tabular features
+    tabular_features = train_df[FEATURE_COLUMNS].to_numpy()  # [N, 65]
+    combined_features = np.hstack([tabular_features, listing_emb])  # [N, 81]
+
+    # Stage 3: Train XGBoost
+    model = xgb.XGBClassifier(**best_params)
+    model.fit(
+        combined_features,
+        train_df["is_fraud"].to_numpy(),
+        eval_set=[(X_val, y_val)],
+        early_stopping_rounds=10,
+        verbose=False
+    )
+
+    return model
+\end{lstlisting}
+
+\section{Hyperparameter Optimization}
+\label{appendix:hpo}
+
+Optuna objective function (\texttt{src/training/hpo.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import optuna
+from optuna.samplers import TPESampler
+from sklearn.metrics import average_precision_score
+
+def objective(trial, X_train, y_train, X_val, y_val):
+    """Optuna objective for XGBoost hyperparameter optimization."""
+    params = {
+        "n_estimators": trial.suggest_int("n_estimators", 50, 500, step=50),
+        "max_depth": trial.suggest_int("max_depth", 3, 12),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1.0, 20.0),
+        "eval_metric": "aucpr",
+    }
+
+    model = xgb.XGBClassifier(**params, random_state=42)
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        early_stopping_rounds=10,
+        verbose=False
+    )
+
+    y_pred_proba = model.predict_proba(X_val)[:, 1]
+    return average_precision_score(y_val, y_pred_proba)
+
+# Run optimization
+study = optuna.create_study(direction="maximize", sampler=TPESampler(seed=42))
+study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val), n_trials=50)
+best_params = study.best_params
+\end{lstlisting}
+
+\section{Drift Detection}
+\label{appendix:drift_detection}
+
+DDM implementation (\texttt{src/evaluation/drift.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import numpy as np
+
+class DDM:
+    """Drift Detection Method."""
+    def __init__(self, warning_threshold=2.0, drift_threshold=3.0):
+        self.warning_threshold = warning_threshold
+        self.drift_threshold = drift_threshold
+        self.errors = []
+
+    def update(self, prediction, true_label):
+        """Update with new prediction and return drift status."""
+        error = int(prediction != true_label)
+        self.errors.append(error)
+
+        # Compute error rate statistics
+        p = np.mean(self.errors)
+        s = np.sqrt(p * (1 - p) / len(self.errors))
+
+        # Check for drift
+        if p + s >= self.drift_threshold:
+            self.errors = []  # Reset on drift
+            return "DRIFT"
+        elif p + s >= self.warning_threshold:
+            return "WARNING"
+        return "STABLE"
+\end{lstlisting}
+
+ADWIN implementation:
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import numpy as np
+
+class ADWIN:
+    """Adaptive Windowing drift detector."""
+    def __init__(self, delta=0.002):
+        self.delta = delta
+        self.window = []
+
+    def update(self, prediction, true_label):
+        """Update with new prediction and return drift status."""
+        error = int(prediction != true_label)
+        self.window.append(error)
+
+        # Check all possible splits
+        for i in range(1, len(self.window)):
+            left = self.window[:i]
+            right = self.window[i:]
+
+            if self._detect_change(left, right):
+                self.window = self.window[i:]  # Drop old data
+                return "DRIFT"
+
+        return "STABLE"
+
+    def _detect_change(self, left, right):
+        """Statistical test for distribution change."""
+        mu_left = np.mean(left)
+        mu_right = np.mean(right)
+
+        n_left = len(left)
+        n_right = len(right)
+        m = 1 / (1/n_left + 1/n_right)
+
+        var = mu_left * (1 - mu_left) / n_left + mu_right * (1 - mu_right) / n_right
+        epsilon_cut = np.sqrt(2 * var * np.log(2 / self.delta) / m)
+
+        return abs(mu_left - mu_right) > epsilon_cut
+\end{lstlisting}
+
+\section{Evaluation Metrics}
+\label{appendix:metrics}
+
+Metric computation (\texttt{src/utils/metrics.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+from sklearn.metrics import (
+    average_precision_score,
+    roc_auc_score,
+    precision_recall_curve,
+    precision_score,
+    recall_score,
+    f1_score,
+)
+import numpy as np
+
+def compute_metrics(y_true, y_pred_proba, threshold=0.5):
+    """Compute comprehensive evaluation metrics."""
+    y_pred = (y_pred_proba >= threshold).astype(int)
+
+    metrics = {
+        "auc_pr": average_precision_score(y_true, y_pred_proba),
+        "auc_roc": roc_auc_score(y_true, y_pred_proba),
+        "precision": precision_score(y_true, y_pred),
+        "recall": recall_score(y_true, y_pred),
+        "f1": f1_score(y_true, y_pred),
+        "precision@50": precision_at_k(y_true, y_pred_proba, k=50),
+        "precision@100": precision_at_k(y_true, y_pred_proba, k=100),
+        "precision@200": precision_at_k(y_true, y_pred_proba, k=200),
+    }
+
+    return metrics
+
+def precision_at_k(y_true, y_scores, k):
+    """Compute precision at top-K predictions."""
+    sorted_indices = np.argsort(-y_scores)[:k]
+    top_k_labels = y_true[sorted_indices]
+    return np.sum(top_k_labels) / k
+\end{lstlisting}
+
+\section{Feature Engineering}
+\label{appendix:feature_engineering}
+
+Cyclical encoding (\texttt{src/features/temporal.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import numpy as np
+import polars as pl
+
+def apply_cyclical_encoding(df: pl.DataFrame) -> pl.DataFrame:
+    """Apply cyclical encoding to temporal features."""
+    return df.with_columns([
+        # Hour encoding (0-23)
+        (2 * np.pi * pl.col("event_hour") / 24).sin().alias("hour_sin"),
+        (2 * np.pi * pl.col("event_hour") / 24).cos().alias("hour_cos"),
+        # Weekday encoding (0-6)
+        (2 * np.pi * pl.col("event_day_of_week") / 7).sin().alias("weekday_sin"),
+        (2 * np.pi * pl.col("event_day_of_week") / 7).cos().alias("weekday_cos"),
+    ])
+\end{lstlisting}
+
+Feature schema (\texttt{src/features/schema.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
+class FeatureSchema:
+    """Feature schema for fraud detection models."""
+    seon_boolean: List[str]
+    seon_categorical: List[str]
+    listing_numeric: List[str]
+    listing_categorical: List[str]
+    temporal: List[str]
+
+    @property
+    def all_features(self) -> List[str]:
+        """Return all feature names."""
+        return (
+            self.seon_boolean
+            + self.seon_categorical
+            + self.listing_numeric
+            + self.listing_categorical
+            + self.temporal
+        )
+
+    @property
+    def categorical_features(self) -> List[str]:
+        """Return categorical feature names."""
+        return self.seon_categorical + self.listing_categorical
+
+    @property
+    def boolean_features(self) -> List[str]:
+        """Return boolean feature names."""
+        return self.seon_boolean
+\end{lstlisting}
+
+\section{ETL Pipeline}
+\label{appendix:etl}
+
+As-of join implementation (\texttt{src/data/transform.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import polars as pl
+from typing import Tuple, Dict
+
+def correlate_events_to_seon(
+    events_df: pl.DataFrame,
+    seon_df: pl.DataFrame,
+    seon_unique_col: str = "id",
+) -> Tuple[pl.DataFrame, Dict[str, int]]:
+    """Correlate each event to closest SEON transaction by timestamp."""
+
+    # Sort both dataframes
+    events_sorted = events_df.sort(["INSERTION_ID", "event_dt"])
+    seon_sorted = seon_df.sort(["INSERTION_ID", "seon_dt"])
+
+    # Prepare SEON dataframe for join
+    seon_for_join = seon_sorted.select([
+        "INSERTION_ID", "seon_dt",
+        pl.col(seon_unique_col).alias("seon_id"),
+        *[col for col in seon_df.columns if col not in ["INSERTION_ID", "seon_dt", seon_unique_col]]
+    ])
+
+    # Forward join: closest SEON after the event
+    fwd_cols = (
+        events_sorted
+        .join_asof(
+            seon_for_join,
+            left_on="event_dt",
+            right_on="seon_dt",
+            by="INSERTION_ID",
+            strategy="forward",
+            suffix="_fwd"
+        )
+    )
+
+    # Backward join: closest SEON before the event
+    bwd_cols = (
+        events_sorted
+        .join_asof(
+            seon_for_join,
+            left_on="event_dt",
+            right_on="seon_dt",
+            by="INSERTION_ID",
+            strategy="backward",
+            suffix="_bwd"
+        )
+    )
+
+    # Merge and prefer forward match
+    merged = fwd_cols.join(
+        bwd_cols.select(["INSERTION_ID", "event_dt"] +
+                       [col for col in bwd_cols.columns if col.endswith("_bwd")]),
+        on=["INSERTION_ID", "event_dt"],
+        how="left"
+    )
+
+    # Coalesce: prefer forward, fallback to backward
+    final_cols = []
+    for col in seon_for_join.columns:
+        if col not in ["INSERTION_ID", "seon_dt"]:
+            final_cols.append(
+                pl.coalesce([pl.col(f"{col}_fwd"), pl.col(f"{col}_bwd")]).alias(col)
+            )
+
+    result = merged.with_columns(final_cols)
+
+    return result
+\end{lstlisting}
+
+\section{MLflow Integration}
+\label{appendix:mlflow}
+
+Training with MLflow logging (\texttt{src/training/trainer.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import mlflow
+from omegaconf import OmegaConf
+
+def train_with_mlflow(cfg, pipeline):
+    """Train model with MLflow experiment tracking."""
+
+    # Configure MLflow
+    mlflow.set_tracking_uri(cfg.experiment.tracking_uri)
+    mlflow.set_experiment(cfg.experiment.name)
+
+    # Start run
+    run_name = f"{cfg.model.variant}_{cfg.data.train_start_date}"
+    with mlflow.start_run(run_name=run_name):
+
+        # Log hyperparameters
+        params_dict = OmegaConf.to_container(cfg, resolve=True)
+        mlflow.log_params(flatten_dict(params_dict))
+
+        # Train model
+        result = pipeline.run()
+
+        # Log metrics
+        mlflow.log_metrics({
+            "train_auc_pr": result.train_metrics.auc_pr,
+            "train_auc_roc": result.train_metrics.auc_roc,
+            "val_auc_pr": result.val_metrics.auc_pr,
+            "test_auc_pr": result.test_metrics.auc_pr,
+            "test_precision@50": result.test_metrics.precision_at_50,
+            "test_precision@100": result.test_metrics.precision_at_100,
+            "training_time_seconds": result.training_time,
+        })
+
+        # Log model artifact
+        mlflow.xgboost.log_model(result.model, "model")
+
+        # Log SHAP plots if enabled
+        if cfg.training.run_shap:
+            mlflow.log_artifact(result.shap_summary_plot, "shap_summary.png")
+
+        return result
+
+def flatten_dict(d, parent_key='', sep='_'):
+    """Flatten nested dictionary for MLflow logging."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+\end{lstlisting}
+
+\section{API Service}
+\label{appendix:api}
+
+FastAPI endpoint (\texttt{src/api/main.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import xgboost as xgb
+import shap
+
+app = FastAPI(title="Fraud Detection API")
+
+# Load model at startup
+model = xgb.Booster()
+model.load_model("models/production_model.json")
+explainer = shap.TreeExplainer(model)
+
+class EventPayload(BaseModel):
+    insertion_id: str
+    device_hash: str
+    ip_hash: str
+    email_hash: str
+    # ... other features
+
+class PredictResponse(BaseModel):
+    probability: float
+    risk_level: str
+    top_factors: list
+
+@app.post("/predict")
+async def predict(event: EventPayload) -> PredictResponse:
+    """Generate fraud prediction with explanation."""
+    try:
+        # Extract features
+        features = feature_engineer.extract(event, event_store)
+
+        # Enrich with graph-like counts
+        features["device_link_count"] = event_store.count_related("device", event.device_hash)
+        features["ip_link_count"] = event_store.count_related("ip", event.ip_hash)
+        features["email_link_count"] = event_store.count_related("email", event.email_hash)
+
+        # Generate prediction
+        dmatrix = xgb.DMatrix([features])
+        prob = model.predict(dmatrix)[0]
+
+        # Compute SHAP values
+        shap_values = explainer.shap_values(dmatrix)
+        top_factors = get_top_factors(shap_values[0], feature_names, k=5)
+
+        # Determine risk level
+        if prob > 0.7:
+            risk_level = "HIGH"
+        elif prob > 0.3:
+            risk_level = "MEDIUM"
+        else:
+            risk_level = "LOW"
+
+        return PredictResponse(
+            probability=float(prob),
+            risk_level=risk_level,
+            top_factors=top_factors
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_top_factors(shap_values, feature_names, k=5):
+    """Get top-K contributing factors."""
+    importance = [(name, abs(val)) for name, val in zip(feature_names, shap_values)]
+    importance.sort(key=lambda x: x[1], reverse=True)
+    return [{"feature": name, "importance": float(val)} for name, val in importance[:k]]
+\end{lstlisting}
+
+\section{GNN Implementation}
+\label{appendix:gnn}
+
+GraphSAGE encoder (\texttt{src/models/graphsage.py}):
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{8}{10}\selectfont]
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import SAGEConv, HeteroConv
+
+class GraphSAGEEncoder(torch.nn.Module):
+    """GraphSAGE encoder for heterogeneous graphs."""
+
+    def __init__(self, in_channels, hidden_channels, out_channels,
+                 num_layers, dropout, edge_types):
+        super().__init__()
+        self.convs = nn.ModuleList()
+
+        for i in range(num_layers):
+            in_ch = in_channels if i == 0 else hidden_channels
+            out_ch = out_channels if i == num_layers - 1 else hidden_channels
+
+            # Create SAGEConv for each edge type
+            conv_dict = {
+                ("listing", edge_type, "listing"): SAGEConv(in_ch, out_ch, aggr="mean")
+                for edge_type in edge_types
+            }
+            self.convs.append(HeteroConv(conv_dict, aggr="sum"))
+
+        self.dropout = dropout
+
+    def forward(self, x_dict, edge_index_dict):
+        """Forward pass through GNN layers."""
+        x = x_dict
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index_dict)
+            if i < len(self.convs) - 1:  # No activation/dropout on last layer
+                x = {k: F.relu(v) for k, v in x.items()}
+                x = {k: F.dropout(v, p=self.dropout, training=self.training)
+                     for k, v in x.items()}
+
+        return x["listing"]
+
+def train_supervised(model, loader, optimizer, device, epochs=30):
+    """Supervised GNN training loop."""
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0
+        for batch in loader:
+            batch = batch.to(device)
+            optimizer.zero_grad()
+
+            # Forward pass
+            out = model(batch.x_dict, batch.edge_index_dict)
+
+            # Compute loss on training nodes
+            loss = F.binary_cross_entropy_with_logits(
+                out[batch["listing"].train_mask],
+                batch["listing"].y[batch["listing"].train_mask],
+                pos_weight=torch.tensor([11.0], device=device)  # Class imbalance
+            )
+
+            # Backward pass
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(loader)
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+\end{lstlisting}

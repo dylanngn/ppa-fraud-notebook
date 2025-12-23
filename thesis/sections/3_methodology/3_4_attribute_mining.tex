@@ -1,0 +1,76 @@
+\section{Attribute Mining}
+\label{sec:3_4}
+
+\subsection{Feature Schema}
+
+The feature set comprises 65 base features organized into five categories based on source and fraud-predictive characteristics:
+
+\textbf{SEON Boolean Features (21 features):} Binary risk indicators from device and network analysis:
+\begin{itemize}
+    \item Network signals: \texttt{tor}, \texttt{vpn}, \texttt{public\_proxy}, \texttt{data\_center\_proxy}, \texttt{relay}
+    \item Email signals: \texttt{email/deliverable}, \texttt{email/domain/disposable}, \texttt{email/domain/free}, \texttt{email/dmarc\_enforced}
+    \item Phone signals: \texttt{phone\_is\_valid}, \texttt{phone\_is\_disposable}
+    \item Session signals: \texttt{session/adblock}, \texttt{session/do\_not\_track}, \texttt{session/incognito}
+\end{itemize}
+
+These boolean features are cast to \texttt{Int8} for XGBoost compatibility while preserving null handling.
+
+\textbf{SEON Categorical Features (12 features):} Geographic and session attributes:
+\begin{itemize}
+    \item Geographic: \texttt{ip\_country}, \texttt{ip\_region}, \texttt{ip\_city}, \texttt{ip\_isp\_name}, \texttt{ip\_type}
+    \item Session: \texttt{session/os}, \texttt{session/browser}, \texttt{session/device\_type}, \texttt{session/screen\_resolution}
+    \item Phone: \texttt{phone\_carrier}, \texttt{phone\_type}
+\end{itemize}
+
+\textbf{Listing Numeric Features (10 features):} Property characteristics:
+\begin{itemize}
+    \item Pricing: \texttt{LISTING\_PRICES\_RENT\_NET}, \texttt{LISTING\_PRICES\_BUY\_PRICE}, \texttt{LISTING\_PRICES\_AMOUNT}
+    \item Property: \texttt{LISTING\_CHARACTERISTICS\_ROOMS}, \texttt{LISTING\_CHARACTERISTICS\_AREA}, \texttt{LISTING\_CHARACTERISTICS\_FLOOR}
+    \item Location: \texttt{LISTING\_ADDRESS\_LATITUDE}, \texttt{LISTING\_ADDRESS\_LONGITUDE}
+\end{itemize}
+
+\textbf{Listing Categorical Features (7 features):} Listing attributes:
+\begin{itemize}
+    \item \texttt{LISTING\_OFFERTYPE} (RENT/BUY)
+    \item \texttt{LISTING\_CATEGORIES} (apartment, house, studio, etc.)
+    \item \texttt{TARGETPLATFORM} (Homegate, ImmoScout24)
+    \item \texttt{LISTING\_PLATFORMS} (single vs cross-platform)
+    \item \texttt{billing\_country}, \texttt{payment\_mode}, \texttt{action\_type}
+\end{itemize}
+
+\textbf{Temporal Features (4 features):} Time-based patterns with cyclical encoding:
+\begin{itemize}
+    \item \texttt{event\_hour}: Hour of submission (0--23)
+    \item \texttt{event\_day\_of\_week}: Day (0--6)
+    \item Cyclical transformations: sin/cos encoding to capture periodicity
+\end{itemize}
+
+\subsection{Feature Selection Rationale}
+
+\textbf{Raw Signals over ML Scores:} The feature set deliberately uses raw SEON signals rather than SEON's pre-computed fraud scores (\texttt{fraud\_score}, \texttt{blackbox\_score}). This decision ensures model independence---using SEON's predictions as features would create dependency on their proprietary model and obscure which underlying signals drive predictions. Raw signals enable direct interpretability through SHAP analysis.
+
+\textbf{Boolean Signal Inclusion:} All boolean signals are included regardless of prevalence. Analysis revealed:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\hline
+Signal & Prevalence & Fraud Rate When True \\
+\hline
+\texttt{tor} & 0.03\% & 28.4\% \\
+\texttt{email/domain/disposable} & 0.29\% & 19.9\% \\
+\texttt{phone\_is\_disposable} & 0.01\% & 24.2\% \\
+\texttt{email/domain/free} & 60.6\% & 1.7\% \\
+\hline
+\end{tabular}
+\caption{Prevalence and precision of selected boolean signals.}
+\end{table}
+
+Low-prevalence signals (tor, disposable email/phone) provide high precision despite rare occurrence. High-prevalence signals (free email) provide contextual information even when individually weak predictors.
+
+\subsection{Excluded Features}
+\begin{itemize}
+    \item \texttt{STATUS}: Removed due to label leakage (Section 3.2.3)
+    \item \texttt{SEON fraud\_score}, \texttt{blackbox\_score}: Removed to ensure model independence
+    \item Raw PII columns: Replaced with hashed versions for graph construction
+\end{itemize}

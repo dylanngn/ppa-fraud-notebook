@@ -1,0 +1,10 @@
+\section{Research Design Overview}
+\label{sec:3_1}
+
+This research employs a case study approach, utilizing production data from Swiss Marketplace Group (SMG) to discover and validate fraud patterns in real estate marketplace listings. The methodology follows a data mining workflow that prioritizes pattern discovery before model validation.
+
+The research proceeds through four phases. First, exploratory data analysis examines temporal, geographic, and entity-sharing patterns in the dataset, identifying potential fraud signatures prior to any modeling. Second, graph construction transforms entity relationships into a heterogeneous network structure encoding device sharing, IP clustering, and identity linkages. Third, pattern extraction applies Graph Neural Network techniques to learn relational representations that capture multi-hop fraud patterns. Fourth, pattern validation employs classification models to confirm that discovered patterns carry predictive signal.
+
+This workflow maps directly to the research questions: RQ1 (relational pattern existence and predictive value) is addressed through graph construction and hybrid pattern validation; RQ2 (fraud ring characterization) through entity-sharing analysis and graph topology examination; RQ3 (temporal evolution and data requirements) through expanding and sliding window experiments with drift detection; RQ4 (actionable indicators) through SHAP-based interpretability analysis.
+
+The following sections detail each methodological component, from data preparation through real-time inference design.

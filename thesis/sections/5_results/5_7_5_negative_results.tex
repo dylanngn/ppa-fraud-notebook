@@ -1,0 +1,136 @@
+\section{Negative Results and Alternative Approaches}
+\label{sec:5_8}
+
+This section documents approaches that did not yield performance improvements. Reporting negative results provides valuable insights into the limitations of different techniques and prevents redundant investigation.
+
+\subsection{Handcrafted Graph Features}
+
+As an alternative to learned GNN embeddings, we experimented with explicit graph-based features computed from the heterogeneous graph structure.
+
+\textbf{Implemented Features (11 additional):}
+\begin{itemize}
+    \item \textbf{Degree features}: Connection count per identity type (device, IP, email, phone)
+    \item \textbf{Historical fraud rate}: Fraud rate among listings connected to the same identities (point-in-time calculation to avoid leakage)
+    \item \textbf{Recency}: Days since each identity was first observed
+    \item \textbf{Similarity features}: Fraud rate among listings sharing similar device characteristics
+\end{itemize}
+
+\textbf{Results:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Model} & \textbf{AUC-PR} & \textbf{Features} & \textbf{Change} \\
+\hline
+Vanilla XGBoost & 0.6639 & 65 & - \\
+With Handcrafted Graph Features & 0.4833 & 76 (+11) & \textbf{-36.6\%} \\
+\hline
+\end{tabular}
+\caption{Performance degradation with handcrafted graph features}
+\end{table}
+
+\textbf{Analysis of Failure:}
+
+Feature importance analysis revealed that handcrafted graph features dominated the model's attention, crowding out reliable base features:
+
+\begin{itemize}
+    \item \texttt{gf\_ip\_fraud\_rate}: 16.2\% importance
+    \item \texttt{gf\_session\_similarity\_fraud\_rate}: 15.4\% importance
+    \item Base SEON features: Reduced importance
+\end{itemize}
+
+\textbf{Root Causes:}
+\begin{enumerate}
+    \item \textbf{Distribution shift}: Graph statistics computed on training data do not generalize to test period due to temporal evolution of fraud patterns
+    \item \textbf{Spurious correlations}: Historical fraud rates contain noise that models overfit to
+    \item \textbf{Feature crowding}: Dominant graph features suppress reliable individual signals from SEON
+\end{enumerate}
+
+\textbf{Conclusion:} Explicit graph features are inferior to both vanilla XGBoost and learned GNN embeddings. The temporal nature of fraud detection requires features that generalize across time, which handcrafted graph statistics fail to provide.
+
+\subsection{Positive-Signal Edges Only}
+
+We tested whether restricting graph edges to positive fraud signals (connections shared primarily by fraudulent listings) would improve GNN performance.
+
+\textbf{Hypothesis:} By including only edges that correlate with fraud (e.g., device sharing among fraudsters), the GNN should learn more discriminative embeddings.
+
+\textbf{Implementation:} Filtered edges to retain only those where connected nodes show fraud rate $>$ 15\% (versus 8.11\% baseline).
+
+\textbf{Results:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Configuration} & \textbf{AUC-PR} & \textbf{Change} \\
+\hline
+All edges (~31M edges) & 0.6990 & - \\
+Positive-signal edges only (~8M edges) & 0.6967 & -0.3\% \\
+\hline
+\end{tabular}
+\caption{Minimal benefit from positive-signal edge filtering}
+\end{table}
+
+\textbf{Analysis:} Edge filtering provided no meaningful benefit. The supervised GNN training already learns to weight edges appropriately through backpropagation. Manual edge filtering removes potentially useful negative signals (legitimate users sharing IPs at public WiFi, for example) without compensating benefit.
+
+\subsection{CARE-GNN Architecture}
+
+CARE-GNN (Camouflage-Resistant GNN) \cite{dou2020enhancing} is designed for fraud detection by learning to distinguish between fraudsters and camouflaged fraudsters who mimic legitimate behavior.
+
+\textbf{Implementation Challenges:}
+\begin{itemize}
+    \item \textbf{Training time}: 45 minutes per epoch (versus 2 minutes for GraphSAGE)
+    \item \textbf{Memory requirements}: 3x higher than GraphSAGE due to attention mechanisms
+    \item \textbf{Hyperparameter sensitivity}: Required extensive tuning of label similarity parameters
+\end{itemize}
+
+\textbf{Outcome:} After 3 days of experimentation, we achieved only 0.6945 AUC-PR, underperforming the GraphSAGE baseline (0.6990). The marginal performance gain did not justify the 22x increase in training time.
+
+\textbf{Conclusion:} For this domain, GraphSAGE's simplicity and efficiency make it the optimal choice. CARE-GNN's sophisticated camouflage detection mechanisms are unnecessary for our fraud patterns.
+
+\subsection{Graph Neural Network Without Supervision}
+
+Initial experiments trained the GNN using unsupervised link prediction (predicting edge existence) rather than supervised node classification (predicting fraud labels).
+
+\textbf{Hypothesis:} Unsupervised GNN training would learn general graph structure that transfers to fraud detection.
+
+\textbf{Results:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{GNN Training Method} & \textbf{AUC-PR} & \textbf{Notes} \\
+\hline
+Unsupervised link prediction & 0.6621 & Embeddings not fraud-specific \\
+Supervised node classification & 0.6990 & \textbf{+5.6\% improvement} \\
+\hline
+\end{tabular}
+\caption{Supervised GNN training outperforms unsupervised}
+\end{table}
+
+\textbf{Analysis:} Unsupervised embeddings captured general graph structure but failed to focus on fraud-relevant patterns. Supervised training with fraud labels enabled the GNN to learn embeddings optimized for fraud detection.
+
+\textbf{Lesson Learned:} For fraud detection, supervised GNN training is essential. The task-specific signal from fraud labels significantly outweighs benefits of unsupervised structural learning.
+
+\subsection{Summary of Negative Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcl}
+\hline
+\textbf{Approach} & \textbf{AUC-PR} & \textbf{Recommendation} \\
+\hline
+Vanilla XGBoost (baseline) & 0.6639 & Use as foundation \\
+Handcrafted graph features & 0.4833 & \textbf{Avoid} \\
+Positive-signal edges only & 0.6967 & Not worth complexity \\
+CARE-GNN & 0.6945 & Too slow for marginal gain \\
+Unsupervised GNN & 0.6621 & Use supervised instead \\
+\textbf{GraphSAGE + XGBoost (supervised)} & \textbf{0.6990} & \textbf{Recommended} \\
+\hline
+\end{tabular}
+\caption{Summary of all approaches tested}
+\end{table}
+
+These negative results establish that: (1) learned embeddings outperform handcrafted features, (2) supervised GNN training is essential, (3) simpler architectures (GraphSAGE) often outperform complex ones (CARE-GNN) when training efficiency is considered, and (4) edge filtering provides minimal benefit over full graph training.

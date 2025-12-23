@@ -1,0 +1,78 @@
+\section{Data Collection and Preparation}
+\label{sec:3_2}
+
+\subsection{Data Sources}
+
+The dataset comprises two primary sources from SMG's production systems covering the period from January 2024 to November 2025.
+
+\textbf{Insertion Events} (\texttt{insertion\_events.csv}) contains 804,717 lifecycle events for real estate listings across Homegate and ImmoScout24 platforms. Each event records a status change (DRAFT, PENDING\_APPROVAL, APPROVED, PUBLISHED, ARCHIVED, DELETED) with associated listing attributes including property details, pricing, geographic information, and lister contact data.
+
+\textbf{SEON Transactions} (\texttt{seon\_transactions.csv}) contains approximately 140,000 fraud detection API responses capturing device fingerprints, IP intelligence, email validation, phone verification, and behavioral signals collected at listing submission time.
+
+\textbf{Data Merge Strategy:} Events and SEON transactions occur at different timestamps, requiring temporal alignment. We implement an as-of join strategy:
+
+\begin{enumerate}
+    \item For each event at time T, find the closest SEON transaction after time T (preferred).
+    \item If no subsequent transaction exists, use the closest SEON transaction before time T.
+\end{enumerate}
+
+This approach ensures features reflect information available at decision time, simulating realistic operational conditions where SEON data may arrive slightly before or after the event.
+
+\subsection{Data Cleaning and Preprocessing}
+
+\textbf{Datetime Handling:} The two data sources use different timestamp formats requiring standardization:
+\begin{itemize}
+    \item Events: \texttt{\%Y-\%m-\%d \%H:\%M:\%S\%.f \%z} (e.g., ``2025-01-15 10:30:45.123 +0100'')
+    \item SEON: \texttt{\%Y-\%m-\%dT\%H:\%M:\%S\%.f\%z} (e.g., ``2025-01-15T10:30:45.123+0000'')
+\end{itemize}
+
+All timestamps are converted to UTC for consistent temporal operations.
+
+\textbf{PII Anonymization:} Personally identifiable information is hashed using SHA-256 before analysis:
+\begin{itemize}
+    \item \texttt{INSERTION\_ID} $\rightarrow$ \texttt{INSERTION\_ID\_hash}
+    \item \texttt{LISTING\_LISTER\_EMAIL} $\rightarrow$ \texttt{LISTING\_LISTER\_EMAIL\_hash}
+    \item \texttt{LISTING\_LISTER\_PHONE} $\rightarrow$ \texttt{LISTING\_LISTER\_PHONE\_hash}
+    \item \texttt{user\_id} $\rightarrow$ \texttt{user\_id\_hash}
+    \item IP addresses $\rightarrow$ \texttt{ip\_hash}
+    \item Device fingerprints $\rightarrow$ \texttt{session/device\_hash}
+\end{itemize}
+
+\textbf{Temporal Filtering:} Analysis of data density revealed sparse coverage before November 2024, when SEON integration commenced. Events from January--October 2024 average approximately 200 events per month compared to 60,000+ post-integration. We filter to \texttt{train\_start\_date = 2024-12-01} to ensure consistent feature availability across the training period.
+
+\textbf{ETL Implementation:} The pipeline uses Polars for memory-efficient processing of the 800K+ event dataset, with lazy evaluation enabling streaming operations on commodity hardware.
+
+\subsection{Label Definition}
+
+\textbf{Fraud Label Source:} The \texttt{FLAGGEDFORFRAUD} column contains a timestamp indicating when customer support or automated rules flagged a listing as fraudulent. Label assignment follows:
+\begin{itemize}
+    \item If \texttt{FLAGGEDFORFRAUD} is non-null $\rightarrow$ \texttt{is\_fraud = 1}
+    \item If \texttt{FLAGGEDFORFRAUD} is null $\rightarrow$ \texttt{is\_fraud = 0}
+\end{itemize}
+
+\textbf{Critical Observation:} Fraud is a property of listings, not individual events. A single fraudulent listing may generate multiple events (DRAFT $\rightarrow$ PENDING\_APPROVAL $\rightarrow$ DELETED) before detection. Analysis must aggregate to listing level to avoid inflating sample counts.
+
+\subsection{Label Leakage Discovery and Mitigation}
+
+During comprehensive data mining analysis, we discovered a critical label leakage issue in the \texttt{STATUS} column that illustrates the importance of temporal reasoning in fraud detection model development.
+
+\textbf{Discovery Process:} Initial feature importance analysis revealed unexpectedly high predictive power for the \texttt{STATUS} feature. Further investigation of the event lifecycle revealed the following patterns:
+
+\begin{itemize}
+    \item \textbf{Fraudulent listings:} DRAFT $\rightarrow$ PENDING\_APPROVAL $\rightarrow$ DELETED (flagged=True)
+    \item \textbf{Legitimate listings:} DRAFT $\rightarrow$ PENDING\_APPROVAL $\rightarrow$ APPROVED $\rightarrow$ PUBLISHED $\rightarrow$ ARCHIVED
+\end{itemize}
+
+\textbf{Root Cause:} The leakage stems from a temporal misalignment between prediction time and data collection:
+\begin{enumerate}
+    \item At \textbf{prediction time} (listing submission), all listings have \texttt{STATUS = DRAFT}
+    \item In \textbf{our dataset} (historical snapshot), fraudulent listings show \texttt{STATUS = DELETED}
+    \item The deletion occurs \textbf{after} fraud detection, not before
+    \item A model learning ``DELETED $\rightarrow$ FRAUD'' exploits backwards causality
+\end{enumerate}
+
+\textbf{Impact Analysis:} Initial experiments including STATUS as a feature showed artificially inflated performance metrics. The model was effectively learning post-hoc outcomes rather than predictive patterns available at decision time. This would result in catastrophic deployment failure, as the STATUS signal would not be available for real-time predictions.
+
+\textbf{Mitigation:} Following this discovery, the \texttt{STATUS} column was permanently removed from the feature schema defined in \texttt{src/features/schema.py}. All reported results in this thesis reflect models trained without STATUS, ensuring fair evaluation and realistic deployment expectations.
+
+This discovery reinforces the critical importance of point-in-time feature engineering in temporal prediction tasks, where the distinction between information available at prediction time versus information available in retrospective analysis must be rigorously maintained.

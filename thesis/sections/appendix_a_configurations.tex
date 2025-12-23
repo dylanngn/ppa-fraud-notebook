@@ -1,0 +1,148 @@
+\chapter{Configuration Files}
+\label{appendix:configurations}
+
+This appendix provides complete Hydra configuration files used throughout the implementation.
+
+\section{Training Configuration}
+\label{appendix:train_config}
+
+Complete training configuration file (\texttt{configs/experiment.yaml}):
+
+\begin{lstlisting}[language=yaml, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+experiment:
+  name: "fraud_detection"
+  tracking_uri: "sqlite:///mlflow.db"
+
+data:
+  path: "artifacts/merged_events.parquet"
+  train_start_date: "2024-12-01"
+  train_end_date: "2025-06-01"
+  test_end_date: "2025-07-01"
+
+training:
+  mode: "single"  # or "expanding"
+  gap_days: 7
+  run_shap: false
+
+model:
+  variant: "gnn_xgboost"  # vanilla_xgboost, gnn_xgboost
+  xgboost:
+    n_estimators: 100
+    max_depth: 3
+    learning_rate: 0.1
+    min_child_weight: 1
+    subsample: 1.0
+    colsample_bytree: 1.0
+    scale_pos_weight: 11.0
+    eval_metric: "aucpr"
+  gnn:
+    hidden_dim: 32
+    output_dim: 16
+    num_layers: 2
+    epochs: 5
+    learning_rate: 0.01
+    dropout: 0.3
+\end{lstlisting}
+
+\section{Hyperparameter Optimization Configuration}
+\label{appendix:hpo_config}
+
+XGBoost HPO configuration (\texttt{configs/hpo\_xgboost.yaml}):
+
+\begin{lstlisting}[language=yaml, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+# configs/hpo_xgboost.yaml
+defaults:
+  - experiment
+
+hydra:
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    n_trials: 50
+    direction: maximize
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+    params:
+      model.xgboost.n_estimators: range(50, 500, step=50)
+      model.xgboost.max_depth: range(3, 12)
+      model.xgboost.learning_rate: interval(0.01, 0.3)
+      model.xgboost.min_child_weight: range(1, 10)
+      model.xgboost.subsample: interval(0.6, 1.0)
+      model.xgboost.colsample_bytree: interval(0.6, 1.0)
+      model.xgboost.scale_pos_weight: interval(1.0, 20.0)
+\end{lstlisting}
+
+Joint GNN+XGBoost HPO configuration (\texttt{configs/hpo\_gnn\_xgboost.yaml}):
+
+\begin{lstlisting}[language=yaml, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+# configs/hpo_gnn_xgboost.yaml
+defaults:
+  - experiment
+
+model:
+  variant: "gnn_xgboost"
+  # Fix XGBoost params from Stage 1 optimization
+  xgboost:
+    max_depth: 5
+    learning_rate: 0.085
+    n_estimators: 200
+
+hydra:
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    n_trials: 30
+    direction: maximize
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+    params:
+      model.gnn.hidden_dim: choice(16, 32, 64)
+      model.gnn.output_dim: choice(8, 16, 32)
+      model.gnn.num_layers: choice(2, 3)
+      model.gnn.learning_rate: interval(0.001, 0.01)
+      model.gnn.dropout: interval(0.1, 0.5)
+\end{lstlisting}
+
+\section{ETL Pipeline Configuration}
+\label{appendix:etl_config}
+
+Data pipeline configuration (\texttt{conf/config.yaml}):
+
+\begin{lstlisting}[language=yaml, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+# conf/config.yaml
+defaults:
+  - data: default
+
+output:
+  dir: "artifacts"
+  merged_file: "merged_events.parquet"
+
+processing:
+  chunk_size: 10000
+  anonymize_pii: true
+  compression: "snappy"
+\end{lstlisting}
+
+Data source configuration (\texttt{conf/data/default.yaml}):
+
+\begin{lstlisting}[language=yaml, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+# conf/data/default.yaml
+events:
+  path: "data/raw/listing_events.parquet"
+  datetime_format: "%Y-%m-%d %H:%M:%S.%f %z"
+
+seon:
+  path: "data/raw/seon_transactions.parquet"
+  datetime_format: "%Y-%m-%dT%H:%M:%S.%f%z"
+
+labels:
+  path: "data/raw/fraud_labels.parquet"
+  positive_class: "FRAUD"
+
+column_mappings:
+  event_id: "INSERTION_ID"
+  timestamp: "event_dt"
+  user_id: "USER_ID"
+  device_hash: "device_fingerprint_hash"
+  ip_hash: "ip_address_hash"
+\end{lstlisting}

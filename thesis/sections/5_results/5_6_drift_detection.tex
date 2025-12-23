@@ -1,0 +1,55 @@
+\section{Drift Detection Results}
+\label{sec:5_6}
+
+DDM and ADWIN monitors tracked prediction quality across the evaluation period.
+
+\textbf{DDM Findings:}
+
+\begin{table}[htbp]
+    \centering
+    \caption{DDM Drift Detection}
+    \label{tab:5_7}
+    \begin{tabular}{lccc}
+        \toprule
+        Period & Warning Triggered & Drift Detected & Error Rate \\
+        \midrule
+        Feb 2025 & Yes & No & 8.2\% \\
+        Mar 2025 & Yes & Yes & 11.4\% \\
+        Apr 2025 & No & No & 6.8\% \\
+        May 2025 & No & No & 5.9\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+DDM detected significant drift in March 2025, coinciding with the fraud rate spike identified in EDA. The 3$\sigma$ threshold triggered retraining alerts.
+
+\textbf{ADWIN Findings:}
+
+ADWIN's adaptive windowing identified distribution changes in:
+\begin{itemize}
+    \item March 2025: Fraud pattern shift (confirmed by DDM)
+    \item June 2025: Gradual drift in feature distributions
+\end{itemize}
+
+ADWIN's parameter-free approach detected gradual drift earlier than DDM's fixed thresholds.
+
+\textbf{Sliding vs Expanding Window:}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Window Strategy Comparison}
+    \label{tab:5_8}
+    \begin{tabular}{lccc}
+        \toprule
+        Validation & Mean AUC-PR & Std & Drift Range \\
+        \midrule
+        Expanding (accumulating) & 0.6286 & 0.077 & 0.21 \\
+        Sliding (90-day fixed) & 0.5892 & 0.092 & 0.28 \\
+        Sliding (180-day fixed) & 0.6104 & 0.081 & 0.23 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Expanding window outperforms sliding windows, indicating historical data provides value despite potential staleness. The 90-day sliding window shows highest variance, insufficient for stable model performance.
+
+\textbf{Recommendation:} Use expanding window training with DDM/ADWIN monitoring for retraining triggers. Monthly scheduled retraining provides good balance between freshness and stability.

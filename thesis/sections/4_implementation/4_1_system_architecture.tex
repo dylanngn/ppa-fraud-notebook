@@ -1,0 +1,81 @@
+\section{System Architecture Overview}
+\label{sec:4_1}
+
+The fraud detection framework implements a modular pipeline architecture separating data processing, feature engineering, graph construction, model training, and real-time inference into distinct components.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.1\textwidth,height=0.75\textheight,keepaspectratio]{figures/fig_4_4_1_1.png}
+    \caption{System Architecture: Data Layer → ETL Pipeline → Feature Layer → Model Layer → Serving Layer}
+    \label{fig:4_1}
+\end{figure}
+
+The architecture follows a layered design with single responsibility per component:
+
+\textbf{Data Layer:} Ingests raw CSV files from SMG's data warehouse (\texttt{insertion\_events.csv} and \texttt{seon\_transactions.csv}). The data sources contain heterogeneous timestamp formats requiring standardization.
+
+\textbf{ETL Pipeline:} Merges event and SEON data using temporal as-of joins implemented in Polars for memory-efficient processing. The pipeline handles streaming operations on 800K+ events, performing PII anonymization and temporal filtering. Output is stored in compressed Parquet format for downstream processing.
+
+\textbf{Feature Layer:} Handles three critical operations: (1) feature extraction from merged data according to the feature schema, (2) temporal splitting with point-in-time label assignment and 7-day gap to prevent label leakage, and (3) heterogeneous graph construction with ~31M edges encoding device, IP, email, and phone relationships.
+
+\textbf{Model Layer:} Implements a hybrid architecture where GraphSAGE extracts 16-dimensional node embeddings from the heterogeneous graph, which are concatenated with 65 base features and fed to an XGBoost classifier. Baseline models (Logistic Regression, Random Forest, vanilla XGBoost) are also implemented for comparison.
+
+\textbf{Serving Layer:} Provides real-time inference through a FastAPI service with an internal event store enabling graph feature computation for incoming predictions. The API maintains a sliding window of recent events to construct graph connections for new listings.
+
+\textbf{Monitoring:} Tracks prediction drift using DDM (Drift Detection Method) and ADWIN (Adaptive Windowing) algorithms to detect concept drift and trigger retraining.
+
+All components are orchestrated through Hydra configuration management and tracked via MLflow experiment logging. The modular design enables independent testing and replacement of components---for example, swapping GraphSAGE for CARE-GNN requires only configuration changes without pipeline modifications.
+
+\subsection{Project Structure}
+
+The implementation follows a modular organization separating concerns across distinct packages:
+
+\begin{lstlisting}[language=bash, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
+ppa-fraud-notebook/
+├── conf/              # Hydra config for ETL
+│   ├── config.yaml
+│   └── data/default.yaml
+├── configs/           # Hydra config for training
+│   ├── experiment.yaml
+│   ├── hpo_xgboost.yaml
+│   └── hpo_gnn_xgboost.yaml
+├── src/
+│   ├── data/         # ETL pipeline
+│   │   ├── extract.py
+│   │   ├── transform.py
+│   │   ├── load.py
+│   │   └── etl.py
+│   ├── features/     # Feature engineering
+│   │   ├── schema.py
+│   │   ├── store.py
+│   │   ├── graph_builder.py
+│   │   └── temporal_split.py
+│   ├── models/       # Model implementations
+│   │   ├── baselines.py
+│   │   ├── xgboost_classifier.py
+│   │   ├── graphsage.py
+│   │   └── hybrid.py
+│   ├── training/     # Training pipelines
+│   │   ├── trainer.py
+│   │   └── pipeline.py
+│   ├── evaluation/   # Evaluation tools
+│   │   ├── shap_analysis.py
+│   │   └── drift.py
+│   └── api/          # REST API service
+│       ├── main.py
+│       └── store.py
+└── scripts/
+    └── run_gnn_hpo_with_best_xgb.py
+\end{lstlisting}
+
+\textbf{Key modules:}
+\begin{itemize}
+    \item \texttt{src/data/}: ETL pipeline with streaming support via Polars LazyFrames
+    \item \texttt{src/features/}: Feature schema definitions, temporal splitting, and graph construction
+    \item \texttt{src/models/}: Abstract base classes and concrete model implementations
+    \item \texttt{src/training/}: Single and expanding window training pipelines
+    \item \texttt{src/evaluation/}: SHAP explainability and drift detection
+    \item \texttt{src/api/}: FastAPI service with in-memory event store
+\end{itemize}
+
+This structure enables clear separation between data processing (\texttt{data/}), feature engineering (\texttt{features/}), model development (\texttt{models/}), and deployment (\texttt{api/}), facilitating independent testing and maintenance.

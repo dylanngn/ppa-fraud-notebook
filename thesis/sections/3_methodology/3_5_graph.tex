@@ -1,0 +1,105 @@
+\section{Graph Construction}
+\label{sec:3_5}
+
+The entity-sharing patterns discovered in Section 3.3.3 motivate construction of a heterogeneous graph encoding relational structure for pattern extraction.
+
+\subsection{Heterogeneous Graph Design}
+
+The graph represents listings and their relationships through shared entities using PyTorch Geometric's \texttt{HeteroData} structure. This heterogeneous graph design \cite{hu2020heterogeneous,schlichtkrull2018modeling} enables modeling multiple node types and edge types with distinct semantics. Recent surveys \cite{yang2024heterogeneous} highlight advances in heterogeneous graph learning including adaptive relation reconstruction and region-based feature extraction, though our implementation focuses on the established message-passing framework for reliability and interpretability.
+
+\textbf{Node Types:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\hline
+Node Type & Description & Count (Train) & Count (Inference) \\
+\hline
+Listing & Real estate listing & 47,588 & 54,233 \\
+User & Lister account & 66,519 & 76,147 \\
+Device & Browser fingerprint & 11,221 & 12,313 \\
+IP & IP address & 30,783 & 34,635 \\
+\hline
+\end{tabular}
+\caption{Graph node types and counts.}
+\end{table}
+
+\textbf{Edge Types:} Five relationship types connect listings through shared entities:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\hline
+Edge Type & Description & Count (Train) \\
+\hline
+\texttt{shares\_device} & Listings from same device fingerprint & 12,171,416 \\
+\texttt{shares\_ip} & Listings from same IP address & 2,597,653 \\
+\texttt{shares\_user} & Listings by same user account & 2,065,691 \\
+\texttt{shares\_email} & Listings sharing email patterns & 1,978,469 \\
+\texttt{shares\_phone} & Listings sharing phone number & 1,305,532 \\
+Direct edges & \texttt{used\_user}, \texttt{used\_device}, \texttt{used\_ip} & $\sim$194,000 \\
+Reverse edges & Bidirectional message passing & $\sim$194,000 \\
+\textbf{Total} & & \textbf{$\sim$31,500,000} \\
+\hline
+\end{tabular}
+\caption{Graph edge types and counts.}
+\end{table}
+
+The \texttt{shares\_device} edge type dominates (12M edges) due to power users and fraud rings operating from single devices. Device sharing provides the strongest fraud signal per EDA findings (35.5\% fraud rate for super-connectors).
+
+\textbf{Edge Construction Logic:} For each entity type (device, IP, email, phone), edges connect all listing pairs sharing that entity:
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
+For entity e with listings [L1, L2, L3]:
+  Create edges: (L1, L2), (L1, L3), (L2, L3)
+\end{lstlisting}
+
+This creates dense subgraphs for high-volume entities (e.g., 6,251 listings sharing one device creates $\sim$19.5M potential edges from that device alone), which we handle through neighbor sampling during training.
+
+\subsection{Temporal Graph Integrity}
+
+Graph construction respects temporal ordering to prevent information leakage:
+
+\textbf{Edge Temporal Filtering:} Only events occurring before the cutoff date contribute edges. An edge between listings L1 and L2 sharing device D exists only if both listings' events predate the cutoff. This ensures the training graph reflects information available at training time.
+
+\textbf{Separate Train and Inference Graphs:}
+\begin{itemize}
+    \item Train graph: Cutoff at \texttt{train\_end\_date} (2025-06-01)
+    \item Inference graph: Cutoff at \texttt{test\_end\_date} (2025-07-01)
+\end{itemize}
+
+The inference graph includes test period listings and their relationships, enabling prediction on new listings while incorporating their graph context.
+
+\textbf{Node Feature Temporal Alignment:} Node features are computed using only information available at the event timestamp, preventing future feature leakage.
+
+\subsection{Node Feature Construction}
+
+Each listing node receives a 44-dimensional feature vector comprising base features and temporal encodings.
+
+\textbf{Base Features (36 dimensions):} Subset of the 65 tabular features suitable for GNN input:
+\begin{itemize}
+    \item Numeric features: normalized to [0, 1] range
+    \item Categorical features: label encoded
+    \item Boolean features: binary (0/1)
+\end{itemize}
+
+\textbf{Temporal Encoding (8 dimensions):} Time-aware features enabling the GNN to distinguish recent from historical patterns:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+Feature & Description \\
+\hline
+\texttt{days\_since\_start} & Normalized days from first event in dataset \\
+\texttt{relative\_position} & Position in timeline [0, 1] \\
+\texttt{hour\_sin}, \texttt{hour\_cos} & Cyclical encoding of submission hour \\
+\texttt{weekday\_sin}, \texttt{weekday\_cos} & Cyclical encoding of day of week \\
+\texttt{recency} & Inverse of time (more recent = higher) \\
+\hline
+\end{tabular}
+\caption{Temporal encoding features for GNN input.}
+\end{table}
+
+Cyclical encoding (sin/cos transformation) captures temporal periodicity---hour 23 and hour 0 are adjacent despite numeric distance. The recency feature enables the model to weight recent patterns more heavily.
+
+The resulting graph structure (47,588 listing nodes, 31M edges, 44-dimensional features) provides the input for GNN-based pattern extraction described in Section 3.7.

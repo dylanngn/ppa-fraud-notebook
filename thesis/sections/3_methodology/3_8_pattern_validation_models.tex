@@ -1,0 +1,70 @@
+\section{Pattern Validation: Classification Models}
+\label{sec:3_8}
+
+Classification models validate whether discovered patterns carry predictive signal, serving as the final stage of the pattern discovery pipeline.
+
+\subsection{Baseline Models}
+
+Two baseline models establish performance floors:
+
+\textbf{Logistic Regression:} Linear baseline providing interpretable coefficients. Configuration uses L2 regularization (C=1.0) with class weight balancing. Logistic regression tests whether linear combinations of features suffice for fraud detection.
+
+\textbf{Random Forest:} Tree ensemble baseline capturing non-linear interactions without graph information. Configuration:
+\begin{itemize}
+    \item Trees: 100
+    \item Maximum depth: 10
+    \item Class weight: balanced
+\end{itemize}
+
+Random Forest establishes the performance achievable with tabular features and non-linear modeling before graph augmentation.
+
+\subsection{XGBoost Configuration}
+
+XGBoost serves as the primary classification model due to demonstrated superiority on tabular data.
+
+\textbf{Hyperparameter Optimization:} Optuna TPE (Tree-structured Parzen Estimator) sampler with 50 trials optimizes for AUC-PR:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\hline
+Parameter & Search Range & Best Value \\
+\hline
+\texttt{n\_estimators} & [50, 500] & 250 \\
+\texttt{max\_depth} & [3, 12] & 6 \\
+\texttt{learning\_rate} & [0.01, 0.3] & 0.1 \\
+\texttt{min\_child\_weight} & [1, 10] & 3 \\
+\texttt{subsample} & [0.6, 1.0] & 0.8 \\
+\texttt{colsample\_bytree} & [0.6, 1.0] & 0.8 \\
+\texttt{scale\_pos\_weight} & [1.0, 20.0] & 11.0 \\
+\hline
+\end{tabular}
+\caption{XGBoost hyperparameter optimization results.}
+\end{table}
+
+\textbf{Class Imbalance Handling:} Rather than synthetic oversampling (SMOTE), we use \texttt{scale\_pos\_weight} to adjust loss weighting. Setting \texttt{scale\_pos\_weight} $\approx$ 11 (matching the 1:11 imbalance ratio) increases the penalty for false negatives on fraudulent listings. This approach avoids synthetic sample artifacts and integrates naturally with gradient boosting.
+
+\subsection{Hybrid Pipeline}
+
+The hybrid GNN+XGBoost pipeline operates in two stages:
+
+\textbf{Stage 1 -- Pattern Extraction:}
+\begin{itemize}
+    \item Train GNN on heterogeneous graph.
+    \item Generate 16-dimensional embeddings for all listings.
+\end{itemize}
+
+\textbf{Stage 2 -- Pattern Validation:}
+\begin{itemize}
+    \item Concatenate embeddings with tabular features: $\mathbf{f}_v = [\mathbf{x}_v \| \mathbf{z}_v]$
+    \item Train XGBoost on enriched 81-dimensional feature vectors.
+    \item Evaluate whether relational pattern representations improve classification.
+\end{itemize}
+
+This separation enables:
+\begin{itemize}
+    \item Independent debugging of GNN and classifier components.
+    \item Embedding caching for efficient inference.
+    \item Direct SHAP analysis on the final classifier.
+    \item Quantification of GNN embedding contribution to predictions.
+\end{itemize}

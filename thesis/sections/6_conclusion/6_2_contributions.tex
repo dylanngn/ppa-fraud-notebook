@@ -1,0 +1,18 @@
+\section{Contributions}
+\label{sec:6_2}
+
+This thesis makes six contributions spanning pattern discovery, model development, and operational deployment:
+
+\begin{enumerate}
+    \item \textbf{Relational Pattern Discovery:} Characterized entity-sharing topologies in real estate marketplaces, identifying device super-connectors (35.5\% fraud rate), geographic clustering (West Africa: 60--90\% fraud rates), and temporal signatures (6--7 AM peaks, February 2025 spike) as high-precision fraud indicators.
+    
+    \item \textbf{Hybrid GNN+XGBoost Framework:} Designed and validated a hybrid architecture combining GraphSAGE for relational pattern extraction with XGBoost for classification. Comparison across four GNN variants (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal. The hybrid achieves +5.3\% AUC-PR over tabular-only and +17\% over commercial SEON baseline.
+    
+    \item \textbf{Data Requirements Quantification:} Established $\sim$300K sample minimum for graph-based patterns to provide predictive lift over tabular-only approaches, providing actionable guidance for practitioners.
+    
+    \item \textbf{Retraining Strategy Evaluation:} Evaluated concept drift adaptation through expanding/sliding window validation with DDM/ADWIN detection across 12 months. Expanding windows outperform sliding (0.6286 vs. 0.5892 AUC-PR), with monthly retraining providing optimal freshness-stability balance.
+    
+    \item \textbf{Explainable AI Integration:} Integrated SHAP-based interpretability generating global feature importance (GNN embeddings: 17.3\% contribution) and local prediction explanations enabling fraud analyst investigation prioritization.
+    
+    \item \textbf{Proof-of-Concept Deployment:} Deployed trained model as RESTful API with sub-100ms latency, demonstrating production viability for real-time fraud scoring.
+\end{enumerate}

@@ -1,0 +1,38 @@
+\section{Hybrid Approaches: Pattern Extraction and Validation}
+\label{sec:2_4}
+
+Discovered relational patterns require validation to confirm their predictive utility. This section examines two-stage approaches that separate pattern extraction from classification, enabling both effective detection and interpretable analysis of what patterns drive predictions.
+
+\subsection{Two-Stage Pattern Mining}
+
+The hybrid approach decomposes fraud detection into distinct phases: pattern extraction and pattern validation.
+
+\textbf{Pattern extraction} transforms graph structure into dense representations encoding relational patterns. Graph Neural Networks, as described in Section 2.2.3, learn embeddings where structurally similar nodes (those sharing connectivity patterns, neighborhood characteristics, or multi-hop relationships) receive similar representations. These embeddings encode patterns such as ``connected to high-degree device nodes,'' ``part of a temporal cluster of new listings,'' or ``shares identity markers with flagged accounts''---without requiring manual pattern specification.
+
+\textbf{Pattern validation} combines extracted patterns with individual entity attributes for classification. Gradient Boosting methods---XGBoost \cite{chen2016xgboost} and LightGBM \cite{ke2017lightgbm}---excel at this task due to native handling of mixed feature types, robustness to missing values, and built-in interpretability through feature importance. The enriched feature vector concatenates original attributes with extracted pattern representations:
+
+\begin{equation}
+\mathbf{f}_v = [\mathbf{x}_v \| \mathbf{z}_v]
+\end{equation}
+
+where $\mathbf{x}_v$ represents individual listing attributes (price, category, SEON signals) and $\mathbf{z}_v$ represents GNN-extracted relational patterns. Classification performance on this enriched vector validates whether discovered patterns carry predictive signal beyond individual attributes.
+
+\textbf{Advantages of separation} include independent development and debugging of each stage, cached pattern representations for efficient inference, and direct application of SHAP to the final classifier for interpretability. \citeauthor{grinsztajn2022why} \cite{grinsztajn2022why} demonstrated that tree-based methods outperform deep learning on medium-sized tabular data---the regime of most fraud applications---supporting the choice of XGBoost for validation rather than end-to-end neural classification.
+
+\subsection{Evidence from Prior Work}
+
+Empirical evidence supports the two-stage approach across fraud detection domains.
+
+\textbf{Intel's reference implementation} \cite{intel2023credit} for credit card fraud demonstrated that GraphSAGE embeddings combined with XGBoost achieved 3--5\% AUC-PR improvement over XGBoost alone. Critically, their self-supervised pretraining---using link prediction rather than fraud labels for GNN training---extracted patterns capturing general graph structure, which proved predictive of fraud without explicit supervision. This supports the view that relational patterns encode genuine signal rather than merely overfitting to known fraud examples.
+
+\textbf{NVIDIA's technical report} \cite{nvidia2023financial} documented R-GCN embeddings combined with XGBoost for payment fraud, emphasizing that the hybrid approach maintains tree-based interpretability while incorporating network effects. For regulated financial domains requiring explanation of decisions, this interpretability is not merely convenient but mandatory.
+
+\textbf{Domain-general evidence} from \citeauthor{deng2021graph} \cite{deng2021graph} compared GNN-only, XGBoost-only, and hybrid approaches across molecular property prediction, finding that relational pattern representations consistently enhanced XGBoost performance when relational structure existed. The generalizable insight: when data contains both informative attributes and informative relationships, hybrid approaches capture complementary signal.
+
+\citeauthor{motie2024financial} \cite{motie2024financial} survey of GNN applications in financial fraud identified hybrid architectures as particularly effective when datasets contain both rich relational structure and informative tabular features---precisely the characteristics of marketplace fraud data with device fingerprints, identity signals, and listing attributes.
+
+\subsection{Data Requirements Question}
+
+A critical gap in prior work concerns the data requirements for graph-based pattern extraction to provide value. Studies typically demonstrate improvement on fixed benchmarks without investigating the conditions enabling improvement.
+
+Preliminary observations suggest that graph patterns require sufficient density to emerge. Sparse graphs with few connections per node provide limited relational signal. Small datasets may lack the diversity for pattern learning to generalize. The interaction between graph density, dataset size, and pattern utility remains unquantified---a gap this thesis directly addresses through systematic expanding window experiments.

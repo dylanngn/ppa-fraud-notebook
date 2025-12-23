@@ -1,0 +1,44 @@
+\section{Graph-Based Pattern Mining and Anomaly Detection}
+\label{sec:2_2}
+
+Relational data---where entities connect through diverse relationships---requires analytical approaches that explicitly model network structure. This section reviews graph mining fundamentals, network anomaly detection, and Graph Neural Networks as tools for extracting relational patterns.
+
+\subsection{Graph Mining Fundamentals}
+
+Graph mining encompasses techniques for discovering structural patterns within network data. Three foundational approaches inform fraud pattern discovery.
+
+\textbf{Community detection} identifies densely connected subgroups within larger networks. Methods range from modularity optimization \cite{newman2006modularity} to spectral clustering and label propagation. In fraud contexts, communities may represent fraud rings---groups of accounts or listings with unusually dense interconnections through shared devices, IPs, or behavioral patterns. \citeauthor{akoglu2015graph} \cite{akoglu2015graph} surveyed graph-based anomaly detection, noting that fraud rings often form near-cliques that stand out against the sparse connectivity of legitimate user behavior.
+
+\textbf{Link analysis and centrality measures} quantify node importance within network structure. PageRank, betweenness centrality, and degree distributions reveal nodes occupying unusual structural positions. In marketplace fraud, super-connector entities---devices linked to thousands of listings---represent clear centrality anomalies. \citeauthor{savage2014anomaly} \cite{savage2014anomaly} demonstrated that centrality-based features significantly improve fraud detection in online auction networks.
+
+\textbf{Subgraph pattern mining} discovers recurring structural motifs that may indicate specific behaviors. Frequent subgraph mining techniques \cite{jiang2013survey} identify common local patterns, while graph kernels measure similarity between subgraphs. Fraud operations often exhibit characteristic motifs: star patterns (one device connecting many listings), chains (sequential account creation), or dense cores with peripheral legitimate connections for camouflage.
+
+\subsection{Anomaly Detection in Networks}
+
+Network anomaly detection identifies entities or structures deviating from expected patterns. Anomalies relevant to fraud manifest at multiple levels.
+
+\textbf{Structural anomalies} involve unusual connectivity patterns. A listing connected to a device that links to hundreds of other listings exhibits structural anomaly regardless of its individual attributes. \citeauthor{akoglu2015graph} \cite{akoglu2015graph} categorized structural anomalies into static patterns (unusual degree, clustering coefficient) and dynamic patterns (sudden connectivity changes). For fraud detection, both matter: established fraud rings show static structural signatures, while emerging operations create dynamic anomalies.
+
+\textbf{Attribute-based anomalies} occur when node features deviate from neighbors or population norms. A listing with legitimate-appearing attributes connected to nodes with high-risk characteristics (disposable emails, VPN usage, suspicious geographic origins) represents an attribute anomaly in graph context---its individual features are normal, but its relational context is suspicious.
+
+\textbf{Collective anomalies} involve groups of entities that are individually unremarkable but collectively suspicious. Fraud rings exemplify collective anomalies: each fake listing may appear plausible in isolation, but their coordinated timing, shared infrastructure, and similar content reveal the collective pattern. \citeauthor{noble2003graph} \cite{noble2003graph} pioneered graph-based collective anomaly detection, demonstrating that relational context dramatically improves detection of coordinated malicious activity.
+
+\citeauthor{ranshous2015anomaly} \cite{ranshous2015anomaly} surveyed anomaly detection in dynamic graphs, emphasizing that temporal context enhances pattern detection---a sudden burst of listings from a new device cluster is more suspicious than gradual growth from established accounts.
+
+\subsection{Graph Neural Networks as Pattern Extractors}
+
+Graph Neural Networks (GNNs) provide a learnable approach to extracting patterns from network structure, complementing traditional graph mining with adaptive representation learning.
+
+\textbf{Representation learning} transforms graph structure into dense vector embeddings that encode relational patterns. Unlike hand-crafted graph features (degree, centrality, clustering coefficient), relational pattern representations are learned end-to-end to optimize downstream tasks. \citeauthor{hamilton2017inductive} \cite{hamilton2017inductive} introduced GraphSAGE, which learns to aggregate neighborhood information through trainable functions:
+
+\begin{equation}
+\mathbf{h}_v^{(l)} = \sigma\left(\mathbf{W} \cdot \text{AGG}\left(\{\mathbf{h}_u^{(l-1)} : u \in \mathcal{N}(v)\}\right)\right)
+\end{equation}
+
+where the aggregation function AGG learns which neighborhood patterns are relevant. This formulation automatically discovers structural patterns predictive of the target task---in fraud detection, patterns distinguishing fraudulent from legitimate entity-sharing networks.
+
+\textbf{Message passing as pattern aggregation} provides the conceptual framework for understanding GNN operation. Each layer aggregates information from neighboring nodes, progressively capturing patterns at increasing structural distances. A two-layer GNN captures patterns involving second-degree connections: a listing shares a device with another listing that shares an email with a known fraud account. \citeauthor{gilmer2017neural} \cite{gilmer2017neural} unified diverse GNN architectures under the message passing framework, clarifying their role as learnable pattern aggregators.
+
+\textbf{Inductive capability} enables pattern extraction for new entities without retraining. Unlike transductive methods that require the full graph at training time, GraphSAGE and similar architectures learn aggregation functions that generalize to unseen nodes. For fraud detection, this is essential: new listings must be scored immediately using patterns learned from historical data. The model learns "if a new listing shares devices with entities exhibiting these patterns, assign similar representation"---transferring discovered patterns to novel entities.
+
+Importantly, GNNs in this thesis serve as pattern extraction tools rather than end-to-end classifiers. The extracted embeddings encode relational patterns which are then validated through classification models, enabling both pattern discovery and interpretability analysis.

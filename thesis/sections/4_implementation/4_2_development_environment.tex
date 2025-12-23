@@ -1,0 +1,29 @@
+\section{Development Environment}
+\label{sec:4_2}
+
+The development environment consists of commodity hardware and open-source software libraries optimized for large-scale graph processing and machine learning.
+
+\textbf{Hardware Specifications:}
+\begin{itemize}
+    \item CPU: Multi-core processor supporting parallel Polars operations
+    \item RAM: Sufficient for in-memory graph construction (31M edges)
+    \item Storage: SSD for fast Parquet I/O operations
+\end{itemize}
+
+\textbf{Software Dependencies:}
+\begin{itemize}
+    \item \texttt{Polars} (v0.20+): High-performance DataFrame library for ETL operations
+    \item \texttt{PyTorch Geometric} (v2.5+): Graph neural network framework
+    \item \texttt{XGBoost} (v2.0+): Gradient boosting classifier \cite{chen2016xgboost}
+    \item \texttt{FastAPI} (v0.100+): REST API framework for inference serving
+    \item \texttt{MLflow} (v2.8+): Experiment tracking and model registry
+    \item \texttt{Hydra} (v1.3+): Configuration management
+\end{itemize}
+
+\subsection{Configuration Management with Hydra}
+
+The framework uses Hydra for hierarchical configuration management, enabling parameter modification through command-line overrides without code changes. Two configuration hierarchies manage ETL (\texttt{conf/}) and training (\texttt{configs/}), specifying data paths, model hyperparameters, and evaluation settings. Hydra's Optuna sweeper plugin supports automated hyperparameter optimization through declarative YAML configuration. Complete configuration files are provided in Appendix~A.
+
+\subsection{Experiment Tracking with MLflow}
+
+MLflow provides centralized experiment tracking, logging parameters (model hyperparameters), metrics (AUC-PR, precision, recall), artifacts (trained models, SHAP plots), and metadata (training duration, code version) to a SQLite database. The training pipeline integrates MLflow through a context manager pattern, automatically tracking all runs. The MLflow web UI enables experiment comparison, metric sorting, and model artifact management. Complete integration code is provided in Appendix~B.

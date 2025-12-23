@@ -1,0 +1,92 @@
+\section{Classification Pipeline}
+\label{sec:4_7}
+
+The XGBoost classifier validates discovered patterns, implemented in \texttt{src/models/xgboost\_classifier.py} with Optuna HPO integration.
+
+\subsection{Hybrid Pipeline}
+\label{sec:4_7_1}
+
+The hybrid pipeline concatenates tabular features with GNN embeddings:
+
+\begin{algorithm}[H]
+\caption{Hybrid Training Pipeline}
+\label{alg:hybrid_training}
+\begin{algorithmic}[1]
+\REQUIRE Training dataframe $\mathcal{D}_{train}$, heterogeneous graph $\mathcal{G}$, trained GNN model $\theta_{GNN}$, XGBoost hyperparameters $\mathcal{P}_{XGB}$
+\ENSURE Trained hybrid classifier $f_{hybrid}$
+\STATE Set GNN to evaluation mode: $\theta_{GNN}.eval()$
+\STATE Generate embeddings without gradient computation:
+\STATE \quad $\mathbf{H} \gets \theta_{GNN}(\mathcal{G}.x_{dict}, \mathcal{G}.edge\_index_{dict})$
+\STATE Extract listing embeddings: $\mathbf{E}_{listing} \gets \mathbf{H}[``listing''] \in \mathbb{R}^{N \times 16}$
+\STATE Load tabular features: $\mathbf{X}_{tabular} \gets \mathcal{D}_{train}[\text{FEATURE\_COLUMNS}] \in \mathbb{R}^{N \times 65}$
+\STATE Concatenate features: $\mathbf{X}_{hybrid} \gets [\mathbf{X}_{tabular} \mid \mathbf{E}_{listing}] \in \mathbb{R}^{N \times 81}$
+\STATE Initialize XGBoost classifier with best parameters: $f_{XGB} \gets \text{XGBClassifier}(\mathcal{P}_{XGB})$
+\STATE Train classifier: $f_{XGB}.fit(\mathbf{X}_{hybrid}, \mathcal{D}_{train}[``is\_fraud''])$
+\RETURN Trained hybrid model $f_{hybrid} \gets f_{XGB}$
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Implementation Details:} Complete Python implementation is provided in Appendix~B.
+
+\subsection{XGBoost Training}
+\label{sec:4_7_2}
+
+Hyperparameter optimization uses Optuna with Tree-structured Parzen Estimator (TPE) sampling. For each of 50 trials, the TPE sampler proposes hyperparameter values from learned distributions: \texttt{n\_estimators} $\in [50, 500]$, \texttt{max\_depth} $\in [3, 12]$, \texttt{learning\_rate} $\in [0.01, 0.3]$ (log-uniform), \texttt{subsample} $\in [0.6, 1.0]$, \texttt{colsample\_bytree} $\in [0.6, 1.0]$, and \texttt{scale\_pos\_weight} $\in [1.0, 20.0]$. Each configuration is evaluated via 5-fold cross-validation with AUC-PR as the objective metric. The TPE algorithm updates its posterior distribution after each trial, concentrating search in high-performing regions. Best parameters are logged to MLflow and persisted for production deployment. Complete Optuna implementation is provided in Appendix~B.
+
+\subsection{Training Pipeline Architecture}
+
+The training pipeline supports two modes:
+
+\textbf{Single Training Mode:} Fixed train/test split with temporal integrity:
+\begin{enumerate}
+    \item Load merged events from Parquet
+    \item Apply temporal split with 7-day gap (train: 2024-12-01 to 2025-06-01, test: 2025-06-08 to 2025-07-01)
+    \item Build heterogeneous graph from training data
+    \item Train GNN (if hybrid variant) using supervised node classification
+    \item Extract embeddings and concatenate with base features
+    \item Train XGBoost classifier with early stopping
+    \item Evaluate on held-out test set
+    \item Log results to MLflow
+\end{enumerate}
+
+\textbf{Expanding Window Mode:} Multiple windows for concept drift analysis:
+\begin{enumerate}
+    \item Define temporal windows with increasing training data
+    \item For each window:
+    \begin{itemize}
+        \item Train model on current window
+        \item Evaluate on subsequent period
+        \item Track performance degradation
+        \item Apply drift detection (DDM/ADWIN)
+    \end{itemize}
+    \item Aggregate results across windows
+    \item Determine minimum data requirements
+\end{enumerate}
+
+\subsection{Hyperparameter Optimization Strategy}
+
+The framework employs a two-stage optimization approach:
+
+\textbf{Stage 1: XGBoost Optimization} (50 trials)
+\begin{itemize}
+    \item Search space: \texttt{max\_depth} [3--12], \texttt{learning\_rate} [0.01--0.3], \texttt{n\_estimators} [50--500]
+    \item Objective: Maximize AUC-PR on validation set
+    \item Early stopping: 10 rounds without improvement
+    \item Sampler: TPE (Tree-structured Parzen Estimator)
+\end{itemize}
+
+\textbf{Stage 2: Joint GNN+XGBoost Optimization} (30 trials)
+\begin{itemize}
+    \item Fix best XGBoost parameters from Stage 1
+    \item Search GNN hyperparameters: \texttt{hidden\_dim} [16--64], \texttt{output\_dim} [8--32], \texttt{num\_layers} [2--3]
+    \item Train GNN, extract embeddings, retrain XGBoost
+    \item Objective: Maximize hybrid model AUC-PR
+\end{itemize}
+
+This two-stage approach reduces computational cost by avoiding expensive joint optimization while still finding effective hyperparameter combinations. The best configuration achieves: \texttt{max\_depth=5}, \texttt{learning\_rate=0.085}, \texttt{n\_estimators=200}, \texttt{hidden\_dim=32}, \texttt{output\_dim=16}, \texttt{num\_layers=2}.
+
+\subsection{Model Training Flow}
+
+The end-to-end training flow follows this sequence: (1) Data loading and temporal split, (2) Heterogeneous graph construction from training events, (3) GNN training using supervised node classification (for hybrid variants), (4) Embedding generation in inference mode, (5) Feature concatenation with base attributes, (6) XGBoost training with early stopping, (7) Model evaluation on held-out test set, and (8) Logging results to MLflow for experiment tracking.
+
+For the hybrid model, GNN training uses supervised node classification with binary cross-entropy loss and the Adam optimizer (\texttt{lr=0.01}). The GraphSAGE architecture \cite{hamilton2017inductive} aggregates neighbor features through learned transformations. The GNN is trained for 5 epochs, which empirical analysis showed to be sufficient for convergence without overfitting. After training, the GNN operates in inference mode to generate deterministic embeddings for the XGBoost \cite{chen2016xgboost} stage.

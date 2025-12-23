@@ -1,0 +1,101 @@
+\section{Temporal Validation Design}
+\label{sec:3_6}
+
+Fraud detection operates in non-stationary environments where patterns evolve over time. This section details validation methodologies that preserve temporal integrity and assess concept drift.
+
+\subsection{Point-in-Time Label Assignment}
+
+Standard label assignment risks temporal leakage when fraud flags occur after the training cutoff. Consider a listing created May 15 but flagged June 10, with training cutoff June 1. Assigning \texttt{is\_fraud=1} during training uses future information (the June 10 flag) to predict May events.
+
+\textbf{Point-in-Time (PIT) Solution:} Labels are assigned based on flag timestamp relative to cutoff:
+
+\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
+if fraud_timestamp is not null AND fraud_timestamp <= train_end:
+    is_fraud = 1
+else:
+    is_fraud = 0  # Even if flagged later
+\end{lstlisting}
+
+This ensures training labels reflect only information available at the cutoff date. Listings flagged after the cutoff remain unlabeled (treated as legitimate) for training purposes, matching operational reality where future fraud status is unknown.
+
+\textbf{Label Maturation:} A 7-day gap between training end and test start allows pending fraud investigations to resolve, ensuring training labels are mature while test predictions reflect realistic conditions.
+
+\subsection{Single Temporal Split}
+
+The primary evaluation uses a fixed temporal split:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\hline
+Period & Date Range & Samples & Fraud Rate \\
+\hline
+Training & 2024-12-01 to 2025-06-01 & 380,190 & 6.19\% \\
+Gap & 2025-06-01 to 2025-06-08 & --- & --- \\
+Test & 2025-06-08 to 2025-07-01 & 39,645 & 1.94\% \\
+\hline
+\end{tabular}
+\caption{Single temporal split configuration.}
+\end{table}
+
+The gap period serves dual purposes: allowing label maturation and simulating realistic deployment lag between model training and production scoring.
+
+Note the fraud rate differential between training (6.19\%) and test (1.94\%) periods---this reflects genuine temporal variation in fraud activity rather than data error, and validates the importance of temporal evaluation over random splits.
+
+\subsection{Expanding Window Protocol}
+
+To assess concept drift and data requirements, we implement expanding window validation across five periods:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lllll}
+\hline
+Window & Train End & Test Period & Training Samples & Fraud Rate \\
+\hline
+1 & 2025-01-30 & Feb--Mar 2025 & 103,018 & 8.2\% \\
+2 & 2025-03-01 & Mar--Apr 2025 & 173,739 & 7.8\% \\
+3 & 2025-03-31 & Apr--May 2025 & 240,660 & 7.1\% \\
+4 & 2025-04-30 & May--Jun 2025 & 308,071 & 6.5\% \\
+5 & 2025-05-30 & Jun--Jul 2025 & 373,484 & 6.2\% \\
+\hline
+\end{tabular}
+\caption{Expanding window protocol configuration.}
+\end{table}
+
+Each window trains on all historical data up to the cutoff, tests on the subsequent 30-day period, then advances. This protocol:
+\begin{itemize}
+    \item Measures performance evolution as training data accumulates.
+    \item Identifies data requirements thresholds (when graph patterns emerge).
+    \item Quantifies concept drift through cross-window variance.
+\end{itemize}
+
+\subsection{Sliding Window Protocol}
+
+Complementing expanding windows, sliding window validation maintains fixed training window size:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\hline
+Configuration & Window Size & Overlap \\
+\hline
+Sliding-90 & 90 days & 30-day advance \\
+Sliding-180 & 180 days & 30-day advance \\
+\hline
+\end{tabular}
+\caption{Sliding window protocol configuration.}
+\end{table}
+
+Sliding windows test whether recent data is more predictive than accumulated historical data---particularly relevant if fraud patterns shift rapidly and older patterns become misleading. Comparison with expanding windows reveals the recency--volume trade-off for this dataset.
+
+\subsection{Drift Detection Methods}
+
+Beyond retrospective window analysis, we implement online drift detection for production monitoring.
+
+\textbf{DDM (Drift Detection Method):} Monitors the model's error rate over streaming predictions \cite{gama2004learning}. DDM maintains running statistics of error rate and standard deviation, triggering warnings when error rate exceeds baseline by 2$\sigma$ and drift alerts at 3$\sigma$. Implementation uses scikit-multiflow's DDM class.
+
+\textbf{ADWIN (Adaptive Windowing):} Provides parameter-free drift detection by maintaining a variable-length window of recent observations \cite{bifet2007learning}. ADWIN automatically shrinks the window when statistical properties change, signaling distribution drift without requiring threshold configuration.
+
+\textbf{Integration:} Both methods monitor daily prediction batches, triggering retraining when drift is detected. Alerts are logged to MLflow for retrospective analysis of drift patterns.
+
+These drift detection methods inform the operational retraining schedule, balancing model freshness against retraining overhead.
