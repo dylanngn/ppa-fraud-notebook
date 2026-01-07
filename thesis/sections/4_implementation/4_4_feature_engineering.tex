@@ -19,14 +19,14 @@ The feature schema defines 65 base features across 5 categories:
 \subsection{Feature Preprocessing}
 \label{sec:4_4_2}
 
-Boolean features are cast to Int8 for XGBoost null handling. Categorical features use sklearn's LabelEncoder with unknown category handling, storing encoders for test-time application. Temporal features apply cyclical encoding to preserve periodicity: hour values (0-23) and weekday values (0-6) are transformed into sine/cosine pairs using the formula $\sin(2\pi x / period)$ and $\cos(2\pi x / period)$, ensuring that values at the boundary (e.g., 23:00 and 00:00) are numerically close in the feature space. Complete preprocessing implementation is provided in Appendix~B.
+Boolean features are cast to Int8 for XGBoost null handling. Categorical features use sklearn's LabelEncoder with unknown category handling, storing encoders for test-time application. Temporal features apply cyclical encoding to preserve periodicity: hour values (0-23) and weekday values (0-6) are transformed into sine/cosine pairs using the formula $\sin(2\pi x / period)$ and $\cos(2\pi x / period)$, ensuring that values at the boundary (e.g., 23:00 and 00:00) are numerically close in the feature space. Complete preprocessing implementation is provided in Appendix~A.
 
 \textbf{Excluded Features:} STATUS column removed after leakage discovery; SEON ML scores excluded for model independence.
 
 \subsection{Feature Schema Structure}
 \label{sec:4_4_3}
 
-The feature schema is implemented as a Python dataclass in \texttt{src/features/schema.py}, providing programmatic access to feature metadata. The \texttt{FeatureSchema} class maintains five lists corresponding to each feature category (seon\_boolean, seon\_categorical, listing\_numeric, listing\_categorical, temporal), with an \texttt{all\_features} property that concatenates these lists to produce the complete 65-feature set. This schema serves multiple purposes: (1) enforcing consistent feature selection across training and inference, (2) enabling automatic feature type detection for preprocessing, (3) facilitating feature importance analysis by category. Complete implementation is provided in Appendix~B.
+The feature schema is implemented as a Python dataclass in \texttt{src/features/schema.py}, providing programmatic access to feature metadata. The \texttt{FeatureSchema} class maintains five lists corresponding to each feature category (seon\_boolean, seon\_categorical, listing\_numeric, listing\_categorical, temporal), with an \texttt{all\_features} property that concatenates these lists to produce the complete 65-feature set. This schema serves multiple purposes: (1) enforcing consistent feature selection across training and inference, (2) enabling automatic feature type detection for preprocessing, (3) facilitating feature importance analysis by category. Complete implementation is provided in Appendix~A.
 
 \subsection{Feature Engineering Flow}
 

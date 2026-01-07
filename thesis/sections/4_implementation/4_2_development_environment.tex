@@ -22,8 +22,8 @@ The development environment consists of commodity hardware and open-source softw
 
 \subsection{Configuration Management with Hydra}
 
-The framework uses Hydra for hierarchical configuration management, enabling parameter modification through command-line overrides without code changes. Two configuration hierarchies manage ETL (\texttt{conf/}) and training (\texttt{configs/}), specifying data paths, model hyperparameters, and evaluation settings. Hydra's Optuna sweeper plugin supports automated hyperparameter optimization through declarative YAML configuration. Complete configuration files are provided in Appendix~A.
+The framework uses Hydra for hierarchical configuration management, enabling parameter modification through command-line overrides without code changes. Two configuration hierarchies manage ETL (\texttt{conf/}) and training (\texttt{configs/}), specifying data paths, model hyperparameters, and evaluation settings. Hydra's Optuna sweeper plugin supports automated hyperparameter optimization through declarative YAML configuration.
 
 \subsection{Experiment Tracking with MLflow}
 
-MLflow provides centralized experiment tracking, logging parameters (model hyperparameters), metrics (AUC-PR, precision, recall), artifacts (trained models, SHAP plots), and metadata (training duration, code version) to a SQLite database. The training pipeline integrates MLflow through a context manager pattern, automatically tracking all runs. The MLflow web UI enables experiment comparison, metric sorting, and model artifact management. Complete integration code is provided in Appendix~B.
+MLflow provides centralized experiment tracking, logging parameters (model hyperparameters), metrics (AUC-PR, precision, recall), artifacts (trained models, SHAP plots), and metadata (training duration, code version) to a SQLite database. The training pipeline integrates MLflow through a context manager pattern, automatically tracking all runs. The MLflow web UI enables experiment comparison, metric sorting, and model artifact management. Complete integration code is provided in Appendix~A.

@@ -4,7 +4,7 @@
 \subsection{ETL Pipeline}
 \label{sec:4_3_1}
 
-The ETL pipeline processes raw data sources into analysis-ready format using Polars for memory-efficient operations. The pipeline uses Polars lazy evaluation for streaming processing on commodity hardware. The critical \texttt{correlate\_events\_to\_seon} function matches each event to its closest SEON fraud score transaction using bidirectional as-of joins: (1) a forward join finds the nearest SEON record after the event timestamp, (2) a backward join finds the nearest SEON record before the event, and (3) the results are merged with preference for forward matches. This ensures each event is paired with temporally-proximate fraud signals while handling edge cases where SEON data may be missing before or after specific events. Complete implementation is provided in Appendix~B.
+The ETL pipeline processes raw data sources into analysis-ready format using Polars for memory-efficient operations. The pipeline uses Polars lazy evaluation for streaming processing on commodity hardware. The critical \texttt{correlate\_events\_to\_seon} function matches each event to its closest SEON fraud score transaction using bidirectional as-of joins: (1) a forward join finds the nearest SEON record after the event timestamp, (2) a backward join finds the nearest SEON record before the event, and (3) the results are merged with preference for forward matches. This ensures each event is paired with temporally-proximate fraud signals while handling edge cases where SEON data may be missing before or after specific events. Complete implementation is provided in Appendix~A.
 
 \begin{figure}[htbp]
     \centering

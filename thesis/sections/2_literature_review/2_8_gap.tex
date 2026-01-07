@@ -11,8 +11,9 @@ Major surveys of the field confirm this observation. For example, Cheng et al.'s
 
 This lack of research is particularly striking when compared to adjacent domains where graph-based methods are thriving, as shown in Table~\ref{tab:adjacent_domains}.
 
-\begin{table}[h]
+\begin{table}[ht]
 \centering
+\small
 \caption{Graph-based fraud detection deployment in adjacent domains}
 \label{tab:adjacent_domains}
 \begin{tabular}{@{}lll@{}}
@@ -34,17 +35,18 @@ The absence of research in this area is a missed opportunity, as real estate mar
 
 The scale of the problem also justifies more attention. The FBI’s Internet Crime Complaint Center has reported real estate fraud losses exceeding \$145 million annually in the United States \cite{fbi2023ic3}, and investigative reports in Europe have highlighted persistent "gaping holes" in the fraud prevention systems of major platforms.
 
+\enlargethispage{3\baselineskip}
 \subsection{Thesis Positioning}
 
 This thesis addresses these gaps by providing what we believe is the first application of graph-based pattern discovery to the real estate fraud domain. We contribute to the field in three main ways:
 
 \paragraph{Addressing the Domain Gap}
-We use production data from the Swiss Marketplace Group to construct heterogeneous entity-sharing graphs. This allows us to characterize the topological properties of fraud networks in a domain that has not been studied this way before. Our findings, such as the "heterophily paradox," challenge some of the fundamental assumptions in the current GNN fraud literature.
+We construct heterogeneous entity-sharing graphs from Swiss Marketplace Group production data, characterizing topological properties like the "heterophily paradox" that challenge standard GNN assumptions in fraud detection.
 
 \paragraph{Addressing the Methodological Gap}
-Through systematic experiments, we provide the first empirical quantification of the data requirements for this type of research. By establishing a threshold of approximately 300,000 samples, we offer practical guidance that is missing from previous studies.
+Through systematic experiments, we establish a $\sim$300,000 sample threshold for graph-based fraud discovery, providing practical guidance for practitioners at different data scales.
 
 \paragraph{Addressing the Temporal Validation Gap}
-We evaluate the stability of our discovered patterns under realistic temporal drift scenarios. This challenges the conclusions that are often drawn from standard academic benchmarks, which typically use fixed-split evaluations that do not account for how fraud tactics evolve in a production environment.
+We evaluate pattern stability under realistic temporal drift, challenging the reliability of standard fixed-split benchmarks in adversarial environments.
 
-By combining a rigorous empirical methodology with large-scale production data, this thesis aims to provide both domain-specific discoveries and broader methodological insights that will be useful to the entire fraud detection research community.
+By combining a rigorous empirical methodology with large-scale production data, this thesis provides both domain-specific discoveries and methodological insights valuable to the broader fraud detection research community.

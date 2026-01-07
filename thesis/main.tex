@@ -66,9 +66,10 @@
 \setlength{\emergencystretch}{2em}
 
 % ============================================================================
-% PAGE STYLING
+% PAGE STYLING: Ragged bottom to prevent vertical stretching
 % ============================================================================
 \pagestyle{plain}
+\raggedbottom  % Prevents large gaps between paragraphs by allowing pages to end early
 
 % ============================================================================
 % HYPERREF CONFIGURATION
@@ -102,6 +103,13 @@
   {\thesubsection}{1em}{}
 \titlespacing*{\subsection}{0pt}{0.8ex plus 0.3ex minus .1ex}{0.8ex plus .1ex}
 
+% Paragraph: 11pt bold, consistent spacing (replacement for \textbf{Header}:)
+\titleformat{\paragraph}
+  {\rmfamily\fontsize{11}{13}\bfseries\selectfont}
+  {\theparagraph}{1em}{}
+\titlespacing*{\paragraph}{0pt}{1.2ex plus 0.3ex minus .2ex}{0.5ex plus .1ex}
+\newcommand{\smartbreak}{\needspace{4\baselineskip}} % Custom command for smarter page breaks
+
 % Prevent page breaks immediately after section headings
 % Also ensure font resets to Times after section headings (outside math mode)
 % Section redefinitions removed to fix incompatibility with titlesec
@@ -124,13 +132,13 @@
 \setlength{\abovecaptionskip}{8pt}
 \setlength{\belowcaptionskip}{8pt}
 
-% Ensure figures and tables are properly centered
+% Ensure figures and tables are properly centered and fill pages smartly
 \makeatletter
 \g@addto@macro\@floatboxreset\centering
-\renewcommand{\topfraction}{0.85}
-\renewcommand{\bottomfraction}{0.85}
-\renewcommand{\textfraction}{0.15}
-\renewcommand{\floatpagefraction}{0.7}
+\renewcommand{\topfraction}{0.9}      % Max 90% of page top for floats
+\renewcommand{\bottomfraction}{0.8}   % Max 80% of page bottom for floats
+\renewcommand{\textfraction}{0.07}    % Min 7% of page for text
+\renewcommand{\floatpagefraction}{0.75} % Page must be 75% full of floats to be float-only
 \makeatother
 
 % ============================================================================
@@ -328,7 +336,6 @@ This research demonstrates that while graph-based pattern discovery reveals frau
 
 % Appendices
 \appendix
-\input{sections/appendix_a_configurations}
 \input{sections/appendix_b_implementations}
 
 \end{document}

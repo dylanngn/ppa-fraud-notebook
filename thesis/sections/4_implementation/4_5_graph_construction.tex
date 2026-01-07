@@ -33,11 +33,11 @@ The \texttt{HeterogeneousGraphBuilder} constructs graphs with multiple node type
 \end{algorithmic}
 \end{algorithm}
 
-\textbf{Temporal Filtering:} Edges are created only from events before the cutoff date, ensuring the training graph reflects information available at training time. The inference graph extends the cutoff to include test period events. Complete implementation details are provided in Appendix~B.
+\textbf{Temporal Filtering:} Edges are created only from events before the cutoff date, ensuring the training graph reflects information available at training time. The inference graph extends the cutoff to include test period events. Complete implementation details are provided in Appendix~A.
 
 \subsection{Node Feature Preparation}
 \label{sec:4_5_2}
 
 Node features combine 36 base features with 8 temporal encoding features (days\_since\_start, relative\_position, hour\_sin/cos, weekday\_sin/cos, recency) for a total of 44 dimensions per listing node.
 
-\textbf{Neighbor Sampling:} The dense graph (31M edges) requires sampling during training to manage computational complexity. We employ PyTorch Geometric's \texttt{NeighborLoader} with 2-hop sampling: 15 neighbors at layer 1, 10 neighbors at layer 2, with batch size 512. This approach enables efficient training on the full graph while maintaining local neighborhood structure. Sampling parameters were empirically validated to balance representation quality against training time (see Appendix~B for implementation).
+\textbf{Neighbor Sampling:} The dense graph (31M edges) requires sampling during training to manage computational complexity. We employ PyTorch Geometric's \texttt{NeighborLoader} with 2-hop sampling: 15 neighbors at layer 1, 10 neighbors at layer 2, with batch size 512. This approach enables efficient training on the full graph while maintaining local neighborhood structure. Sampling parameters were empirically validated to balance representation quality against training time (see Appendix~A for implementation).

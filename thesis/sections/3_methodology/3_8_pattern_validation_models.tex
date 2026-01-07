@@ -1,32 +1,26 @@
 \section{Pattern Validation: Classification Models}
 \label{sec:3_8}
 
-Classification models validate whether discovered patterns carry predictive signal, serving as the final stage of the pattern discovery pipeline.
+To determine if the patterns discovered by our graph analysis carry genuine predictive power, we use a series of classification models. These models act as the final validation step, comparing the performance of standard attribute-based detection against our graph-augmented approach.
 
 \subsection{Baseline Models}
 
-Two baseline models establish performance floors:
+We established two baseline models to serve as a performance floor for our experiments.
 
-\textbf{Logistic Regression:} Linear baseline providing interpretable coefficients. Configuration uses L2 regularization (C=1.0) with class weight balancing. Logistic regression tests whether linear combinations of features suffice for fraud detection.
+\paragraph{Logistic Regression}
+This linear model provides a simple baseline with highly interpretable coefficients. We configured it using L2 regularization and class weight balancing to handle the dataset's skew. This allows us to see if a simple linear combination of features is sufficient for fraud detection in this domain.
 
-\textbf{Random Forest:} Tree ensemble baseline capturing non-linear interactions without graph information. Configuration:
-\begin{itemize}
-    \item Trees: 100
-    \item Maximum depth: 10
-    \item Class weight: balanced
-\end{itemize}
-
-Random Forest establishes the performance achievable with tabular features and non-linear modeling before graph augmentation.
+\paragraph{Random Forest}
+As a tree-based ensemble, the Random Forest model captures non-linear interactions between features without relying on graph information. Our configuration used 100 trees with a maximum depth of 10 and balanced class weights. This baseline represents the level of performance achievable through non-linear modeling of tabular data alone.
 
 \subsection{XGBoost Configuration}
 
-XGBoost serves as the primary classification model due to demonstrated superiority on tabular data.
-
-\textbf{Hyperparameter Optimization:} Optuna TPE (Tree-structured Parzen Estimator) sampler with 50 trials optimizes for AUC-PR:
+XGBoost was selected as our primary classifier due to its proven effectiveness on tabular datasets. We optimized its hyperparameters using Optuna's Tree-structured Parzen Estimator (TPE) sampler over 50 trials, focusing on maximizing the AUC-PR.
 
 \begin{table}[h]
 \centering
 \caption{XGBoost hyperparameter optimization results.}
+\label{tab:3_8_xgb_params}
 \begin{tabular}{lll}
 \hline
 Parameter & Search Range & Best Value \\
@@ -42,29 +36,10 @@ Parameter & Search Range & Best Value \\
 \end{tabular}
 \end{table}
 
-\textbf{Class Imbalance Handling:} Rather than synthetic oversampling (SMOTE), we use \texttt{scale\_pos\_weight} to adjust loss weighting. Setting \texttt{scale\_pos\_weight} $\approx$ 11 (matching the 1:11 imbalance ratio) increases the penalty for false negatives on fraudulent listings. This approach avoids synthetic sample artifacts and integrates naturally with gradient boosting.
+To handle class imbalance, we opted for cost-sensitive learning rather than synthetic oversampling. By setting the \texttt{scale\_pos\_weight} to 11—which roughly matches our 1:11 fraud ratio—we increased the model's penalty for missing fraudulent listings. This approach avoids the potential artifacts introduced by synthetic data like SMOTE while integrating seamlessly with the gradient boosting process.
 
-\subsection{Hybrid Pipeline}
+\subsection{Hybrid Pipeline Design}
 
-The hybrid GNN+XGBoost pipeline operates in two stages:
+The hybrid GNN+XGBoost pipeline is designed as a two-stage process. In the first stage, the GNN is trained on the heterogeneous graph to extract 16-dimensional relational embeddings for each listing. In the second stage, these embeddings are concatenated with the 65 base tabular features to create an enriched 81-dimensional feature vector.
 
-\textbf{Stage 1 - Pattern Extraction:}
-\begin{itemize}
-    \item Train GNN on heterogeneous graph.
-    \item Generate 16-dimensional embeddings for all listings.
-\end{itemize}
-
-\textbf{Stage 2 - Pattern Validation:}
-\begin{itemize}
-    \item Concatenate embeddings with tabular features: $\mathbf{f}_v = [\mathbf{x}_v \| \mathbf{z}_v]$
-    \item Train XGBoost on enriched 81-dimensional feature vectors.
-    \item Evaluate whether relational pattern representations improve classification.
-\end{itemize}
-
-This separation enables:
-\begin{itemize}
-    \item Independent debugging of GNN and classifier components.
-    \item Embedding caching for efficient inference.
-    \item Direct SHAP analysis on the final classifier.
-    \item Quantification of GNN embedding contribution to predictions.
-\end{itemize}
+This staged separation offers several advantages for our research. It allows us to debug the GNN and the classifier independently and enables us to cache embeddings for faster experimentation. More importantly, it allows for a direct SHAP analysis on the final classifier, making it possible to quantify exactly how much our graph-based patterns contribute to the model's overall predictive performance compared to traditional attributes.
