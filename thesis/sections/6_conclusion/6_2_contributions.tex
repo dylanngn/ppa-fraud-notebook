@@ -1,18 +1,22 @@
 \section{Contributions}
 \label{sec:6_2}
 
-This thesis makes six contributions spanning pattern discovery, model development, and operational deployment:
+This thesis makes several contributions that span the areas of pattern discovery, model development, and operational deployment. These can be summarized as follows:
 
-\begin{enumerate}
-    \item \textbf{Relational Pattern Discovery:} Characterized entity-sharing topologies in real estate marketplaces, identifying device super-connectors (35.5\% fraud rate), geographic clustering (West Africa: 60-90\% fraud rates), and temporal signatures (6-7 AM peaks, February 2025 spike) as high-precision fraud indicators.
-    
-    \item \textbf{Hybrid GNN+XGBoost Framework:} Designed and validated a hybrid architecture combining GraphSAGE for relational pattern extraction with XGBoost for classification. Comparison across four GNN variants (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal. The hybrid achieves +5.3\% AUC-PR over tabular-only and +17\% over commercial SEON baseline.
-    
-    \item \textbf{Data Requirements Quantification:} Established $\sim$300K sample minimum for graph-based patterns to provide predictive lift over tabular-only approaches, providing actionable guidance for practitioners.
-    
-    \item \textbf{Retraining Strategy Evaluation:} Evaluated concept drift adaptation through expanding/sliding window validation with DDM/ADWIN detection across 12 months. Expanding windows outperform sliding (0.6286 vs. 0.5892 AUC-PR), with monthly retraining providing optimal freshness-stability balance.
-    
-    \item \textbf{Explainable AI Integration:} Integrated SHAP-based interpretability generating global feature importance (GNN embeddings: 17.3\% contribution) and local prediction explanations enabling fraud analyst investigation prioritization.
-    
-    \item \textbf{Proof-of-Concept Deployment:} Deployed trained model as RESTful API with sub-100ms latency, demonstrating production viability for real-time fraud scoring.
-\end{enumerate}
+\paragraph{Relational Pattern Discovery}
+We have characterized the unique entity-sharing topologies of real estate marketplaces. Our findings identified "super-connector" devices, geographic clustering in West Africa, and specific temporal peaks as high-precision indicators that can distinguish coordinated fraud from legitimate user behavior.
+
+\paragraph{Hybrid GNN+XGBoost Framework}
+We designed and validated a hybrid architecture that combines GraphSAGE for relational pattern extraction with XGBoost for classification. After comparing several GNN variants, we identified GraphSAGE as the most effective for this domain. The resulting hybrid model achieved a 5.3\% improvement in AUC-PR over tabular-only methods and a 17\% improvement over the commercial SEON baseline.
+
+\paragraph{Quantification of Data Requirements}
+We established a minimum threshold of approximately 300,000 training samples for graph-based patterns to provide a predictive advantage over traditional tabular approaches. This provides clear, actionable guidance for practitioners who are considering graph-based fraud detection.
+
+\paragraph{Evaluation of Retraining Strategies}
+We evaluated how different retraining strategies handle concept drift over a 12-month period. Our results show that expanding windows outperform sliding windows, and that a monthly retraining schedule offers the best balance between model freshness and operational stability.
+
+\paragraph{Integration of Explainable AI}
+By integrating SHAP-based interpretability, we were able to quantify the contribution of graph embeddings—which accounted for 17.3\% of the total feature importance. This provides both global insights and local explanations that fraud analysts can use to prioritize and guide their investigations.
+
+\paragraph{Proof-of-Concept Deployment}
+Finally, we demonstrated the production viability of our framework by deploying it as a RESTful API. With a sub-100ms inference latency, the system is capable of providing real-time fraud scoring in a high-volume marketplace environment.

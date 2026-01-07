@@ -1,7 +1,7 @@
 \section{Exploratory Analysis Results}
 \label{sec:5_1}
 
-This section presents pattern discoveries from the exploratory analysis described in Section~\ref{sec:3_3}.
+This section details the patterns and insights discovered during the exploratory phase of our research, as outlined in the methodology (Section~\ref{sec:3_3}).
 
 \begin{figure}[htbp]
     \centering
@@ -10,11 +10,11 @@ This section presents pattern discoveries from the exploratory analysis describe
     \label{fig:5_1}
 \end{figure}
 
-\textbf{Temporal Pattern Findings:}
+\paragraph{Temporal Pattern Discoveries}
 
-The February 2025 spike (13.12\% fraud rate) represents a 62\% increase above the annual average (8.11\%). Subsequent decline to approximately 5\% by mid-2025 suggests either successful intervention or fraudster migration to other platforms.
+Our analysis of the monthly fraud rate revealed a significant spike in February 2025, where the rate jumped to 13.12\%—a 62\% increase over the annual average of 8.11\%. Following this peak, the rate steadily declined to approximately 5\% by the middle of 2025. This downward trend likely reflects either successful interventions by the platform's security teams or a shift in fraudster activity toward other, less protected marketplaces.
 
-Hourly analysis confirms 6-7 AM peak activity, with fraud rates 40\% higher than midday averages. Weekend submissions show elevated risk (Saturday: 9.2\%, Sunday: 8.8\%) compared to weekday average (7.4\%).
+When looking at hourly data, we confirmed a distinct activity peak between 6:00 and 7:00 AM. During this window, fraud rates were 40\% higher than the midday averages. Furthermore, weekend submissions carried a noticeably higher risk (9.2\% on Saturday and 8.8\% on Sunday) compared to the weekday average of 7.4\%, which aligns with periods of reduced manual oversight.
 
 \begin{figure}[htbp]
     \centering
@@ -23,10 +23,10 @@ Hourly analysis confirms 6-7 AM peak activity, with fraud rates 40\% higher than
     \label{fig:5_2}
 \end{figure}
 
-\textbf{Geographic Pattern Findings:}
+\paragraph{Geographic Pattern Insights}
 
-West African countries (Benin, Togo, Ivory Coast, Nigeria) collectively account for 12\% of fraudulent listings despite representing less than 0.5\% of total submissions. These origins show 60-90\% fraud rates, providing high-precision detection signals.
+Geographic origin remains one of the strongest indicators of fraudulent intent. Listings originating from specific West African countries—namely Benin, Togo, Ivory Coast, and Nigeria—accounted for 12\% of all fraudulent submissions, despite making up less than 0.5\% of the total volume. The fraud rates within these regions ranged from 60\% to 90\%, providing a high-precision signal for initial screening.
 
-\textbf{Entity-Sharing Findings:}
+\paragraph{Entity-Sharing and Network Patterns}
 
-Super-connector devices (10+ listings) show 35.5\% fraud rate versus 8.11\% baseline a 4.4$\times$ lift. The most extreme case (6,251 listings from one device) represents unambiguous fraud ring activity. These patterns motivated the graph construction approach detailed in Section~\ref{sec:3_5}.
+The most compelling evidence of organized activity came from the analysis of shared device fingerprints. "Super-connector" devices—those linked to ten or more listings—showed a 35.5\% fraud rate, representing a 4.4-fold increase over the baseline. The most extreme case involved a single device fingerprint associated with 6,251 different listings, an unmistakable signature of a large-scale fraud ring. These observations were the primary motivation for the heterogeneous graph approach detailed in Section~\ref{sec:3_5}.

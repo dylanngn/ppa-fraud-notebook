@@ -1,14 +1,16 @@
 \section{Limitations}
 \label{sec:6_3}
 
-Several limitations constrain generalization:
+While this research provides several insights into graph-based fraud detection, it is important to acknowledge the limitations that constrain our findings and their generalization.
 
-\begin{itemize}
-    \item \textbf{Domain Specificity:} Results derive from Swiss real estate data. Other marketplaces, geographies, or fraud types require separate validation.
-    
-    \item \textbf{Label Dependency:} Fraud labels depend on existing detection systems, potentially missing sophisticated attacks that evade current methods.
-    
-    \item \textbf{Graph Scalability:} Neighbor sampling on 31M-edge graphs may lose long-range patterns. Larger graphs face computational constraints.
-    
-    \item \textbf{Temporal Scope:} 12-month evaluation may not capture long-term fraud evolution or multi-year seasonal patterns.
-\end{itemize}
+\paragraph{Domain and Geographic Specificity}
+Our results are based entirely on data from the Swiss real estate market. Fraud patterns, platform characteristics, and user behaviors can vary significantly across different countries and industries. Consequently, applying our findings to other marketplaces or different geographic regions would require separate validation to ensure the patterns hold true in those contexts.
+
+\paragraph{Dependency on Label Quality}
+The labels used to train our models are derived from existing operational detection systems. This creates a potential bias, as our models are primarily learning to catch the types of fraud that the current systems already identify. Highly sophisticated attacks that manage to evade these initial filters remain unlabeled, meaning our models may not yet be equipped to detect the most advanced fraud tactics.
+
+\paragraph{Scalability and Sampling Artifacts}
+Managing a graph with 31 million edges requires the use of neighbor sampling during the GNN training process. While this makes the computation feasible, it also means that some long-range relationships beyond the immediate neighborhood may be lost. As graphs grow even larger—covering multiple years of data, for example—these computational constraints will become even more significant and may require more advanced partitioning or sampling techniques.
+
+\paragraph{Temporal Constraints}
+Our evaluation covers a 12-month period, which may not be long enough to capture multi-year seasonal patterns or the slow evolution of fraudster tactics. While our temporal analysis identified significant shifts within this year, a longer-term study would be necessary to understand how these patterns cycle over several years.

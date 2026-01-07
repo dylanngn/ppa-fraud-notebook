@@ -3,53 +3,57 @@
 
 \subsection{Feature Schema}
 
-The feature set comprises 65 base features organized into five categories based on source and fraud-predictive characteristics:
+Our feature set consists of 65 base features, which we have organized into five categories based on their source and their ability to predict fraud:
 
-\textbf{SEON Boolean Features (21 features):} Binary risk indicators from device and network analysis:
+\paragraph{SEON Boolean Signals (21 features)}
+These are binary risk indicators derived from device and network analysis. They include:
 \begin{itemize}
-    \item Network signals: \texttt{tor}, \texttt{vpn}, \texttt{public\_proxy}, \texttt{data\_center\_proxy}, \texttt{relay}
-    \item Email signals: \texttt{email/deliverable}, \texttt{email/domain/disposable}, \texttt{email/domain/free}, \texttt{email/dmarc\_enforced}
-    \item Phone signals: \texttt{phone\_is\_valid}, \texttt{phone\_is\_disposable}
-    \item Session signals: \texttt{session/adblock}, \texttt{session/do\_not\_track}, \texttt{session/incognito}
+    \item \textbf{Network signals}: Indicators for \texttt{tor}, \texttt{vpn}, \texttt{public\_proxy}, \texttt{data\_center\_proxy}, and \texttt{relay} use.
+    \item \textbf{Email signals}: Checks for whether an email is deliverable or if the domain is disposable, free, or has DMARC enforced.
+    \item \textbf{Phone signals}: Validation of whether the phone number is valid or disposable.
+    \item \textbf{Session signals}: Detection of adblockers, "do not track" settings, or incognito mode.
 \end{itemize}
 
-These boolean features are cast to \texttt{Int8} for XGBoost compatibility while preserving null handling.
+All boolean features are cast to \texttt{Int8} for compatibility with XGBoost, while ensuring that null values are handled correctly.
 
-\textbf{SEON Categorical Features (12 features):} Geographic and session attributes:
+\paragraph{SEON Categorical Features (12 features)}
+These features capture broader geographic and session attributes:
 \begin{itemize}
-    \item Geographic: \texttt{ip\_country}, \texttt{ip\_region}, \texttt{ip\_city}, \texttt{ip\_isp\_name}, \texttt{ip\_type}
-    \item Session: \texttt{session/os}, \texttt{session/browser}, \texttt{session/device\_type}, \texttt{session/screen\_resolution}
-    \item Phone: \texttt{phone\_carrier}, \texttt{phone\_type}
+    \item \textbf{Geographic}: The user's IP-based country, region, city, ISP name, and connection type.
+    \item \textbf{Session}: The operating system, browser, device type, and screen resolution.
+    \item \textbf{Phone}: The carrier and the specific type of phone being used.
 \end{itemize}
 
-\textbf{Listing Numeric Features (10 features):} Property characteristics:
+\paragraph{Listing Numeric Features (10 features)}
+These features describe the properties themselves:
 \begin{itemize}
-    \item Pricing: \texttt{LISTING\_PRICES\_RENT\_NET}, \texttt{LISTING\_PRICES\_BUY\_PRICE}, \texttt{LISTING\_PRICES\_AMOUNT}
-    \item Property: \texttt{LISTING\_CHARACTERISTICS\_ROOMS}, \texttt{LISTING\_CHARACTERISTICS\_AREA}, \texttt{LISTING\_CHARACTERISTICS\_FLOOR}
-    \item Location: \texttt{LISTING\_ADDRESS\_LATITUDE}, \texttt{LISTING\_ADDRESS\_LONGITUDE}
+    \item \textbf{Pricing}: The net rent, total purchase price, and the raw price amount.
+    \item \textbf{Property Characteristics}: The number of rooms, the total area, and the floor level.
+    \item \textbf{Location}: The precise latitude and longitude of the listing.
 \end{itemize}
 
-\textbf{Listing Categorical Features (7 features):} Listing attributes:
+\paragraph{Listing Categorical Features (7 features)}
+These are the core attributes of the listing and the account:
 \begin{itemize}
-    \item \texttt{LISTING\_OFFERTYPE} (RENT/BUY)
-    \item \texttt{LISTING\_CATEGORIES} (apartment, house, studio, etc.)
-    \item \texttt{TARGETPLATFORM} (Homegate, ImmoScout24)
-    \item \texttt{LISTING\_PLATFORMS} (single vs cross-platform)
-    \item \texttt{billing\_country}, \texttt{payment\_mode}, \texttt{action\_type}
+    \item The offer type (RENT or BUY) and the listing category (apartment, house, studio, etc.).
+    \item The target platform (Homegate or ImmoScout24) and whether the listing is cross-posted.
+    \item The billing country, the payment mode used, and the type of action performed.
 \end{itemize}
 
-\textbf{Temporal Features (4 features):} Time-based patterns with cyclical encoding:
+\paragraph{Temporal Features (4 features)}
+To capture time-based patterns, we use cyclical encoding for the following:
 \begin{itemize}
-    \item \texttt{event\_hour}: Hour of submission (0-23)
-    \item \texttt{event\_day\_of\_week}: Day (0-6)
-    \item Cyclical transformations: sin/cos encoding to capture periodicity
+    \item The hour of submission and the day of the week.
+    \item We apply sine and cosine transformations to these values to ensure the model captures the periodic nature of time.
 \end{itemize}
 
 \subsection{Feature Selection Rationale}
 
-\textbf{Raw Signals over ML Scores:} The feature set deliberately uses raw SEON signals rather than SEON's pre-computed fraud scores (\texttt{fraud\_score}, \texttt{blackbox\_score}). This decision ensures model independence using SEON's predictions as features would create dependency on their proprietary model and obscure which underlying signals drive predictions. Raw signals enable direct interpretability through SHAP analysis.
+\paragraph{Prioritizing Raw Signals over ML Scores}
+We have deliberately chosen to use raw signals from SEON rather than their pre-computed fraud scores (\texttt{fraud\_score} or \texttt{blackbox\_score}). This decision was made to ensure our model remains independent. Using SEON's proprietary scores as features would create a dependency on their internal model and make it harder to see which underlying signals are actually driving our own predictions. Furthermore, raw signals allow for much clearer interpretability during our SHAP analysis.
 
-\textbf{Boolean Signal Inclusion:} All boolean signals are included regardless of prevalence. Analysis revealed:
+\paragraph{Inclusion of Low-Prevalence Boolean Signals}
+We include all boolean signals in our model, even those that appear very rarely. Our initial analysis showed that while some indicators like \texttt{tor} or \texttt{phone\_is\_disposable} have very low prevalence, they are highly precise predictors when they do appear.
 
 \begin{table}[h]
 \centering
@@ -66,11 +70,12 @@ Signal & Prevalence & Fraud Rate When True \\
 \end{tabular}
 \end{table}
 
-Low-prevalence signals (tor, disposable email/phone) provide high precision despite rare occurrence. High-prevalence signals (free email) provide contextual information even when individually weak predictors.
+In contrast, high-prevalence signals like having a free email account may be weak predictors on their own, but they provide valuable context when combined with other features.
 
 \subsection{Excluded Features}
+We excluded several features from the final set for the following reasons:
 \begin{itemize}
-    \item \texttt{STATUS}: Removed due to label leakage (Section 3.2.3)
-    \item \texttt{SEON fraud\_score}, \texttt{blackbox\_score}: Removed to ensure model independence
-    \item Raw PII columns: Replaced with hashed versions for graph construction
+    \item \texttt{STATUS}: This was removed to prevent label leakage, as discussed in Section 3.2.3.
+    \item \texttt{SEON fraud\_score}: These were removed to maintain the independence of our classification logic.
+    \item Raw PII: All personally identifiable information was replaced with hashed versions, which were then used solely for graph construction.
 \end{itemize}

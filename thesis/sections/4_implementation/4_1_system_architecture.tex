@@ -10,36 +10,42 @@ The fraud detection framework implements a modular pipeline architecture separat
     \label{fig:4_1}
 \end{figure}
 
-The architecture follows a layered design with single responsibility per component:
+The architecture is designed as a layered system, where each component has a single, well-defined responsibility:
 
-\textbf{Data Layer:} Ingests raw CSV files from SMG's data warehouse (\texttt{insertion\_events.csv} and \texttt{seon\_transactions.csv}). The data sources contain heterogeneous timestamp formats requiring standardization.
+\paragraph{Data Layer}
+This layer is responsible for ingesting raw CSV files from the SMG data warehouse, including the main insertion events and SEON transaction logs. These sources often use different timestamp formats, which are standardized at this stage.
 
-\textbf{ETL Pipeline:} Merges event and SEON data using temporal as-of joins implemented in Polars for memory-efficient processing. The pipeline handles streaming operations on 800K+ events, performing PII anonymization and temporal filtering. Output is stored in compressed Parquet format for downstream processing.
+\paragraph{ETL Pipeline}
+The ETL pipeline merges event and SEON data using temporal "as-of" joins. This is implemented using the Polars library, which allows for memory-efficient processing of over 800,000 events. The pipeline also handles the anonymization of personally identifiable information (PII) and filters the data based on temporal criteria. The final output is stored in compressed Parquet format to speed up downstream processing.
 
-\textbf{Feature Layer:} Handles three critical operations: (1) feature extraction from merged data according to the feature schema, (2) temporal splitting with point-in-time label assignment and 7-day gap to prevent label leakage, and (3) heterogeneous graph construction with ~31M edges encoding device, IP, email, and phone relationships.
+\paragraph{Feature Layer}
+The feature layer performs three main functions: it extracts features according to our defined schema, handles the temporal splitting of the data (including a 7-day gap to prevent label leakage), and constructs the heterogeneous graph. This graph contains approximately 31 million edges that link listings through shared devices, IP addresses, emails, and phone numbers.
 
-\textbf{Model Layer:} Implements a hybrid architecture where GraphSAGE extracts 16-dimensional node embeddings from the heterogeneous graph, which are concatenated with 65 base features and fed to an XGBoost classifier. Baseline models (Logistic Regression, Random Forest, vanilla XGBoost) are also implemented for comparison.
+\paragraph{Model Layer}
+The model layer implements our hybrid architecture. A GraphSAGE model extracts 16-dimensional node embeddings from the heterogeneous graph, which are then combined with 65 base features for the final XGBoost classifier. We also implemented several baseline models, such as Logistic Regression and Random Forest, to serve as a point of comparison.
 
-\textbf{Serving Layer:} Provides real-time inference through a FastAPI service with an internal event store enabling graph feature computation for incoming predictions. The API maintains a sliding window of recent events to construct graph connections for new listings.
+\paragraph{Serving Layer}
+For real-time use, the serving layer provides an inference service built with FastAPI. It includes an internal event store that allows it to compute graph features for incoming listings on the fly. The service maintains a sliding window of recent activity to ensure that new listings can be connected to the existing graph.
 
-\textbf{Monitoring:} Tracks prediction drift using DDM (Drift Detection Method) and ADWIN (Adaptive Windowing) algorithms to detect concept drift and trigger retraining.
+\paragraph{Monitoring}
+The system tracks prediction drift using the DDM (Drift Detection Method) and ADWIN (Adaptive Windowing) algorithms. This monitoring is essential for identifying when a model's performance begins to degrade due to shifting fraud tactics, which then triggers a new retraining cycle.
 
-All components are orchestrated through Hydra configuration management and tracked via MLflow experiment logging. The modular design enables independent testing and replacement of components for example, swapping GraphSAGE for CARE-GNN requires only configuration changes without pipeline modifications.
+All these components are orchestrated using Hydra for configuration management and MLflow for experiment tracking. The modular nature of the design means that individual parts—such as the GNN architecture—can be swapped out or upgraded with minimal impact on the rest of the pipeline.
 
 \subsection{Project Structure}
 
-The implementation follows a modular organization separating concerns across distinct packages. The root directory contains two configuration folders: \texttt{conf/} for ETL pipeline configuration (including \texttt{config.yaml} and data settings) and \texttt{configs/} for training experiments (including hyperparameter optimization configurations for XGBoost and GNN+XGBoost variants). A \texttt{scripts/} directory contains orchestration scripts for running combined optimization workflows.
+The implementation is organized into distinct packages to maintain a clear separation of concerns. At the root, the \texttt{conf/} directory holds the ETL configurations, while the \texttt{configs/} directory contains the settings for our training experiments and hyperparameter optimization. Any orchestration logic for running complex workflows is located in the \texttt{scripts/} folder.
 
-The core implementation resides in the \texttt{src/} package, organized into six functional modules:
+The core logic of the system resides in the \texttt{src/} directory, which is divided into several functional modules:
 
-\textbf{Key modules:}
+\paragraph{Key Modules}
 \begin{itemize}
-    \item \texttt{src/data/}: ETL pipeline with streaming support via Polars LazyFrames, containing modules for extraction (\texttt{extract.py}), transformation (\texttt{transform.py}), loading (\texttt{load.py}), and orchestration (\texttt{etl.py})
-    \item \texttt{src/features/}: Feature schema definitions (\texttt{schema.py}), feature store (\texttt{store.py}), temporal splitting logic (\texttt{temporal\_split.py}), and heterogeneous graph construction (\texttt{graph\_builder.py})
-    \item \texttt{src/models/}: Abstract base classes and concrete model implementations including baselines (\texttt{baselines.py}), XGBoost classifier (\texttt{xgboost\_classifier.py}), GraphSAGE implementation (\texttt{graphsage.py}), and hybrid architecture (\texttt{hybrid.py})
-    \item \texttt{src/training/}: Single and expanding window training pipelines (\texttt{trainer.py}, \texttt{pipeline.py})
-    \item \texttt{src/evaluation/}: SHAP explainability analysis (\texttt{shap\_analysis.py}) and drift detection algorithms (\texttt{drift.py})
-    \item \texttt{src/api/}: FastAPI service (\texttt{main.py}) with in-memory event store (\texttt{store.py}) for real-time inference
+    \item \texttt{src/data/}: Contains the ETL pipeline logic, including scripts for data extraction, transformation, and loading, with full support for streaming via Polars LazyFrames.
+    \item \texttt{src/features/}: Manages the feature schema, the feature store, the temporal splitting logic, and the construction of the heterogeneous graph.
+    \item \texttt{src/models/}: Includes the base classes and concrete implementations for all our models, from the simple baselines to the hybrid GraphSAGE and XGBoost architecture.
+    \item \texttt{src/training/}: Houses the training pipelines for both single-window and expanding-window experiments.
+    \item \texttt{src/evaluation/}: Provides tools for SHAP-based explainability and the implementation of our drift detection algorithms.
+    \item \texttt{src/api/}: Contains the FastAPI service and the in-memory event store used for real-time inference.
 \end{itemize}
 
-This structure enables clear separation between data processing (\texttt{data/}), feature engineering (\texttt{features/}), model development (\texttt{models/}), and deployment (\texttt{api/}), facilitating independent testing and maintenance. The complete directory structure and implementation details are provided in Appendix~B.
+This modular structure allows for independent development, testing, and maintenance of each part of the system. For a complete view of the directory layout and implementation details, please refer to Appendix~B.

@@ -4,92 +4,72 @@
 \section{Background and Motivation}
 \label{sec:1_1}
 
-The proliferation of online marketplaces has fundamentally transformed how consumers search for and secure housing. In Switzerland alone, platforms such as Homegate and ImmoScout24, operated by Swiss Marketplace Group (SMG), facilitate hundreds of thousands of real estate transactions annually. However, this digital transformation has simultaneously created fertile ground for sophisticated fraud schemes, generating complex data environments where fraudulent patterns are embedded within massive transaction graphs.
+The growth of online marketplaces has fundamentally changed how people search for and secure housing. In Switzerland, platforms like Homegate and ImmoScout24—both operated by the Swiss Marketplace Group (SMG)—facilitate hundreds of thousands of real estate transactions every year. However, this digital shift has also created new opportunities for sophisticated fraud. In these complex data environments, fraudulent activity is often buried deep within massive networks of transactions and entity relationships.
 
-Real estate fraud in online marketplaces manifests in several forms: phantom listings advertising non-existent properties, identity theft schemes harvesting applicant information, and coordinated fraud rings operating networks of fake accounts. These fraud operations leave distinctive traces in marketplace data shared device fingerprints, IP address clusters, temporal posting patterns, and entity relationship networks that are invisible when analyzing listings in isolation but become apparent through systematic data mining.
+Real estate fraud in these marketplaces takes many forms. It might involve "phantom listings" for properties that do not exist, identity theft schemes designed to harvest information from applicants, or coordinated rings that operate through large networks of fake accounts. These operations leave behind distinct traces in the data—such as shared device fingerprints, clusters of IP addresses, and specific temporal patterns—that are almost impossible to see when looking at a single listing in isolation. Instead, they only become apparent through a more systematic approach to data mining.
 
-Traditional fraud detection approaches treat listings as independent observations, applying rule-based systems or commercial services such as SEON that analyze individual transactions without exploiting relational structure. While these approaches capture obvious fraud indicators (disposable emails, high-risk IP countries), they cannot discover the network patterns that distinguish fraud rings from legitimate property management operations.
+Traditional fraud detection typically treats each listing as an independent observation. Rules-based systems and commercial services like SEON analyze individual transactions but often fail to exploit the relational structures connecting them. While these methods are effective at catching obvious red flags—like disposable emails or high-risk geographic locations—they are generally unable to uncover the complex network patterns that separate organized fraud rings from legitimate property management activities.
 
-Despite the maturity of graph-based fraud detection in adjacent domains---with over 100 publications applying Graph Neural Networks to financial transactions \cite{cheng2024gnn}, production deployments at e-commerce platforms processing billions of transactions (eFraudCom at Taobao, C-FATH at JD.com), and standardized benchmark datasets (YelpChi, Elliptic)---no academic research has applied these methods to real estate marketplace fraud. A systematic review of fraud detection literature reveals this absence: Mutemi and Bação's \cite{mutemi2024ecommerce} survey of 101 e-commerce fraud publications excludes real estate entirely; Cherif et al.'s \cite{cherif2024financial} systematic review of GNN-based financial fraud detection covers credit cards, money laundering, and insurance but omits property marketplaces; the only peer-reviewed real estate fraud study \cite{mohdamin2024clustering} employs traditional clustering rather than graph methods. This gap persists despite documented fraud losses exceeding \$145 million annually in real estate scams \cite{fbi2023ic3} and the inherent relational structure of marketplace data---agent networks, cross-platform listing patterns, device-sharing graphs---that suggests graph methods would be highly applicable.
+Despite the fact that graph-based fraud detection is well-established in other fields—with hundreds of publications on using Graph Neural Networks (GNNs) for financial transactions \cite{cheng2024gnn} and massive production deployments at e-commerce giants like Taobao and JD.com—there is surprisingly little academic research applying these methods to real estate. A review of the current literature shows that while e-commerce, money laundering, and insurance fraud are all well-studied, property marketplaces are largely ignored. This gap is particularly notable given that real estate scams cause over \$145 million in annual losses \cite{fbi2023ic3} and that marketplace data is inherently relational, consisting of complex networks of agents, listings, and shared devices.
 
-This thesis addresses this gap by applying graph-based data mining techniques to discover, characterize, and validate fraud patterns in real estate marketplace data. By constructing heterogeneous graphs from entity relationships and applying graph-based pattern extraction, we aim to uncover relational fraud signatures invisible to attribute-only analysis, while investigating the unique structural properties of fraud in this unexplored domain.
+This thesis aims to address this gap by applying graph-based data mining to discover, characterize, and validate fraud patterns in the real estate sector. By building heterogeneous graphs from entity relationships, we aim to uncover the "relational signatures" of fraud that are invisible to standard analysis, while also exploring the unique structural properties of fraud in this previously unexamined domain.
 
 \section{Research Objectives and Questions}
 \label{sec:1_2}
 
-The primary objective of this thesis is to discover, characterize, and validate relational fraud patterns in real estate marketplace data through graph-based data mining, demonstrating their utility for improved fraud detection and operational investigation support.
+The primary goal of this research is to discover and validate relational fraud patterns in real estate marketplace data using graph-based data mining. We aim to show that these patterns not only improve the accuracy of fraud detection but also provide actionable insights that can support manual investigations.
 
-This objective is operationalized through four research questions:
+To achieve this goal, we have structured our research around four key questions:
 
-\textbf{RQ1: What relational fraud patterns exist in marketplace graphs, and do they provide predictive signal beyond individual listing attributes?}
+\paragraph{RQ1: What relational fraud patterns exist in marketplace graphs, and do they provide predictive signal beyond individual listing attributes?}
+This question focuses on the core tasks of pattern discovery and validation. By building heterogeneous graphs from entity relationships and extracting relational representations, we hope to identify the structural signatures that distinguish fraudulent activity from legitimate listings. We also compare graph-augmented models against traditional attribute-only models to see if these discovered patterns offer any genuine predictive lift.
 
-This question addresses pattern discovery and validation. By constructing heterogeneous graphs from entity relationships and extracting relational representations, we identify structural patterns distinguishing fraudulent from legitimate listings. Comparison between graph-augmented and attribute-only models validates whether discovered patterns carry predictive information.
+\paragraph{RQ2: What entity-sharing patterns characterize fraud rings versus legitimate multi-listing users?}
+Moving beyond aggregate detection, we examine the specific topological and behavioral signatures of coordinated fraud rings. This involves analyzing device-sharing networks, IP clustering, and the reuse of emails and phone numbers to see how the "hidden infrastructure" of a fraud operation differs from that of a legitimate property management firm.
 
-\textbf{RQ2: What entity-sharing patterns characterize fraud rings versus legitimate multi-listing users?}
+\paragraph{RQ3: How do fraud patterns evolve temporally, and what data requirements enable effective pattern discovery?}
+Fraud is rarely stationary; scammers constantly adapt their tactics to evade detection. We look at how these patterns change over time and, perhaps more importantly, identify the minimum scale of data needed for these graph-based patterns to become useful. Using an expanding window analysis, we quantify the data requirements necessary for effective pattern mining in this domain.
 
-Beyond aggregate pattern detection, this question examines the specific topological and behavioral signatures of coordinated fraud operations. We analyze device-sharing networks, IP clustering, email/phone reuse patterns, and temporal coordination to characterize fraud ring structure versus legitimate property management behavior.
-
-\textbf{RQ3: How do fraud patterns evolve temporally, and what data requirements enable effective pattern discovery?}
-
-Fraud patterns are non-stationary; fraudsters adapt tactics over time. This question examines temporal evolution of fraud signatures and, critically, identifies the minimum data scale at which graph-based patterns emerge as predictive. Through expanding window analysis, we quantify data requirements for effective pattern mining.
-
-\textbf{RQ4: What actionable fraud indicators emerge from pattern analysis that can support human investigation?}
-
-Discovered patterns must translate to operational value. This question examines which features both individual attributes and relational patterns most strongly indicate fraud, producing interpretable indicators that fraud analysts can use to prioritize and guide investigations.
+\paragraph{RQ4: What actionable fraud indicators emerge from pattern analysis that can support human investigation?}
+For discovered patterns to be truly useful, they must translate into operational value. We investigate which features—both individual and relational—most strongly indicate fraud. Our goal is to produce interpretable indicators that fraud analysts can use to prioritize their work and guide their investigations more effectively.
 
 \section{Scope and Delimitations}
 \label{sec:1_3}
 
-This research is conducted as a case study utilizing production data from Swiss Marketplace Group's real estate platforms.
+This research is conducted as a case study using production data from the real estate platforms operated by the Swiss Marketplace Group (SMG).
 
-\textbf{In Scope:}
-\begin{itemize}
-    \item Exploratory analysis of marketplace data structure and fraud distributions
-    \item Construction of heterogeneous entity-relationship graphs from listing data
-    \item Graph-based pattern extraction using Graph Neural Network techniques
-    \item Validation of pattern utility through predictive modeling comparison
-    \item Temporal pattern analysis through expanding window experiments
-    \item Interpretability analysis to identify actionable fraud indicators
-\end{itemize}
+\paragraph{In Scope}
+Our work includes an exploratory analysis of the marketplace's data structure and fraud distributions, followed by the construction of heterogeneous entity-relationship graphs. We use Graph Neural Network (GNN) techniques for pattern extraction and validate their utility through predictive modeling. We also conduct temporal analyses and interpretability studies to identify actionable indicators.
 
-\textbf{Out of Scope:}
-\begin{itemize}
-    \item Real-time streaming analysis (batch processing focus)
-    \item Unstructured content mining (listing text, images)
-    \item Cross-marketplace pattern transfer
-    \item Fully dynamic graph representations
-\end{itemize}
+\paragraph{Out of Scope}
+We have focused on batch processing rather than real-time streaming analysis. Furthermore, we do not analyze unstructured content like listing text or images, nor do we attempt to transfer patterns across different types of marketplaces. Our graph representations are static rather than fully dynamic.
 
-\textbf{Delimitations:}
-\begin{itemize}
-    \item Patterns reflect Swiss real estate market characteristics; generalization requires validation
-    \item Ground truth derives from operational flagging, which may contain labeling noise
-    \item Proprietary data constraints limit reproducibility; statistical summaries provided
-\end{itemize}
+\paragraph{Delimitations}
+The patterns identified in this thesis reflect the specific characteristics of the Swiss real estate market, and their generalization to other regions would require further validation. Additionally, our ground truth labels come from existing operational systems, which may contain some degree of noise. Finally, because we are working with proprietary data, we provide statistical summaries rather than raw datasets to ensure privacy and security.
 
 \section{Research Contributions}
 \label{sec:1_4}
 
-This thesis makes contributions to both the data mining research literature and operational fraud detection practice at Swiss Marketplace Group.
+This thesis contributes to both the academic literature on data mining and the practical field of fraud detection, particularly within the context of Swiss Marketplace Group.
 
 \subsection*{Academic Contributions}
 
-\textbf{Contribution 1: Discovery of the Heterophily Paradox in Real Estate Fraud Graphs.}
-We discover that real estate marketplace graphs exhibit \emph{inverted} fraud topology compared to assumptions in the graph fraud detection literature. While existing work assumes fraudsters form densely connected clusters requiring camouflage-resistant methods \cite{dou2020enhancing,liu2020alleviating}, our analysis reveals the opposite pattern: legitimate property managers form dense entity-sharing networks (5.3\% fraud rate for devices with 5+ listing connections), while fraudsters operate in relative isolation (16.7\% fraud rate for single-listing devices). This heterophily pattern---where high connectivity signals legitimacy rather than fraud---explains why standard GNN architectures underperform in this domain and represents the first empirical characterization of fraud network structure in real estate marketplaces.
+\paragraph{Discovery of the Heterophily Paradox in Real Estate Fraud Graphs}
+We have found that real estate marketplace graphs exhibit a fraud topology that is essentially the inverse of what is often assumed in the literature. While many studies assume fraudsters form dense clusters that require specialized "camouflage-resistant" detection methods \cite{dou2020enhancing,liu2020alleviating}, our findings show that it is actually legitimate property managers who form the densest entity-sharing networks. In our dataset, devices with five or more listing connections had a fraud rate of only 5.3\%, whereas single-listing devices showed a rate of 16.7\%. This "heterophily paradox"—where high connectivity is a signal of legitimacy—helps explain why standard GNN architectures often struggle in this domain and provides a new empirical foundation for understanding fraud in property marketplaces.
 
-\textbf{Contribution 2: Establishment of Graph Density Threshold for Relational Pattern Mining.}
-Through systematic expanding window analysis, we provide the first empirical quantification of data requirements for graph-based fraud pattern discovery. Graph mining provides predictive lift over attribute-only analysis only when training data exceeds approximately 300,000 samples---the threshold at which fraud ring connectivity reaches sufficient density to overcome legitimate power-user noise. Below this threshold, relational patterns lack structural coherence for meaningful extraction. This finding addresses a methodological gap in the literature: prior work demonstrates graph patterns improve detection but does not investigate \emph{when} this occurs, leaving practitioners unable to assess graph-based approach viability for their data contexts.
+\paragraph{Establishment of Graph Density Thresholds for Pattern Mining}
+Through a systematic expanding window analysis, we provide an empirical quantification of the data requirements for graph-based fraud discovery. We found that graph mining only provides a predictive advantage over traditional tabular analysis once the training set exceeds roughly 300,000 samples. This appears to be the point at which fraud ring connectivity reaches a sufficient density to be distinguished from the noise of legitimate power users. This finding addresses a gap in the literature, which often demonstrates the utility of graph patterns without exploring the scale at which they actually emerge.
 
-\textbf{Contribution 3: Demonstration of Temporal Robustness Inversion Under Production Evaluation.}
-We demonstrate that evaluation methodology fundamentally determines model selection conclusions in fraud detection. Under fixed-split evaluation (standard academic benchmark), graph-augmented models achieve +5.3\% AUC-PR improvement over tabular baselines. However, under expanding window evaluation (production deployment scenario with periodic retraining), this relationship inverts: tabular models outperform graph-augmented approaches by 3$\times$ (0.63 vs. 0.22 AUC-PR). This discovery reveals that fraud evolution operates at the \emph{topology level}---new fraud campaigns form disconnected graph components with distinct structures---not merely at the feature distribution level assumed in prior concept drift literature \cite{gama2014survey}. We identify two operational regimes: forensic analysis (offline, large historical graphs) where GNN methods excel, and real-time detection (incremental retraining) where tabular methods provide superior robustness.
+\paragraph{Demonstration of Temporal Robustness Inversion}
+Our work reveals that the choice of evaluation methodology can fundamentally change the conclusions one draws about model performance. In a standard "fixed-split" evaluation typical of academic benchmarks, graph-augmented models outperformed tabular baselines by about 5.3\% in AUC-PR. However, in a more realistic "expanding window" evaluation that mimics a production environment with periodic retraining, this relationship inverted: tabular models outperformed the GNN by a factor of three. This suggests that fraud evolution occurs at the topological level, with new campaigns forming entirely new graph components. This discovery identifies two distinct operational regimes: forensic analysis, where GNN methods excel on large historical graphs, and real-time detection, where tabular methods offer far greater robustness.
 
 \subsection*{Practical Contributions}
 
-\textbf{Contribution 4: Complementary Detection Layer for Existing Fraud Systems.}
-The discovered patterns enable a secondary detection mechanism operating alongside SMG's existing SEON-based fraud detection. Unlike SEON's rule-based approach analyzing individual transactions, the graph-based system identifies fraud through relational signatures---detecting coordinated activity invisible to single-listing analysis. This provides both forward detection (risk scoring at submission) and backward detection (retrospective identification of published fraud based on emerging entity-sharing patterns from subsequent user activity).
+\paragraph{Complementary Detection Layers}
+The patterns discovered in this research offer a secondary detection layer that can operate alongside existing systems. While SMG's current SEON-based tools focus on individual transactions, our graph-based approach identifies coordinated activities that are invisible to single-listing analysis. This allows for both "forward" detection (scoring new listings as they are submitted) and "backward" detection (identifying previously published fraud as new entity-sharing patterns emerge).
 
-\textbf{Contribution 5: Empirically-Validated Rule Enhancement.}
-The characterized patterns---super-connector thresholds (10+ listings per device yields 35.5\% fraud rate, 4.4$\times$ baseline), cross-platform signatures (dual Homegate/ImmoScout24 posting yields 26.74\% fraud rate), temporal indicators (6-7 AM submission peaks), and geographic concentration (West African origin patterns showing 60-90\% fraud rates)---provide empirically quantified signals for SEON rule enhancement. Each pattern includes precision metrics enabling risk-calibrated rule implementation rather than heuristic thresholds.
+\paragraph{Empirically-Validated Rule Enhancements}
+We have characterized several high-value patterns that can be used to enhance existing fraud rules. These include specific thresholds for "super-connector" devices (where 10+ listings per device indicates a fraud rate 4.4 times the baseline), cross-platform signatures, and specific temporal and geographic indicators. By providing precision metrics for each of these patterns, we enable platform operators to implement risk-calibrated rules rather than relying on simple heuristics.
 
 \section{Thesis Organization}
 \label{sec:1_5}

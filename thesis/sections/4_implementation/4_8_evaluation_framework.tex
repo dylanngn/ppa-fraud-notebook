@@ -1,57 +1,45 @@
 \section{Evaluation Framework}
 \label{sec:4_8}
 
-The evaluation framework provides comprehensive model assessment through multiple metrics, temporal validation, drift detection, and baseline comparisons. Implementation resides in \texttt{src/evaluation/} and \texttt{src/utils/metrics.py}.
+Our evaluation framework is designed to provide a comprehensive assessment of model performance through various metrics, temporal validation, and baseline comparisons. It also incorporates real-time monitoring through drift detection algorithms. The implementation details can be found in the \texttt{src/evaluation/} directory and the \texttt{src/utils/metrics.py} file.
 
-\subsection{Metrics Implementation}
+\subsection{Performance Metrics}
 \label{sec:4_8_1}
 
-The framework computes multiple evaluation metrics to capture different aspects of model performance:
+The framework calculates several metrics to capture different aspects of how the model performs:
 
-\textbf{Primary Metric: AUC-PR (Area Under Precision-Recall Curve)}
+\paragraph{Primary Metric: AUC-PR}
+We use the Area Under the Precision-Recall Curve (AUC-PR) as our primary metric because of the severe class imbalance in our data (an 8.11% fraud rate). Unlike the more common AUC-ROC, which can be overly optimistic when one class dominates, AUC-PR directly measures the trade-off between precision and recall across all classification thresholds \cite{saito2015precision,davis2006relationship}. We use scikit-learn's \texttt{average\_precision\_score} for this calculation. For context, we also report AUC-ROC using the \texttt{roc\_auc\_score} function.
 
-AUC-PR is chosen as the primary metric due to severe class imbalance (8.11\% fraud rate). Unlike AUC-ROC, which can be misleadingly optimistic for imbalanced datasets, AUC-PR directly measures the trade-off between precision and recall across all classification thresholds \cite{saito2015precision,davis2006relationship}. The metric is computed using scikit-learn's \texttt{average\_precision\_score} function on model probability predictions. For comparison purposes, AUC-ROC is also calculated using \texttt{roc\_auc\_score}. Implementation details are provided in Appendix~B.
+\paragraph{Operational Metric: Precision@K}
+Precision@K measures the accuracy of the model within the top-K highest-scored predictions. This is an essential operational metric because it simulates the priority review queue that a fraud analyst would actually use. The system sorts all listings by their predicted fraud probability and then computes what fraction of the top-K listings are true positives. We report Precision@50, @100, and @200, which correspond to the typical daily review capacities of analyst teams.
 
-\textbf{Precision@K: Operational Metric}
-
-Precision@K measures accuracy among the top-K highest-scored predictions, simulating a priority review queue. The implementation sorts predictions by descending score, selects the top-K instances, and computes the fraction of true positives within this set. We report Precision@50, @100, and @200, representing daily review capacities for fraud analysts. High precision@K enables effective prioritization of manual reviews. Complete implementation is provided in Appendix~B.
-
-\textbf{Additional Metrics:}
-
+\paragraph{Other Metrics}
+In addition to these core measures, we also track:
 \begin{itemize}
-    \item \textbf{Precision}: Positive predictive value at threshold 0.5
-    \item \textbf{Recall}: True positive rate (sensitivity)
-    \item \textbf{F1-Score}: Harmonic mean of precision and recall
-    \item \textbf{False Positive Rate}: Proportion of legitimate listings incorrectly flagged
+    \item \textbf{Precision and Recall}: Standard measures of positive predictive value and sensitivity at a fixed 0.5 threshold.
+    \item \textbf{F1-Score}: The harmonic mean of precision and recall.
+    \item \textbf{False Positive Rate}: The proportion of legitimate listings that are incorrectly flagged by the model.
 \end{itemize}
 
 \subsection{Expanding Window Validation}
 \label{sec:4_8_2}
 
-The \texttt{ExpandingWindowPipeline} class enables systematic temporal validation through multiple training windows:
+To test how our models handle the evolution of fraud over time, we use an \texttt{ExpandingWindowPipeline}. This approach allows us to systematically validate performance across multiple training periods.
 
-\textbf{Window Configuration:}
-\begin{itemize}
-    \item Window 1: Train on 100K samples, test on next month
-    \item Window 2: Train on 200K samples, test on next month
-    \item Window 3: Train on 300K samples, test on next month
-    \item Window 4: Train on 400K samples, test on next month
-\end{itemize}
+\paragraph{Window Configuration}
+The pipeline is configured with a series of increasing windows. For example, it might start by training on 100,000 samples and testing on the following month, then expand to 200,000, 300,000, and finally 400,000 samples.
 
-\textbf{Pipeline Execution:}
-
-The \texttt{ExpandingWindowPipeline} class iterates through window configurations, extracting training and test data for each period. For each window, the pipeline: (1) retrieves temporally-filtered data using configured start/end dates, (2) trains the model on the training window, (3) evaluates on the subsequent test period, and (4) records comprehensive metrics including window ID, dataset sizes, and performance scores (AUC-PR, Precision@K, etc.). Results are aggregated into a DataFrame for comparative analysis. Complete implementation is provided in Appendix~B.
-
-This approach reveals: (1) minimum data requirements for stable performance, (2) performance trends over time, (3) optimal retraining frequency.
+\paragraph{Pipeline Execution}
+The pipeline iterates through these configurations, retrieving the correct temporal slices of data for each step. For each window, it trains the model and then evaluates it on the subsequent period, recording a full set of metrics. This process allows us to identify the minimum amount of data required for stable performance and helps us determine the optimal frequency for retraining the model in a production environment.
 
 \subsection{Drift Detection Algorithms}
 \label{sec:4_8_3}
 
-The framework implements two drift detection algorithms to monitor prediction degradation in production. While DDM and ADWIN remain foundational methods, recent systematic reviews \cite{arora2024drift} highlight the evolution of drift detection toward unsupervised approaches and deep learning methods. We employ the established DDM/ADWIN baseline for their proven reliability and interpretability:
+We have implemented two drift detection algorithms to monitor the performance of our models in real-time. While recent research has explored unsupervised and deep learning-based drift detection \cite{arora2024drift}, we chose to use the well-established DDM and ADWIN methods for their proven reliability and ease of interpretation.
 
-\textbf{DDM (Drift Detection Method):}
-
-DDM tracks error rate evolution using a binomial distribution model \cite{gama2004learning}. When error rate significantly increases beyond historical baseline, a drift warning is triggered.
+\paragraph{DDM (Drift Detection Method)}
+DDM monitors the evolution of the model's error rate using a binomial distribution model \cite{gama2004learning}. It triggers a warning or a drift alert whenever the error rate deviates significantly from its historical baseline. The logic for this is outlined in Algorithm~\ref{alg:ddm}.
 
 \begin{algorithm}[H]
 \caption{DDM Drift Detection}
@@ -78,9 +66,8 @@ DDM tracks error rate evolution using a binomial distribution model \cite{gama20
 \end{algorithmic}
 \end{algorithm}
 
-\textbf{ADWIN (Adaptive Windowing):}
-
-ADWIN maintains a sliding window of recent predictions and detects drift when the distribution of errors changes between two sub-windows \cite{bifet2007learning}:
+\paragraph{ADWIN (Adaptive Windowing)}
+ADWIN maintains a sliding window of recent errors and detects drift when the distribution of errors between two sub-windows changes significantly \cite{bifet2007learning}. This method is particularly good at adapting the size of the window to the current rate of change in the data.
 
 \begin{algorithm}[H]
 \caption{ADWIN Drift Detection}
@@ -107,20 +94,15 @@ ADWIN maintains a sliding window of recent predictions and detects drift when th
 \end{algorithmic}
 \end{algorithm}
 
-Both algorithms run continuously on the production API, logging drift events to trigger retraining workflows. Complete Python implementations are provided in Appendix~B.
+Both of these algorithms are designed to run continuously on the production API, with any drift events being logged to trigger automated retraining workflows.
 
 \subsection{Baseline Comparisons}
 \label{sec:4_8_4}
 
-The framework includes two types of baseline comparisons:
+To put our results in context, we compare our hybrid models against two sets of baselines:
 
-\textbf{Model Baselines:} Logistic Regression and Random Forest establish lower bounds for predictive performance. These simpler models quantify the benefit of gradient boosting and graph-based features.
+\paragraph{Model Baselines}
+We use simple versions of Logistic Regression and Random Forest to establish a performance floor. These models allow us to quantify exactly how much value is being added by the more complex gradient boosting and graph-based features.
 
-\textbf{SEON Baseline:} The existing SEON fraud detection system (using proprietary fraud\_score and blackbox\_score) serves as a production baseline. Comparison uses:
-\begin{itemize}
-    \item Same test set for fair evaluation
-    \item AUC-PR and Precision@K metrics
-    \item Statistical significance testing (DeLong test for AUC)
-\end{itemize}
-
-All baseline results are logged to MLflow for transparent comparison and reproducibility.
+\paragraph{SEON Production Baseline}
+We also compare our results against the existing SEON fraud detection system, which uses its own proprietary scores. To ensure a fair comparison, we evaluate both systems on the same test set using the same metrics and perform statistical significance testing using the DeLong test for AUC. All of these comparisons are logged in MLflow to ensure transparency and reproducibility.

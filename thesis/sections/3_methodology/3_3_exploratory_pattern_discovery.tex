@@ -1,11 +1,11 @@
 \section{Exploratory Data Analysis}
 \label{sec:3_3}
 
-Exploratory analysis serves as the foundation for pattern discovery, revealing fraud signatures in temporal, geographic, and entity-relationship dimensions before any modeling commences.
+Exploratory analysis is the foundation of our pattern discovery process. It allows us to identify fraud signatures across temporal, geographic, and relational dimensions before any formal modeling begins.
 
 \subsection{Dataset Statistics}
 
-The filtered dataset (December 2024 onwards) comprises:
+The dataset, filtered from December 2024 onwards, consists of the following:
 
 \begin{table}[h]
 \centering
@@ -24,19 +24,18 @@ Date range & Dec 2024 - Nov 2025 \\
 \end{tabular}
 \end{table}
 
-\textbf{Critical Distinction:} The event-level fraud rate (1.21\%) is misleading. Legitimate listings generate more events on average (9.7 events) than fraudulent listings (4.8 events) because they progress through the full lifecycle (creation $\rightarrow$ publication $\rightarrow$ archival) while fraudulent listings are terminated early. All subsequent analysis operates at listing level where the fraud rate is 8.11\%, representing moderate class imbalance (approximately 1:11 ratio).
+\paragraph{A Note on Fraud Rates}
+It is important to distinguish between event-level and listing-level fraud rates. The event-level rate of 1.21\% is somewhat misleading because legitimate listings tend to generate more events (an average of 9.7) than fraudulent ones (an average of 4.8). This is because legitimate listings usually go through their entire lifecycle, whereas fraudulent ones are often terminated early. Consequently, our analysis focus on the listing level, where the fraud rate is 8.11\%, representing a moderate class imbalance of approximately 1:11.
 
 \subsection{Fraud Pattern Discovery}
 
-\textbf{Temporal Patterns:} Analysis of fraud distribution across time dimensions revealed several signatures:
+\paragraph{Temporal Signatures}
+Our analysis of how fraud is distributed over time revealed several key patterns. We observed that fraud activity tends to peak between 6:00 and 7:00 AM local time. This suggests either automated bot activity or submissions originating from different time zones, as legitimate listings are more uniformly spread across standard business hours.
 
-Hourly distribution shows fraud activity peaks between 6-7 AM local time, suggesting automated submission or activity from different time zones. Legitimate listings show more uniform distribution across business hours.
+On a monthly basis, we saw a significant spike in February 2025, with the fraud rate hitting 13.12%—more than 60% higher than the annual average. This was followed by a decline to around 5% by the middle of the year, which may indicate that the platform's interventions were successful or that fraudsters were adapting their tactics. We also found that fraud rates were consistently higher on weekends (9.2% on Saturdays and 8.8% on Sundays) than on weekdays, likely due to reduced manual oversight.
 
-Monthly analysis revealed a significant spike in February 2025, with fraud rates reaching 13.12\%-62\% above the annual average. Rates subsequently declined to approximately 5\% by mid-2025, potentially indicating successful intervention or fraudster adaptation.
-
-Day-of-week analysis shows elevated fraud rates on weekends (Saturday: 9.2\%, Sunday: 8.8\%) compared to weekdays (7.4\% average), consistent with reduced human oversight during off-hours.
-
-\textbf{Geographic Patterns:} IP geolocation reveals stark geographic concentration of fraud origins:
+\paragraph{Geographic Origins}
+IP geolocation shows a very strong geographic concentration for fraudulent activity.
 
 \begin{table}[h]
 \centering
@@ -55,9 +54,10 @@ Switzerland & 6.2\% & 0.8$\times$ \\
 \end{tabular}
 \end{table}
 
-West African countries (Benin, Togo, Ivory Coast) show 60-90\% fraud rates, consistent with known real estate scam origins documented in fraud research. These geographic signals provide high-precision fraud indicators despite low prevalence.
+Specifically, countries in West Africa such as Benin, Togo, and the Ivory Coast show fraud rates between 60% and 90%. This is consistent with established research on real estate scams and provides a high-precision indicator for detection, even if the overall volume from these regions is low.
 
-\textbf{Category Patterns:} Listing characteristics show strong fraud associations:
+\paragraph{High-Risk Listing Categories}
+The characteristics of the listings themselves also offer strong clues about their legitimacy.
 
 \begin{table}[h]
 \centering
@@ -73,13 +73,14 @@ Cross-platform (both Homegate \& ImmoScout24) & 26.74\% & 3.3$\times$ \\
 \end{tabular}
 \end{table}
 
-Studio rentals represent the highest-risk category, likely because lower price points attract more victims and require less sophisticated property documentation. The stark differential between rental (9.47\%) and purchase (0.88\%) fraud rates reflects the lower verification requirements for rental listings.
+Studio rentals are the highest-risk category, likely because their lower price points attract more potential victims and require less detailed documentation. We also see a stark difference between rental fraud (9.47%) and purchase fraud (0.88%), reflecting the much lower verification hurdles for rental listings.
 
-\subsection{Entity-Sharing Analysis}
+\subsection{Entity-Sharing and Network Analysis}
 
-Analysis of device fingerprints, IP addresses, and identity markers reveals network structure potentially encoding fraud rings.
+By looking at device fingerprints, IP addresses, and other identity markers, we can begin to see the underlying network structures of coordinated fraud rings.
 
-\textbf{Device Sharing Patterns:}
+\paragraph{Device Sharing}
+The evidence for device-based fraud rings is particularly strong.
 
 \begin{table}[h]
 \centering
@@ -98,10 +99,9 @@ Maximum listings per device & 6,251 \\
 \end{tabular}
 \end{table}
 
-The maximum of 6,251 listings from a single device fingerprint represents an unmistakable fraud ring signature no legitimate user creates thousands of listings. Super-connector devices (10+ listings) show 35.5\% fraud rate compared to 8.11\% baseline, a 4.4$\times$ lift indicating strong predictive signal.
+Finding over 6,000 listings associated with a single device fingerprint is a clear indication of a fraud ring, as no legitimate user would operate at that scale. These "super-connector" devices have a fraud rate of 35.5%, which is a 4.4-fold increase over the baseline.
 
-\textbf{Cross-Platform Activity:} Listings appearing on both Homegate and ImmoScout24 show 26.74\% fraud rate (3.3$\times$ lift). While legitimate property managers may cross-post, the combination with other risk indicators (new accounts, suspicious infrastructure) amplifies fraud signal.
+\paragraph{Cross-Platform and IP Patterns}
+Listings that appear on both Homegate and ImmoScout24 also carry a much higher risk, with a fraud rate of 26.74%. While some legitimate managers do cross-post, the signal becomes much stronger when combined with other indicators like new accounts or suspicious infrastructure. IP addresses show similar clustering, although we must be careful here as legitimate corporate or residential users often share IP addresses.
 
-\textbf{IP Address Clustering:} IP addresses show similar patterns with some noise from shared corporate/residential networks. The top IP addresses connect to hundreds of listings, though interpretation requires caution as legitimate corporate users may share IP infrastructure.
-
-These entity-sharing patterns motivate the graph construction methodology in Section 3.5, where device/IP/email/phone relationships form edges connecting listings into a heterogeneous fraud detection graph.
+These patterns are the primary driver behind our graph-based methodology, where shared attributes form the edges that connect listings into a larger heterogeneous network.

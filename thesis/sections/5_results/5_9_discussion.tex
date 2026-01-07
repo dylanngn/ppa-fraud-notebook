@@ -4,38 +4,38 @@
 \subsection{Research Question Answers}
 \label{sec:5_10_1}
 
-\textbf{RQ1: What relational fraud patterns exist in marketplace graphs, and do they provide predictive signal beyond individual listing attributes?}
+\paragraph{RQ1: What relational fraud patterns exist in marketplace graphs, and do they provide predictive signal beyond individual listing attributes?}
 
-Entity-sharing patterns (device, IP, email, phone) reveal fraud ring structures. Super-connector devices (10+ listings) show 35.5\% fraud rate versus 8.11\% baseline. The hybrid GNN+XGBoost framework captures these patterns through GraphSAGE embeddings, which contribute 17.3\% of SHAP importance. Across multiple runs with different random seeds (n=3), GNN+XGBoost achieves mean AUC-PR of 0.733 $\pm$ 0.058, compared to vanilla XGBoost at 0.733 $\pm$ 0.063---a marginal improvement of 0.08\% in aggregate metrics.
+Relational fraud patterns, particularly those involving shared entities like devices, IP addresses, emails, and phone numbers, provide a strong signal for uncovering structured fraud rings. Our analysis shows that "super-connector" devices—those associated with ten or more listings—exhibit a 35.5\% fraud rate, which is more than four times the 8.11\% baseline. The hybrid GNN+XGBoost framework successfully captures these signals through GraphSAGE embeddings, which account for 17.3\% of the total SHAP importance. While the aggregate metrics show only a marginal gain—GNN+XGBoost achieved a mean AUC-PR of 0.733 $\pm$ 0.058 compared to vanilla XGBoost's 0.733 $\pm$ 0.063 across three independent runs—the value of the relational signal becomes clear when looking at specific cases.
 
-However, aggregate metrics obscure a critical finding: \textbf{GNN detects 13 fraud cases that vanilla XGBoost completely misses} (Section~\ref{sec:5_10_1a}). These GNN-unique catches are characterized by extreme device connectivity (average 3,565 connections), representing fraud rings whose fraudulent nature manifests through network structure rather than individual listing attributes. The GNN's message-passing mechanism aggregates signals across thousands of connected listings, enabling detection of coordinated operations invisible to tabular analysis.
+Aggregate statistics often mask the most important findings: the GNN model identified 13 fraud cases that were entirely missed by the vanilla XGBoost model (Section~\ref{sec:5_10_1a}). These "GNN-unique" detections are typically linked to extreme device connectivity, with an average of 3,565 connections. This suggests that some fraud manifests purely through network topology rather than individual listing characteristics. By aggregating signals across these massive components, the GNN's message-passing mechanism uncovers coordinated operations that remain invisible to standard tabular analysis.
 
-This dual finding---equivalent aggregate performance but differential pattern coverage---suggests graph embeddings provide \emph{complementary} rather than \emph{redundant} signal. The 17.3\% SHAP contribution of GNN embeddings represents genuine relational knowledge that tabular features cannot encode. The finding aligns with recent systematic reviews \cite{motie2024financial} demonstrating that GNN effectiveness depends critically on graph density and temporal stability.
+The fact that we see equivalent aggregate performance despite such different pattern coverage indicates that graph embeddings provide a complementary signal rather than a redundant one. The 17.3\% SHAP contribution from GNN embeddings represents relational knowledge that cannot be easily encoded into tabular features. This finding is consistent with recent reviews \cite{motie2024financial}, which highlight that the effectiveness of GNNs is heavily dependent on the density and stability of the underlying graph.
 
-\textbf{RQ2: What entity-sharing patterns characterize fraud rings vs. legitimate multi-listing users?}
+\paragraph{RQ2: What entity-sharing patterns characterize fraud rings vs. legitimate multi-listing users?}
 
-Fraud rings exhibit extreme device concentration (up to 6,251 listings per device) and cross-platform activity (26.74\% fraud rate). Geographic clustering in West Africa (60-90\% fraud rates from Benin, Togo, Ivory Coast) provides high-precision signals. Legitimate power users share devices but show lower listing concentrations and domestic IPs.
+Fraud rings are primarily characterized by extreme concentrations of listings on single devices (reaching as high as 6,251 listings) and high rates of cross-platform activity (26.74\% fraud rate). We also observed significant geographic clustering, with listings originating from specific West African countries like Benin, Togo, and Ivory Coast showing fraud rates between 60\% and 90\%. In contrast, legitimate power users often share devices but do so at much lower listing volumes and typically operate from domestic IPs.
 
-\textbf{RQ3: How do fraud patterns evolve temporally, and what data requirements enable effective pattern discovery?}
+\paragraph{RQ3: How do fraud patterns evolve temporally, and what data requirements enable effective pattern discovery?}
 
-Fraud patterns show monthly variation (5-13\% fraud rate range) with notable February 2025 spike. Systematic evaluation of retraining strategies reveals: DDM/ADWIN successfully detected drift in March 2025; expanding windows outperform sliding windows (0.6286 vs. 0.5892 mean AUC-PR); and monthly retraining provides optimal balance between model freshness and stability. GNN-based patterns require minimum $\sim$300K training samples to outperform tabular models below this threshold, the graph lacks sufficient density for meaningful pattern extraction.
+Fraud patterns in our dataset showed significant monthly variation, with rates ranging from 5\% to 13\% and a sharp spike in February 2025. Our evaluation of retraining strategies showed that drift detection methods like DDM and ADWIN were able to successfully identify these shifts in March 2025. We found that expanding windows performed better than sliding windows (0.6286 vs. 0.5892 mean AUC-PR), and that monthly retraining offered the best balance between model stability and freshness. Interestingly, GNN-based patterns seem to require a minimum of approximately 300,000 training samples to match or exceed the performance of tabular models; below this threshold, the graph appears too sparse for meaningful relational extraction.
 
-\textbf{RQ4: What actionable fraud indicators emerge from pattern analysis that can support human investigation?}
+\paragraph{RQ4: What actionable fraud indicators emerge from pattern analysis that can support human investigation?}
 
-SHAP-based explainability integration provides both global and local interpretability. Global analysis identifies screen resolution, payment mode, rent price, and listing category as top indicators, with GNN embeddings contributing 17.3\% of total feature importance. Local explanations decompose individual predictions into verifiable risk factors (e.g., ``Benin IP + Studio + 3AM submission''), enabling analyst prioritization and investigation guidance. The proof-of-concept API deployment demonstrates these explanations can be served at sub-100ms latency for operational use.
+The integration of SHAP-based explainability provides a bridge between model predictions and manual investigation. At a global level, we identified screen resolution, payment methods, rent prices, and listing categories as the most influential indicators, alongside the 17.3\% contribution from GNN embeddings. For individual cases, SHAP local explanations can break down a prediction into verifiable risk factors, such as "Benin IP + Studio + 3AM submission." This allows analysts to prioritize their queues based on specific, human-readable reasons. Our API implementation demonstrates that these explanations can be generated with sub-100ms latency, making them feasible for real-time operational use.
 
 \subsection{Data Mining Perspective: Beyond Aggregate Metrics}
 \label{sec:5_10_1a}
 
-A critical interpretation of our findings requires distinguishing between \emph{data mining} and \emph{machine learning} evaluation paradigms. While ML research typically evaluates models through aggregate metrics (AUC-PR, F1-score), data mining emphasizes \emph{pattern discovery}, \emph{knowledge extraction}, and \emph{actionable insights} that may not manifest in summary statistics.
+Fully interpreting these findings requires a distinction between the standard machine learning evaluation and a broader data mining perspective. While machine learning research usually focuses on aggregate metrics like AUC-PR or F1-score, data mining places more emphasis on pattern discovery, knowledge extraction, and the generation of actionable insights—even if those insights do not drastically move the needle on summary statistics.
 
-\textbf{Why Aggregate Metrics Understate GNN Value:}
+\paragraph{Limitations of Aggregate Metrics for GNN Evaluation}
 
-The marginal AUC-PR improvement of GNN+XGBoost over vanilla XGBoost (0.733 vs. 0.733, +0.08\%) might suggest GNN provides negligible value. However, this interpretation conflates \emph{average performance} with \emph{coverage of distinct fraud types}. Aggregate metrics summarize model behavior across all test cases, but fail to capture whether models detect \emph{different} fraud patterns.
+The fact that the GNN+XGBoost model showed only a 0.08\% improvement in AUC-PR over the vanilla XGBoost model (0.733 for both) could lead one to conclude that the graph component adds little value. However, this interpretation conflates average performance with the model's ability to cover distinct types of fraud. Aggregate metrics summarize behavior across the entire test set, but they fail to capture whether a model is detecting fundamentally different patterns than its predecessor.
 
-\textbf{Differential Detection Analysis:}
+\paragraph{Differential Detection Analysis}
 
-To understand GNN's unique contribution, we analyzed prediction disagreements between vanilla XGBoost and GNN+XGBoost at threshold 0.5:
+To better understand the unique contribution of the GNN, we analyzed cases where the two models disagreed at a decision threshold of 0.5. As shown in Table~\ref{tab:5_10_differential}, while both models identified the majority of fraud cases, their overlap was not perfect.
 
 \begin{table}[h]
 \centering
@@ -55,178 +55,94 @@ Vanilla-only detections & 1 & GNN rarely misses what vanilla catches \\
 \end{tabular}
 \end{table}
 
-The GNN-only detections reveal a pattern invisible to aggregate metrics: \textbf{GNN catches 13 fraud cases that vanilla XGBoost completely misses}, while losing only 1 case that vanilla catches. This asymmetry (+12 net additional fraud detected) represents genuine pattern discovery value.
+The most telling result is that the GNN caught 13 fraud cases that were completely invisible to the vanilla model, while missing only one case that the vanilla model identified. This net gain of 12 detections represents a significant discovery of patterns that tabular features alone could not reach.
 
-\textbf{Characterizing GNN-Unique Catches:}
+\paragraph{Profiles of GNN-Unique Detections}
 
-Analysis of the 13 GNN-only detections reveals a distinctive profile:
+A closer look at these 13 cases reveals a very specific profile. On average, these listings were part of networks with 3,565 device-sharing connections—massively higher than the dataset average of 847. They also showed a higher-than-average degree of IP clustering. These are classic "coordinated fraud rings" where the individual listings might appear perfectly normal if viewed in isolation. The vanilla XGBoost model, which looks at each listing as an independent data point, cannot see this relational context. The GNN's message-passing mechanism, however, aggregates signals across thousands of nodes, allowing it to flag listings based on their position within a suspicious network.
 
-\begin{itemize}
-    \item \textbf{Extreme device connectivity:} Average 3,565 device-sharing connections (vs. dataset mean of 847)
-    \item \textbf{Moderate IP clustering:} Average 3.5 IP-sharing connections
-    \item \textbf{Fraud ring structure:} These listings are nodes in densely connected fraud networks that tabular features cannot characterize
-\end{itemize}
+\paragraph{Contributions to Knowledge Discovery}
 
-These cases represent \emph{coordinated fraud rings} where individual listing attributes appear innocuous, but network position reveals fraudulent coordination. Vanilla XGBoost, operating on isolated listing features, cannot detect this relational pattern. The GNN's message-passing mechanism aggregates signals across 3,565+ connected listings, enabling detection of fraud that manifests only at the network level.
-
-\textbf{Data Mining Contribution:}
-
-From a data mining perspective, the GNN's value lies not in aggregate metric improvement but in \emph{coverage of fraud patterns}:
+From a data mining perspective, the value of the GNN lies in its ability to expand our coverage of fraud patterns through several mechanisms:
 
 \begin{enumerate}
-    \item \textbf{Pattern complementarity:} GNN detects fraud rings through relational structure; XGBoost detects fraud through individual behavioral signals. The hybrid captures \emph{both} pattern types.
+    \item \textbf{Complementary Pattern Detection:} The GNN uncovers fraud rings via relational structure, while XGBoost identifies fraud through individual behavioral signals. The hybrid approach allows for the detection of both types simultaneously.
     
-    \item \textbf{Edge coverage:} The 31 million edges in our heterogeneous graph encode entity-sharing relationships (device, IP, email, phone) that constitute the ``dark connections'' of fraud operations. GNN embeddings compress this graph structure into 16-dimensional representations, enabling the classifier to exploit network patterns.
+    \item \textbf{Enhanced Relationship Coverage:} By incorporating 31 million edges into the heterogeneous graph, we can encode complex entity-sharing relationships that represent the "hidden infrastructure" of fraud operations. The GNN compresses this vast network into a compact, 16-dimensional representation that the classifier can then exploit.
     
-    \item \textbf{Knowledge extraction:} The 17.3\% SHAP contribution of GNN embeddings quantifies how much predictive signal derives from relational patterns versus individual attributes. This decomposition provides \emph{explainable knowledge} about fraud mechanisms.
+    \item \textbf{Quantifiable Knowledge Extraction:} The 17.3\% SHAP contribution from GNN embeddings allows us to quantify exactly how much predictive power comes from relational data versus individual attributes. This provides a level of transparency that is often missing from "black-box" graph models.
     
-    \item \textbf{Actionable discovery:} The fraud rings detected uniquely by GNN (average 3,565 device connections) are high-value investigation targets---each represents a coordinated operation spanning thousands of listings. Detecting one ring node enables investigation of the entire connected component.
+    \item \textbf{Discovery of High-Value Targets:} The fraud rings uniquely identified by the GNN are particularly valuable for investigation. Because they involve thousands of connected listings, detecting a single node in such a ring can expose an entire coordinated operation for manual cleanup.
 \end{enumerate}
 
-\textbf{Implications for Evaluation:}
-
-This analysis suggests that fraud detection research should evaluate models on multiple dimensions:
-
-\begin{itemize}
-    \item \textbf{Aggregate metrics (AUC-PR, F1):} Measure average performance across all cases
-    \item \textbf{Differential detection:} Identify unique patterns each model captures
-    \item \textbf{Pattern coverage:} Assess whether models detect fundamentally different fraud types
-    \item \textbf{Investigation value:} Evaluate the actionable insight quality of detections
-\end{itemize}
-
-By this multidimensional evaluation, GNN+XGBoost provides substantial value despite equivalent aggregate AUC-PR: it detects fraud rings invisible to tabular analysis, with each ring detection potentially exposing thousands of connected fraudulent listings for investigation.
+These findings suggest that fraud detection research should move beyond a single-minded focus on aggregate metrics and instead adopt a multidimensional evaluation framework. This includes looking at differential detection to see which unique patterns are being captured, assessing the breadth of pattern coverage, and evaluating the overall "investigative value" of the insights generated. Even with equivalent aggregate performance, the GNN+XGBoost model provides substantial operational value by exposing fraud structures that would otherwise remain hidden.
 
 \subsection{Metric Selection and Trade-offs}
 \label{sec:5_10_1b}
 
-The choice of AUC-PR as the primary evaluation metric warrants explicit justification, as it leads to different model rankings than AUC-ROC.
+The decision to use AUC-PR as our primary evaluation metric requires some explanation, especially since it leads to different model rankings than the more common AUC-ROC. As shown in Table~\ref{tab:5_1}, while the GNN+XGBoost model achieved a slightly lower AUC-ROC (0.950) than the vanilla XGBoost model (0.958), its AUC-PR was comparable. This discrepancy highlights the fundamental difference between these two measures. AUC-ROC evaluates a model's ranking ability across all possible operating points, including those with very low confidence. AUC-PR, on the other hand, focuses on precision within the high-recall regimes that are actually relevant for fraud detection.
 
-\textbf{AUC-ROC vs AUC-PR Trade-off:} Table~\ref{tab:5_1} reveals that GNN+XGBoost achieves slightly \emph{lower} AUC-ROC (0.950) compared to vanilla XGBoost (0.958), despite comparable AUC-PR. This reflects a fundamental difference in what these metrics measure: AUC-ROC evaluates ranking quality across \emph{all operating points} (including low-confidence predictions), while AUC-PR focuses on \emph{precision at high-recall regimes} relevant for fraud detection.
+In highly imbalanced domains like this one (with an 8.11\% fraud rate), AUC-ROC can often be misleadingly optimistic. A model that simply predicts all listings are legitimate would achieve nearly 92\% accuracy and a seemingly respectable AUC-ROC of around 0.85, even though it provides absolutely no operational value. AUC-PR correctly penalizes this behavior because precision drops sharply as false positives accumulate.
 
-In imbalanced domains (8.11\% fraud rate), AUC-ROC can be misleadingly optimistic. A naive model predicting all listings as legitimate achieves 91.89\% accuracy and reasonable AUC-ROC ($\sim$0.85) by correctly classifying the majority class, yet provides zero operational value. AUC-PR penalizes such behavior, as precision collapses when false positives accumulate.
-
-The GNN model's AUC-ROC/AUC-PR trade-off suggests it optimizes for \emph{precision at decision thresholds that matter} i.e., when flagging high-confidence fraud for manual review. The Precision@K results (Table~\ref{tab:5_2}) confirm this: GNN achieves 98\% P@100, meaning 98 of the top 100 flagged listings are genuine fraud. This high-confidence precision justifies prioritizing AUC-PR despite marginally lower global ranking quality (AUC-ROC).
-
-\textbf{Operational Relevance:} Fraud analysts review flagged listings in ranked order, typically examining only the top 100-200 cases per day. Performance at these operating points (measured by P@K and AUC-PR) directly impacts investigation efficiency, while ranking quality for low-confidence predictions (affecting AUC-ROC) has minimal operational impact. Thus, AUC-PR aligns with business objectives better than AUC-ROC for this application.
+The trade-off we see with the GNN model suggests that it is optimizing for precision at the decision thresholds that matter most—namely, when flagging high-confidence fraud for manual review. This is supported by our Precision@K results in Table~\ref{tab:5_2}, which show that the GNN achieves 98\% P@100. In practical terms, this means that 98 of the top 100 listings flagged by the model are genuine fraud. Since fraud analysts typically only have time to review the top 100–200 cases per day, performance at these high-confidence points has a direct impact on investigation efficiency. For this reason, AUC-PR and P@K are far better aligned with business objectives than global metrics like AUC-ROC.
 
 \subsection{Limitations}
 \label{sec:5_10_2}
 
-This research has several important limitations that warrant careful interpretation of results and suggest directions for future work.
+While this research provides several insights into graph-based fraud detection, it is important to acknowledge its limitations, which affect how the results should be interpreted and where future work should focus.
 
-\textbf{1. Statistical Validation and Split Optimism}
+\paragraph{Statistical Validation and the "Optimistic" Split}
 
-The primary results (Table~\ref{tab:5_1}) are based on a fixed temporal train/test split with three independent runs. Cross-validation reveals this split was \emph{optimistic}: 5-fold temporal CV yields mean AUC-PR of 0.2777 $\pm$ 0.0287, representing 62\% degradation from the fixed-split mean (0.7327). This degradation reflects genuine temporal distribution shift rather than methodological artifact, as test fraud rates decrease from 1.97\% (early folds) to 0.63\% (late folds) and fraud tactics evolve over the 12-month period.
+Our primary results were based on a fixed temporal train/test split. However, subsequent cross-validation suggests that this split may have been somewhat optimistic. A 5-fold temporal cross-validation yielded a mean AUC-PR of 0.2777 $\pm$ 0.0287, which is a 62\% decrease from the fixed-split mean. This decline is not a methodological error but rather a reflection of genuine temporal shifts: the fraud rate in the test folds dropped significantly (from 1.97\% to 0.63\%), and fraud tactics clearly evolved over the 12-month study period.
 
-Bootstrap confidence intervals (10,000 samples) from the three fixed-split runs show substantial overlap: vanilla [0.6639, 0.7885], GNN [0.6735, 0.7881], with difference CI [-0.079, +0.080] containing zero. Paired t-test yields p=0.92, confirming no statistical significance. Effect size (Cohen's d=0.07) is negligible.
+Furthermore, bootstrap analysis showed substantial overlap in the performance of the two models, and a paired t-test confirmed that the differences were not statistically significant (p=0.92). Consequently, the fixed-split results should be viewed as a "best-case" scenario. The convergence of evidence across the fixed split, the bootstrap, and the cross-validation indicates that the GNN does not yet provide a reliable performance advantage over standard methods under all conditions.
 
-The convergence of evidence fixed split (no difference), bootstrap (CIs overlap), CV (both models degrade) consistently indicates GNN provides no reliable advantage. The fixed-split results should be interpreted as \emph{best-case} performance under favorable conditions, with CV results representing more conservative estimates under temporal shift.
+\paragraph{GNN Temporal Instability}
 
-\textbf{2. GNN Temporal Instability}
+A more critical limitation is the significant drop in GNN+XGBoost performance under temporal distribution shifts. While it performed well in the static evaluation, its performance collapsed by 70\% in the expanding window validation (Section~\ref{sec:5_5}). This suggests that the graph embeddings learned by the model do not generalize well when the underlying entity relationships evolve. As new fraud rings form, they create graph structures that were simply not present in the training data. This "temporal brittleness" is a major hurdle for practical deployment, as production systems must adapt to shifting tactics. In contrast, the vanilla XGBoost model retained 86\% of its performance, making it the more robust choice for a production environment at this stage.
 
-A critical limitation is the catastrophic performance degradation of GNN+XGBoost under temporal distribution shift. While achieving 0.733 AUC-PR in fixed-split evaluation, the model collapses to 0.22 AUC-PR (70\% degradation) in expanding window validation (Section~\ref{sec:5_5}). This indicates that learned graph embeddings fail to generalize when entity-relationship structures evolve, as new fraud rings form graph components absent from training data. This temporal brittleness severely limits practical deployment, as production fraud detection requires continuous adaptation to evolving tactics. Vanilla XGBoost demonstrates superior temporal robustness (86\% performance retention), making it the recommended production model despite GNN's supplementary signal in static evaluation.
+\paragraph{Ground Truth and Label Noise}
 
-\textbf{3. Ground Truth and Label Quality}
+The fraud labels used in this study come from SMG’s existing operational systems, which are themselves imperfect. These systems use a mix of rule-based flags, manual reviews, and commercial scores like SEON. This means our labels represent "detected" fraud rather than the true prevalence of fraud. If a sophisticated scammer manages to evade these systems, their activity remains unlabeled and is treated as legitimate, which could bias our model toward only catching the types of fraud we already know how to find. Additionally, some labels may be noisy if they were based on ambiguous signals. The fact that unsupervised GNN training actually outperformed supervised training in our ablation studies (0.6967 vs. 0.6815 AUC-PR) supports the idea that label noise is a factor, as unsupervised methods tend to be more robust to such errors.
 
-Fraud labels derive from SMG's operational detection systems (rule-based flagging, manual review, and commercial SEON scores), which represent imperfect ground truth. Sophisticated fraud that evades detection remains unlabeled as legitimate, potentially biasing the model toward detecting only ``caught'' fraud patterns. The 8.11\% fraud rate reflects \emph{detected} fraud, not true fraud prevalence. Additionally, label quality varies by detection confidence some fraudulent listings may be mislabeled if they exhibited ambiguous signals. This label noise could explain why unsupervised GNN training (0.6967 AUC-PR) outperformed supervised training (0.6815 AUC-PR) in ablation studies, as unsupervised methods are robust to label errors. Future work should validate results against external fraud confirmation (e.g., law enforcement reports, victim complaints).
+\paragraph{Dataset and Scope Constraints}
 
-\textbf{4. Dataset Specificity and Generalization}
-
-Results derive from a single marketplace (Swiss real estate, 2024-2025) with specific platform characteristics, fraud tactics, and user demographics. Generalization to other domains (e.g., e-commerce, financial services), geographies (non-European markets), or time periods (post-2025) requires empirical validation. The identified patterns (West African fraud clusters, device fingerprinting signals) may be specific to current threat actors targeting Swiss real estate platforms. Cross-marketplace validation would strengthen claims of general applicability.
-
-\textbf{5. Graph Construction Choices}
-
-The heterogeneous graph construction (Section~\ref{sec:4_5}) involves several design choices that may impact results: (1) edge types selected (device, IP, email, phone, user excluding payment methods or ISP-level connections), (2) temporal aggregation (all events collapsed into static graph ignoring temporal edge ordering), (3) neighbor sampling strategy (10 neighbors per hop potentially missing distant connections). Alternative graph schemas or temporal graph representations may yield different patterns. The sensitivity of results to these choices remains unexplored.
-
-\textbf{6. Computational and Scalability Constraints}
-
-The 31M-edge graph requires neighbor sampling during GNN training, limiting receptive field to 2-hop neighborhoods (10 $\times$ 10 = 100 nodes). Long-range fraud ring structures spanning 3+ hops may be undetected. Larger graphs (e.g., multi-year data) would face memory constraints requiring more aggressive sampling or graph partitioning, potentially degrading pattern quality. Full-batch GNN training was computationally infeasible, precluding investigation of whether sampling artifacts contribute to temporal instability.
-
-\textbf{7. Temporal Scope and Seasonality}
-
-The 12-month evaluation period (Jan 2024-Jul 2025) may not capture long-term fraud evolution, seasonal patterns (e.g., rental market peaks), or rare fraud events. The observed March 2025 performance dip (Section~\ref{sec:5_5}) suggests temporal patterns exist but are underexplored. Multi-year evaluation would reveal whether fraud tactics exhibit annual cycles or long-term trends.
-
-\textbf{8. Hyperparameter Optimization Coverage}
-
-While XGBoost hyperparameters were extensively optimized (1,025 trials, Section~\ref{sec:5_2}), GNN hyperparameters (hidden dimension, number of layers, aggregation function) were selected based on preliminary experiments rather than exhaustive search. Joint optimization of GNN and XGBoost hyperparameters in the hybrid pipeline was not performed due to computational cost. The reported GNN architecture may be suboptimal, though the catastrophic temporal failure suggests architectural improvements alone are unlikely to resolve fundamental non-stationarity issues.
-
-\textbf{9. Fairness and Discrimination Risk}
-
-Geographic features (IP country, ISP) contribute 10.9\% of model importance, with West African origins showing 60-90\% fraud rates. While these patterns reflect genuine fraud ring infrastructure rather than individual user characteristics, deployment risks discriminatory outcomes if legitimate users from high-risk regions face elevated scrutiny. The model combines geographic signals with behavioral features (screen resolution, payment mode), reducing reliance on protected attributes, but fairness metrics (demographic parity, equalized odds) were not formally evaluated. Production deployment should include human review for geographically flagged cases and monitoring for disparate impact.
-
-\textbf{10. SEON Baseline Comparison}
-
-The claimed +17\% improvement over SEON baseline (Section~\ref{sec:5_1}) is based on aggregated SEON fraud scores rather than direct model comparison on identical test sets. SEON's operational configuration, threshold calibration, and feature set differ from our experimental setup, limiting comparability. A rigorous baseline would require training SEON with identical data preprocessing and evaluating on the same temporal split.
+Finally, our results are tied to a specific dataset from a Swiss real estate marketplace between 2024 and 2025. The patterns we identified, such as specific geographic clusters or device fingerprinting signals, may be specific to the actors targeting this platform during this time. Generalizing these findings to other regions or different types of marketplaces—like e-commerce or finance—would require further empirical validation. Other technical constraints, such as the use of neighbor sampling to handle our 31-million-edge graph, also limit the "receptive field" of our GNN to 2-hop neighborhoods. It is possible that larger fraud ring structures spanning more than three hops are being missed. Future research using multi-year data and more advanced sampling techniques could help address these questions of scale and long-term evolution.
 
 \subsection{Ethical Considerations and Fairness}
 \label{sec:5_10_2b}
 
-The deployment of automated fraud detection systems raises important ethical considerations regarding fairness, transparency, and potential discrimination.
+The use of automated fraud detection naturally raises questions about fairness and transparency, especially when the system's decisions can limit a user's access to a marketplace.
 
-\textbf{Geographic Bias and Discrimination Risk:} Exploratory analysis (Section~\ref{sec:5_1}) reveals that IP addresses originating from West African countries (Benin, Togo, Ivory Coast) exhibit 60-90\% fraud rates, compared to 5-8\% for European origins. The model learns to use geographic signals (IP country, ISP name contribute 10.9\% of SHAP importance), potentially disadvantaging legitimate users from high-risk regions. While these patterns reflect genuine fraud ring infrastructure professional scammers operating from specific locations rather than inherent characteristics of individuals from these countries, the model risks \emph{statistical discrimination} where all users from a region face elevated scrutiny regardless of actual behavior.
+\paragraph{Geographic Bias and Statistical Discrimination}
 
-This concern is partially mitigated by the model's \emph{multivariate} decision process: SHAP local explanations (Section~\ref{sec:5_9}) show that geographic features rarely determine predictions alone, instead combining with behavioral signals (screen resolution, payment mode, listing content). For example, a high-confidence fraud prediction might combine ``Benin IP + disposable email + missing timezone + 14-font bot fingerprint + 3AM submission,'' where geography is one of five corroborating factors. Nonetheless, the risk of unfair treatment exists.
+One of our most significant findings was the high fraud rate associated with certain geographic regions. As noted in Section~\ref{sec:5_1}, IP addresses from some West African countries showed fraud rates as high as 60–90\%. While these signals are highly predictive and reflect genuine fraud infrastructure, they also introduce a risk of discrimination. If a model relies heavily on geography, legitimate users from these high-risk regions may face unfair scrutiny.
 
-\textbf{Recommended Safeguards:} Production deployment should implement several fairness safeguards:
-\begin{enumerate}
-    \item \textbf{Human-in-the-loop review:} Automatically flag but do not auto-reject listings from high-risk geographic regions, requiring manual fraud analyst review before action.
-    \item \textbf{Fairness monitoring:} Track false positive rates by country, alerting when disparate impact thresholds are exceeded (e.g., FPR for African IPs $>$ 2$\times$ European FPR).
-    \item \textbf{Feature ablation testing:} Periodically evaluate model performance with geographic features removed to quantify their necessity versus discrimination risk.
-    \item \textbf{Transparent appeals process:} Provide rejected users with explanation of decision factors and mechanism to contest false positives, especially for geographic flagging.
-\end{enumerate}
+We have tried to mitigate this by ensuring the model uses a multivariate decision process. Local SHAP explanations show that geography is rarely the sole factor in a decision; instead, it is usually combined with behavioral signals like unusual screen resolutions, disposable emails, or specific listing content. For instance, a high-risk flag might be triggered by a combination of a Benin IP, a missing timezone, and a specific bot fingerprint. However, the risk of "statistical discrimination"—where an entire group is penalized based on the average behavior of its region—remains a concern.
 
-\textbf{Label Bias and Feedback Loops:} The training labels reflect \emph{detected} fraud (Section 5.10.2, Limitation 3), which may be biased by existing detection systems that already incorporate geographic heuristics. If current systems over-scrutinize West African listings, those users face elevated detection rates independent of actual fraud prevalence, creating a \emph{self-fulfilling prophecy}. The model then learns this biased pattern, amplifying discrimination. Breaking this feedback loop requires external validation (e.g., ground truth from law enforcement) and careful monitoring of detection rate disparities.
+\paragraph{Feedback Loops and Safeguards}
 
-\textbf{Explainability as Fairness Tool:} The SHAP-based explanations (Section~\ref{sec:5_9}) serve dual purposes: (1) enabling fraud analysts to understand and verify model decisions, and (2) providing transparency to affected users. Local explanations decompose predictions into verifiable factors (``Your listing was flagged due to: disposable email [+2.2 SHAP], unusual screen resolution [+0.5 SHAP], high-risk IP [+0.4 SHAP]''), allowing users to understand and potentially contest decisions. This interpretability is essential for fairness, as opaque models preclude meaningful appeals.
+There is also a risk of creating "self-fulfilling prophecies" through label bias. If existing detection systems already over-scrutinize certain regions, those regions will naturally have higher rates of detected fraud, which the model will then learn and amplify. To break this loop, it is essential to have external validation and human-in-the-loop reviews. We recommend that listings from high-risk regions be flagged for manual review rather than being automatically rejected. We also suggest that platform operators track false positive rates by country to ensure that legitimate users from these areas are not being unfairly excluded.
 
-\textbf{Balancing Security and Inclusion:} Fraud detection inherently trades off platform security (catching fraud) against user experience (minimizing false positives). Overly aggressive geographic filtering risks excluding legitimate users from emerging markets, limiting marketplace accessibility. SMG must balance these concerns through threshold calibration: setting high-confidence thresholds for automated rejection (P@100 = 98\%) while routing medium-confidence geographic flags to human review. The optimal balance depends on SMG's risk tolerance and commitment to geographic inclusivity.
-
-\textbf{Regulatory Considerations:} European Union AI Act and GDPR impose requirements on automated decision systems with ``legal or similarly significant effects.'' Fraud detection affecting user access may qualify, requiring: (1) documentation of model logic and training data, (2) human oversight for consequential decisions, (3) right to explanation for affected users, and (4) data protection impact assessment for sensitive attributes (including national origin proxies like IP geolocation). This research provides technical foundation for such compliance (via SHAP explanations and performance documentation), but operational deployment requires legal review.
+Finally, the interpretability of the model is not just a technical feature but a tool for fairness. By providing human-readable explanations for why a listing was flagged, we enable a more transparent appeals process. If a user can see that they were flagged for a specific, verifiable reason—like a disposable email—they have a better chance of contesting a false positive. This level of transparency is essential for building trust in automated systems, especially as regulations like the EU AI Act and GDPR increasingly require accountability for significant automated decisions.
 
 \subsection{Practical Implications}
 \label{sec:5_10_3}
 
-\textbf{Deployment Recommendation:} Based on the temporal validation results (Section~\ref{sec:5_5}) showing GNN catastrophic failure under distribution shift, we recommend a \textbf{Vanilla XGBoost deployment} as the primary production model:
+Based on our findings, we have developed a set of recommendations for deploying these models in a production environment.
 
+\paragraph{Deployment Recommendations}
+
+Given the superior temporal robustness of the tabular approach, we recommend that \textbf{Vanilla XGBoost} serve as the primary production model. It achieved comparable performance to the GNN in our static tests but proved much more stable over time, retaining 86\% of its performance compared to the GNN's 30\%. Additionally, the vanilla model is simpler to maintain, as it does not require the continuous reconstruction of a massive heterogeneous graph, and it is significantly faster to train.
+
+We suggest a tiered approach to fraud detection:
 \begin{itemize}
-    \item \textbf{Primary model:} Vanilla XGBoost with optimized hyperparameters (0.733 $\pm$ 0.063 AUC-PR)
-        \begin{itemize}
-            \item Superior temporal robustness (0.63 mean AUC-PR in expanding windows vs 0.22 for GNN)
-            \item Simpler infrastructure (no graph construction/maintenance required)
-            \item Lower computational cost (3-5$\times$ faster training without GNN stage)
-            \item Proven stability across 12-month evaluation period
-        \end{itemize}
-    \item \textbf{Tier-1 screening:} SEON integration for high-recall initial filtering
-        \begin{itemize}
-            \item Catch obvious fraud (disposable emails, blacklisted IPs) at submission time
-            \item Reduce review queue volume before ML scoring
-        \end{itemize}
-    \item \textbf{Tier-2 scoring:} Vanilla XGBoost for precision-focused review prioritization
-        \begin{itemize}
-            \item Rank remaining listings by fraud probability
-            \item Target P@100 $>$ 97\% for efficient analyst queues
-        \end{itemize}
-    \item \textbf{Research track:} GNN+XGBoost for offline analysis and pattern discovery
-        \begin{itemize}
-            \item Use GNN embeddings to identify new fraud ring structures
-            \item Complement but do not replace production classifier
-            \item Re-evaluate GNN deployment if temporal stability improves (e.g., temporal GNNs, continual learning)
-        \end{itemize}
+    \item \textbf{Tier 1:} Use initial screening (such as SEON integration) to catch obvious fraud—like blacklisted IPs or disposable emails—at the moment of submission. This reduces the volume of listings that need to be scored by more complex models.
+    \item \textbf{Tier 2:} Use the optimized Vanilla XGBoost model to score and rank the remaining listings. By targeting a P@100 of over 97\%, the system can ensure that analysts are focusing their time on the highest-probability fraud.
+    \item \textbf{Research Track:} Maintain the GNN+XGBoost model as an offline tool for pattern discovery. While it may not be stable enough for real-time classification yet, its ability to identify large-scale fraud ring structures is invaluable for proactive investigation and for understanding how fraud networks are evolving.
 \end{itemize}
 
-\textbf{Infrastructure Requirements:}
-\begin{itemize}
-    \item \textbf{Feature engineering pipeline:} Real-time computation of tabular features (device fingerprinting, SEON scores, listing attributes)
-    \item \textbf{Model serving:} REST API with sub-100ms latency for synchronous fraud scoring at submission
-    \item \textbf{Batch inference:} Daily scoring of existing listings for retrospective fraud detection
-    \item \textbf{MLflow tracking:} Experiment logging and model registry for version control
-\end{itemize}
+\paragraph{Operational Infrastructure and Retraining}
 
-\textbf{Retraining Schedule:} Monthly retraining is recommended based on temporal drift analysis (Section~\ref{sec:5_5}), with DDM/ADWIN monitoring for drift-triggered updates when performance degrades $>$10\%. Each retraining cycle should:
-\begin{enumerate}
-    \item Collect fraud labels from past 30 days (manual review + SEON flags)
-    \item Retrain on expanding window (retain historical data for pattern stability)
-    \item Validate on most recent 7-day hold-out with 7-day gap (mimic production lag)
-    \item Deploy if validation AUC-PR $\geq$ 0.65 (threshold based on minimum acceptable performance)
-    \item Monitor production metrics (P@100, false positive rate) for 48 hours before full rollout
-\end{enumerate}
+To support this deployment, several infrastructure components are needed, including a real-time feature engineering pipeline for device fingerprinting and a REST API for model serving. Based on our drift analysis, we recommend a \textbf{monthly retraining schedule}. This should be supplemented by continuous monitoring using tools like DDM or ADWIN, which can trigger an earlier update if performance drops by more than 10\%. Each retraining cycle should include a 7-day hold-out period to mimic the delay in obtaining ground truth labels, ensuring that the model remains effective against the latest fraud tactics.
+
