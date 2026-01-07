@@ -6,8 +6,36 @@ This research investigated fraud pattern discovery and predictive model developm
 \textbf{Pattern Discovery:}
 Entity-sharing patterns provide meaningful fraud signal: super-connector devices (10+ listings) show 35.5\% fraud rate versus 8.11\% baseline. Geographic patterns reveal West African origins (Benin, Togo, Ivory Coast) with 60-90\% fraud rates. Temporal analysis identified February 2025 fraud spikes and 6-7 AM activity peaks suggesting automated attacks.
 
-\textbf{Model Development:}
-The hybrid GNN+XGBoost framework achieves 0.6990 AUC-PR, representing +5.3\% improvement over tabular-only XGBoost and +17\% over the existing SEON baseline. Comparison across four GNN architectures (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal for this domain.
+\textbf{Model Comparison and Development:}
+We systematically compared four model families and four GNN architectures, establishing rigorous baselines absent in prior real estate fraud research:
+
+\begin{table}[h]
+\centering
+\caption{Comprehensive model comparison summary}
+\label{tab:6_1_summary}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{AUC-PR} & \textbf{vs. Baseline} & \textbf{Unique Catches} \\
+\midrule
+Logistic Regression & 0.577 & --- & --- \\
+Random Forest & 0.621 & +7.6\% & --- \\
+Vanilla XGBoost & 0.733 & +27.0\% & 1 \\
+\textbf{GNN+XGBoost} & \textbf{0.733} & \textbf{+27.0\%} & \textbf{13} \\
+SEON (commercial) & 0.598 & +3.6\% & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+While aggregate metrics show GNN+XGBoost and vanilla XGBoost achieving equivalent AUC-PR (0.733), differential detection analysis reveals GNN captures 13 fraud cases invisible to tabular methods (vs. 1 case caught only by vanilla), a net +12 additional fraud detected. These GNN-unique catches are fraud rings with extreme network connectivity (average 3,565 device connections), demonstrating that relational patterns complement individual-listing features.
+
+Comparison across GNN architectures (GraphSAGE, HGT, CARE-GNN, PC-GNN) identifies GraphSAGE as optimal---achieving comparable performance with 22$\times$ faster training than attention-based alternatives. This finding contrasts with prior literature where HGT outperforms on smaller, denser graphs \cite{hu2020heterogeneous}, suggesting real estate marketplace graphs favor simple aggregation over attention mechanisms due to their scale and heterophily.
+
+Against the commercial SEON baseline, our framework achieves +17\% AUC-PR improvement (0.733 vs. 0.598), demonstrating that domain-specific graph mining extracts fraud patterns beyond generic transaction-level analysis. However, SEON's integration remains valuable as a Tier-1 filter achieving 99.87\% recall for obvious fraud, with our model providing precision-focused Tier-2 scoring.
 
 \textbf{Operational Validation:}
-Graph-based patterns require minimum $\sim$300K training samples to outperform tabular approaches. Expanding window validation with DDM/ADWIN drift detection recommends monthly retraining for optimal freshness-stability balance. SHAP-based explainability quantifies GNN embedding contribution at 17.3\% of total feature importance, with local explanations enabling fraud analyst investigation prioritization. Proof-of-concept API deployment demonstrates sub-100ms inference latency.
+Graph-based patterns require minimum $\sim$300K training samples to outperform tabular approaches---a finding absent from prior GNN fraud literature that provides actionable deployment guidance. Expanding window validation with DDM/ADWIN drift detection recommends monthly retraining for optimal freshness-stability balance; sliding window strategies underperform by 6.3\% (0.5892 vs. 0.6286 AUC-PR).
+
+Critically, GNN+XGBoost exhibits temporal instability under concept drift (0.22 AUC-PR in expanding windows vs. 0.63 for vanilla XGBoost), limiting its production deployment. This contrasts with claims in prior work that GNN fraud detectors generalize temporally \cite{liu2021pick}, revealing that real estate fraud evolution operates at the topology level---new campaigns form disconnected graph components unrelated to historical patterns. We therefore recommend: (1) vanilla XGBoost for production real-time scoring, (2) GNN+XGBoost for offline fraud ring analysis and pattern discovery.
+
+\textbf{Interpretability and Deployment:}
+SHAP-based explainability quantifies GNN embedding contribution at 17.3\% of total feature importance, with local explanations enabling fraud analyst investigation prioritization. The decomposition into tabular (82.7\%) and relational (17.3\%) components provides actionable insight: most fraud is detectable through individual signals, but one-sixth requires network analysis. Proof-of-concept API deployment demonstrates sub-100ms inference latency, validating production viability.

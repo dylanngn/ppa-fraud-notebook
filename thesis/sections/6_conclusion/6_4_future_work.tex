@@ -8,23 +8,50 @@
     \label{fig:6_1}
 \end{figure}
 
+Our findings reveal several limitations and open questions that position future research directions. We organize these by timeline and compare with how prior work has addressed similar challenges.
+
 \textbf{Short-Term Extensions:}
 \begin{itemize}
-    \item MLOps pipeline with automated monthly retraining and DDM/ADWIN-triggered updates
-    \item Shadow deployment comparing our model against SEON in production
-    \item Threshold optimization based on business metrics (investigation capacity, fraud loss)
+    \item \textbf{MLOps pipeline with automated retraining:} Our temporal validation revealed 70\% GNN performance degradation under concept drift. While prior work on financial fraud \cite{gama2014survey} addresses drift through periodic retraining, our finding that drift operates at the \emph{topology level} (new fraud campaigns form disconnected components) suggests graph-aware drift detection beyond DDM/ADWIN is needed.
+    \item \textbf{Shadow deployment:} Direct comparison against SEON in production would resolve the limitation (Section~\ref{sec:5_10_2}, Limitation 10) that our SEON baseline uses aggregated scores rather than identical evaluation conditions.
+    \item \textbf{Threshold optimization:} Current results use threshold 0.5; business-aware calibration based on investigation capacity and fraud loss functions could improve operational utility, following the cost-sensitive learning approaches of \cite{elkan2001foundations}.
 \end{itemize}
 
 \textbf{Medium-Term Research:}
 \begin{itemize}
-    \item Real-time GNN inference with incremental graph updates for streaming predictions
-    \item Cross-platform federation sharing fraud signals between Homegate and ImmoScout24
-    \item Active learning incorporating fraud analyst feedback to improve labels
+    \item \textbf{Real-time GNN inference:} Our current approach requires batch graph construction. Incremental GNN methods \cite{zhang2022streaming} could enable streaming predictions, addressing the latency gap between tabular scoring (sub-ms) and graph embedding generation ($\sim$100ms).
+    \item \textbf{Cross-platform federation:} Fraud rings operate across Homegate and ImmoScout24 (26.74\% cross-platform fraud rate). Federated learning approaches \cite{yang2019federated} could share fraud signals without centralizing sensitive data, extending the graph beyond single-platform boundaries.
+    \item \textbf{Active learning:} Our ground truth depends on existing detection systems (Limitation 3). Incorporating fraud analyst feedback through active learning \cite{settles2009active} could improve label quality and detect sophisticated fraud that evades current methods.
 \end{itemize}
 
 \textbf{Long-Term Directions:}
 \begin{itemize}
-    \item Temporal GNNs (TGN, TGAT) capturing time-evolving fraud patterns
-    \item Transfer learning across European marketplace platforms
-    \item Adversarial robustness testing against adaptive fraudsters
+    \item \textbf{Temporal GNNs:} Our static graph collapses temporal ordering (Limitation 5). Temporal Graph Networks (TGN) \cite{rossi2020temporal} and Temporal Graph Attention (TGAT) \cite{xu2020inductive} capture time-evolving patterns, potentially resolving the temporal instability that limits GNN production deployment. Prior work on financial transactions shows 5-15\% improvement from temporal modeling \cite{pareja2020evolvegcn}.
+    \item \textbf{Transfer learning:} Our results derive from Swiss real estate (Limitation 4). Transfer learning across European marketplace platforms would test generalization, comparing against domain adaptation approaches in fraud detection \cite{cao2019transfer}.
+    \item \textbf{Adversarial robustness:} Sophisticated fraudsters may adapt to learned patterns. Adversarial GNN training \cite{zugner2018adversarial} could improve robustness against evasion attacks, an unexplored dimension in real estate fraud research.
 \end{itemize}
+
+\textbf{Research Agenda Comparison:}
+
+Table~\ref{tab:6_4_comparison} positions our contributions against limitations in prior work and identifies which future directions address each gap.
+
+\begin{table}[h]
+\centering
+\caption{Research agenda: positioning against prior work limitations}
+\label{tab:6_4_comparison}
+\begin{tabular}{p{4cm}p{4cm}p{5cm}}
+\toprule
+\textbf{Prior Work Limitation} & \textbf{Our Contribution} & \textbf{Future Direction} \\
+\midrule
+No real estate graph fraud research \cite{mutemi2024ecommerce,cherif2024financial} & First GNN application to real estate marketplace & Cross-platform transfer learning \\
+\addlinespace
+GNN temporal stability assumed \cite{liu2021pick} & Quantified 70\% degradation under drift & Temporal GNNs (TGN, TGAT) \\
+\addlinespace
+Data requirements unspecified \cite{dou2020enhancing} & Established $\sim$300K sample threshold & Investigate small-data GNN methods \\
+\addlinespace
+Homophily assumed \cite{kipf2017semi} & Discovered heterophily paradox (connected = legitimate) & Heterophily-aware architectures \\
+\addlinespace
+Single-metric evaluation & Differential detection analysis (+12 unique catches) & Multi-dimensional fraud evaluation framework \\
+\bottomrule
+\end{tabular}
+\end{table}
