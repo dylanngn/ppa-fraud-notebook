@@ -1,7 +1,7 @@
 \section{Handling Imbalanced Pattern Discovery}
 \label{sec:2_5}
 
-Fraud detection datasets exhibit extreme class imbalance, with fraudulent instances typically comprising 0.1--5\% of observations. This skew fundamentally affects pattern discovery: minority class patterns may be overlooked when learning is dominated by majority class examples.
+Fraud detection datasets exhibit extreme class imbalance, with fraudulent instances typically comprising 0.1-5\% of observations. This skew fundamentally affects pattern discovery: minority class patterns may be overlooked when learning is dominated by majority class examples.
 
 \subsection{Class Imbalance in Fraud Data}
 
@@ -16,7 +16,7 @@ Class imbalance creates two interrelated challenges for pattern mining.
 
 \textbf{Oversampling} methods increase minority class representation through synthetic example generation. SMOTE \cite{chawla2002smote} creates synthetic samples via interpolation between minority instances and their k-nearest neighbors. Borderline-SMOTE \cite{han2005borderline} focuses generation on decision boundary examples. ADASYN \cite{he2008adasyn} weights generation by local difficulty, creating more samples in regions with higher misclassification risk.
 
-\textbf{Critical methodological requirement:} Resampling must occur exclusively within training folds during cross-validation. Applying SMOTE before train-test splitting causes synthetic samples to encode information from test instances, inflating performance estimates. \citeauthor{demircioglu2024measuring} \cite{demircioglu2024measuring} quantified this leakage at +0.34 AUC bias---sufficient to invalidate experimental conclusions.
+\textbf{Critical methodological requirement:} Resampling must occur exclusively within training folds during cross-validation. Applying SMOTE before train-test splitting causes synthetic samples to encode information from test instances, inflating performance estimates. \citeauthor{demircioglu2024measuring} \cite{demircioglu2024measuring} quantified this leakage at +0.34 AUC bias sufficient to invalidate experimental conclusions.
 
 \textbf{Cost-sensitive learning} adjusts loss functions rather than data distributions. XGBoost's \texttt{scale\_pos\_weight} parameter multiplies positive class loss, theoretically balancing class contributions. Focal Loss \cite{lin2017focal} down-weights well-classified examples regardless of class, focusing learning on difficult cases where fraud patterns are ambiguous.
 
@@ -29,6 +29,6 @@ Metric selection critically affects pattern validation conclusions.
 
 \textbf{AUC-PR} (Area Under Precision-Recall curve) focuses on positive class performance. \citeauthor{davis2006relationship} \cite{davis2006relationship} proved that PR curves provide more informative visualization for skewed datasets. \citeauthor{saito2015precision} \cite{saito2015precision} provided empirical evidence that AUC-PR reveals performance differences invisible in ROC space.
 
-\textbf{Precision@K} directly addresses operational constraints---what fraction of top-K flagged items are genuinely fraudulent? This metric maps to analyst capacity and investigation efficiency.
+\textbf{Precision@K} directly addresses operational constraints what fraction of top-K flagged items are genuinely fraudulent? This metric maps to analyst capacity and investigation efficiency.
 
 This thesis adopts AUC-PR as primary metric, with Precision@K for operational interpretation.

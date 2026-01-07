@@ -37,10 +37,10 @@ The complete feature engineering pipeline follows this sequence:
     \item \textbf{Datetime Parsing:} Convert timestamp columns to datetime64[ns] with UTC timezone
     \item \textbf{Temporal Feature Creation:}
     \begin{itemize}
-        \item \texttt{event\_hour}: Extract hour (0--23)
-        \item \texttt{event\_weekday}: Extract weekday (0--6, Monday=0)
+        \item \texttt{event\_hour}: Extract hour (0-23)
+        \item \texttt{event\_weekday}: Extract weekday (0-6, Monday=0)
         \item \texttt{event\_is\_weekend}: Binary flag for Saturday/Sunday
-        \item \texttt{event\_is\_business\_hours}: Binary flag for 9am--5pm
+        \item \texttt{event\_is\_business\_hours}: Binary flag for 9am-5pm
     \end{itemize}
     \item \textbf{Boolean Casting:} Convert boolean columns to Int8 for XGBoost null handling
     \item \textbf{Categorical Encoding:} Apply LabelEncoder with unknown category support
@@ -51,6 +51,7 @@ The complete feature engineering pipeline follows this sequence:
 
 \begin{table}[h]
 \centering
+\caption{Feature counts by model variant}
 \begin{tabular}{lll}
 \hline
 \textbf{Model Variant} & \textbf{Base Features} & \textbf{GNN Embeddings} \\
@@ -63,7 +64,6 @@ GNN+XGBoost & 65 & 16 \\
 \textbf{Total} & & \textbf{81 (hybrid)} \\
 \hline
 \end{tabular}
-\caption{Feature counts by model variant}
 \end{table}
 
 For the hybrid GNN+XGBoost model, the 16-dimensional GraphSAGE embeddings are concatenated with the 65 base features after GNN training, resulting in an 81-dimensional feature vector for each listing node.

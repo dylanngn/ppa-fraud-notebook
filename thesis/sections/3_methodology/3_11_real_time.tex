@@ -9,7 +9,7 @@ Operational deployment requires real-time scoring of new listings as they are su
 
 \textbf{Graph Update Strategy:} Two approaches were evaluated:
 
-\textit{Batch Graph Reconstruction:} Rebuild the full graph periodically (daily/weekly) incorporating new listings. Simple but introduces latency---new listings lack graph context until the next rebuild.
+\textit{Batch Graph Reconstruction:} Rebuild the full graph periodically (daily/weekly) incorporating new listings. Simple but introduces latency new listings lack graph context until the next rebuild.
 
 \textit{Incremental Graph Updates:} Add new listing nodes and edges in real-time as events arrive. The internal event store tracks entity-to-listing mappings, enabling immediate edge creation when a new listing shares a device/IP/email with existing listings.
 

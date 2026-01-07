@@ -24,58 +24,22 @@ The architecture follows a layered design with single responsibility per compone
 
 \textbf{Monitoring:} Tracks prediction drift using DDM (Drift Detection Method) and ADWIN (Adaptive Windowing) algorithms to detect concept drift and trigger retraining.
 
-All components are orchestrated through Hydra configuration management and tracked via MLflow experiment logging. The modular design enables independent testing and replacement of components---for example, swapping GraphSAGE for CARE-GNN requires only configuration changes without pipeline modifications.
+All components are orchestrated through Hydra configuration management and tracked via MLflow experiment logging. The modular design enables independent testing and replacement of components for example, swapping GraphSAGE for CARE-GNN requires only configuration changes without pipeline modifications.
 
 \subsection{Project Structure}
 
-The implementation follows a modular organization separating concerns across distinct packages:
+The implementation follows a modular organization separating concerns across distinct packages. The root directory contains two configuration folders: \texttt{conf/} for ETL pipeline configuration (including \texttt{config.yaml} and data settings) and \texttt{configs/} for training experiments (including hyperparameter optimization configurations for XGBoost and GNN+XGBoost variants). A \texttt{scripts/} directory contains orchestration scripts for running combined optimization workflows.
 
-\begin{lstlisting}[language=bash, basicstyle=\ttfamily\fontsize{9}{11}\selectfont]
-ppa-fraud-notebook/
-├── conf/              # Hydra config for ETL
-│   ├── config.yaml
-│   └── data/default.yaml
-├── configs/           # Hydra config for training
-│   ├── experiment.yaml
-│   ├── hpo_xgboost.yaml
-│   └── hpo_gnn_xgboost.yaml
-├── src/
-│   ├── data/         # ETL pipeline
-│   │   ├── extract.py
-│   │   ├── transform.py
-│   │   ├── load.py
-│   │   └── etl.py
-│   ├── features/     # Feature engineering
-│   │   ├── schema.py
-│   │   ├── store.py
-│   │   ├── graph_builder.py
-│   │   └── temporal_split.py
-│   ├── models/       # Model implementations
-│   │   ├── baselines.py
-│   │   ├── xgboost_classifier.py
-│   │   ├── graphsage.py
-│   │   └── hybrid.py
-│   ├── training/     # Training pipelines
-│   │   ├── trainer.py
-│   │   └── pipeline.py
-│   ├── evaluation/   # Evaluation tools
-│   │   ├── shap_analysis.py
-│   │   └── drift.py
-│   └── api/          # REST API service
-│       ├── main.py
-│       └── store.py
-└── scripts/
-    └── run_gnn_hpo_with_best_xgb.py
-\end{lstlisting}
+The core implementation resides in the \texttt{src/} package, organized into six functional modules:
 
 \textbf{Key modules:}
 \begin{itemize}
-    \item \texttt{src/data/}: ETL pipeline with streaming support via Polars LazyFrames
-    \item \texttt{src/features/}: Feature schema definitions, temporal splitting, and graph construction
-    \item \texttt{src/models/}: Abstract base classes and concrete model implementations
-    \item \texttt{src/training/}: Single and expanding window training pipelines
-    \item \texttt{src/evaluation/}: SHAP explainability and drift detection
-    \item \texttt{src/api/}: FastAPI service with in-memory event store
+    \item \texttt{src/data/}: ETL pipeline with streaming support via Polars LazyFrames, containing modules for extraction (\texttt{extract.py}), transformation (\texttt{transform.py}), loading (\texttt{load.py}), and orchestration (\texttt{etl.py})
+    \item \texttt{src/features/}: Feature schema definitions (\texttt{schema.py}), feature store (\texttt{store.py}), temporal splitting logic (\texttt{temporal\_split.py}), and heterogeneous graph construction (\texttt{graph\_builder.py})
+    \item \texttt{src/models/}: Abstract base classes and concrete model implementations including baselines (\texttt{baselines.py}), XGBoost classifier (\texttt{xgboost\_classifier.py}), GraphSAGE implementation (\texttt{graphsage.py}), and hybrid architecture (\texttt{hybrid.py})
+    \item \texttt{src/training/}: Single and expanding window training pipelines (\texttt{trainer.py}, \texttt{pipeline.py})
+    \item \texttt{src/evaluation/}: SHAP explainability analysis (\texttt{shap\_analysis.py}) and drift detection algorithms (\texttt{drift.py})
+    \item \texttt{src/api/}: FastAPI service (\texttt{main.py}) with in-memory event store (\texttt{store.py}) for real-time inference
 \end{itemize}
 
-This structure enables clear separation between data processing (\texttt{data/}), feature engineering (\texttt{features/}), model development (\texttt{models/}), and deployment (\texttt{api/}), facilitating independent testing and maintenance.
+This structure enables clear separation between data processing (\texttt{data/}), feature engineering (\texttt{features/}), model development (\texttt{models/}), and deployment (\texttt{api/}), facilitating independent testing and maintenance. The complete directory structure and implementation details are provided in Appendix~B.

@@ -9,6 +9,7 @@ The filtered dataset (December 2024 onwards) comprises:
 
 \begin{table}[h]
 \centering
+\caption{Dataset summary statistics.}
 \begin{tabular}{ll}
 \hline
 Metric & Value \\
@@ -18,10 +19,9 @@ Unique listings & 86,160 \\
 Fraud rate (per listing) & 8.11\% (6,987 fraudulent) \\
 Fraud rate (per event) & 1.21\% \\
 Features & 509 columns \\
-Date range & Dec 2024 -- Nov 2025 \\
+Date range & Dec 2024 - Nov 2025 \\
 \hline
 \end{tabular}
-\caption{Dataset summary statistics.}
 \end{table}
 
 \textbf{Critical Distinction:} The event-level fraud rate (1.21\%) is misleading. Legitimate listings generate more events on average (9.7 events) than fraudulent listings (4.8 events) because they progress through the full lifecycle (creation $\rightarrow$ publication $\rightarrow$ archival) while fraudulent listings are terminated early. All subsequent analysis operates at listing level where the fraud rate is 8.11\%, representing moderate class imbalance (approximately 1:11 ratio).
@@ -30,9 +30,9 @@ Date range & Dec 2024 -- Nov 2025 \\
 
 \textbf{Temporal Patterns:} Analysis of fraud distribution across time dimensions revealed several signatures:
 
-Hourly distribution shows fraud activity peaks between 6--7 AM local time, suggesting automated submission or activity from different time zones. Legitimate listings show more uniform distribution across business hours.
+Hourly distribution shows fraud activity peaks between 6-7 AM local time, suggesting automated submission or activity from different time zones. Legitimate listings show more uniform distribution across business hours.
 
-Monthly analysis revealed a significant spike in February 2025, with fraud rates reaching 13.12\%---62\% above the annual average. Rates subsequently declined to approximately 5\% by mid-2025, potentially indicating successful intervention or fraudster adaptation.
+Monthly analysis revealed a significant spike in February 2025, with fraud rates reaching 13.12\%-62\% above the annual average. Rates subsequently declined to approximately 5\% by mid-2025, potentially indicating successful intervention or fraudster adaptation.
 
 Day-of-week analysis shows elevated fraud rates on weekends (Saturday: 9.2\%, Sunday: 8.8\%) compared to weekdays (7.4\% average), consistent with reduced human oversight during off-hours.
 
@@ -40,6 +40,7 @@ Day-of-week analysis shows elevated fraud rates on weekends (Saturday: 9.2\%, Su
 
 \begin{table}[h]
 \centering
+\caption{Fraud rates by geographic origin.}
 \begin{tabular}{lll}
 \hline
 Origin Country & Fraud Rate & Lift vs Baseline \\
@@ -52,15 +53,15 @@ France & 31.8\% & 3.9$\times$ \\
 Switzerland & 6.2\% & 0.8$\times$ \\
 \hline
 \end{tabular}
-\caption{Fraud rates by geographic origin.}
 \end{table}
 
-West African countries (Benin, Togo, Ivory Coast) show 60--90\% fraud rates, consistent with known real estate scam origins documented in fraud research. These geographic signals provide high-precision fraud indicators despite low prevalence.
+West African countries (Benin, Togo, Ivory Coast) show 60-90\% fraud rates, consistent with known real estate scam origins documented in fraud research. These geographic signals provide high-precision fraud indicators despite low prevalence.
 
 \textbf{Category Patterns:} Listing characteristics show strong fraud associations:
 
 \begin{table}[h]
 \centering
+\caption{Fraud rates by listing category.}
 \begin{tabular}{lll}
 \hline
 Category & Fraud Rate & Lift \\
@@ -70,7 +71,6 @@ RENT (vs BUY) & 9.47\% vs 0.88\% & 10.8$\times$ \\
 Cross-platform (both Homegate \& ImmoScout24) & 26.74\% & 3.3$\times$ \\
 \hline
 \end{tabular}
-\caption{Fraud rates by listing category.}
 \end{table}
 
 Studio rentals represent the highest-risk category, likely because lower price points attract more victims and require less sophisticated property documentation. The stark differential between rental (9.47\%) and purchase (0.88\%) fraud rates reflects the lower verification requirements for rental listings.
@@ -83,6 +83,7 @@ Analysis of device fingerprints, IP addresses, and identity markers reveals netw
 
 \begin{table}[h]
 \centering
+\caption{Device sharing statistics.}
 \begin{tabular}{ll}
 \hline
 Metric & Value \\
@@ -95,10 +96,9 @@ Super-connector fraud rate & 35.5\% \\
 Maximum listings per device & 6,251 \\
 \hline
 \end{tabular}
-\caption{Device sharing statistics.}
 \end{table}
 
-The maximum of 6,251 listings from a single device fingerprint represents an unmistakable fraud ring signature---no legitimate user creates thousands of listings. Super-connector devices (10+ listings) show 35.5\% fraud rate compared to 8.11\% baseline, a 4.4$\times$ lift indicating strong predictive signal.
+The maximum of 6,251 listings from a single device fingerprint represents an unmistakable fraud ring signature no legitimate user creates thousands of listings. Super-connector devices (10+ listings) show 35.5\% fraud rate compared to 8.11\% baseline, a 4.4$\times$ lift indicating strong predictive signal.
 
 \textbf{Cross-Platform Activity:} Listings appearing on both Homegate and ImmoScout24 show 26.74\% fraud rate (3.3$\times$ lift). While legitimate property managers may cross-post, the combination with other risk indicators (new accounts, suspicious infrastructure) amplifies fraud signal.
 

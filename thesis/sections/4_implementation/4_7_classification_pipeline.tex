@@ -69,7 +69,7 @@ The framework employs a two-stage optimization approach:
 
 \textbf{Stage 1: XGBoost Optimization} (50 trials)
 \begin{itemize}
-    \item Search space: \texttt{max\_depth} [3--12], \texttt{learning\_rate} [0.01--0.3], \texttt{n\_estimators} [50--500]
+    \item Search space: \texttt{max\_depth} [3-12], \texttt{learning\_rate} [0.01-0.3], \texttt{n\_estimators} [50-500]
     \item Objective: Maximize AUC-PR on validation set
     \item Early stopping: 10 rounds without improvement
     \item Sampler: TPE (Tree-structured Parzen Estimator)
@@ -78,7 +78,7 @@ The framework employs a two-stage optimization approach:
 \textbf{Stage 2: Joint GNN+XGBoost Optimization} (30 trials)
 \begin{itemize}
     \item Fix best XGBoost parameters from Stage 1
-    \item Search GNN hyperparameters: \texttt{hidden\_dim} [16--64], \texttt{output\_dim} [8--32], \texttt{num\_layers} [2--3]
+    \item Search GNN hyperparameters: \texttt{hidden\_dim} [16-64], \texttt{output\_dim} [8-32], \texttt{num\_layers} [2-3]
     \item Train GNN, extract embeddings, retrain XGBoost
     \item Objective: Maximize hybrid model AUC-PR
 \end{itemize}

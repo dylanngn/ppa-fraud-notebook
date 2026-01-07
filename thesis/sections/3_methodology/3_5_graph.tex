@@ -11,6 +11,7 @@ The graph represents listings and their relationships through shared entities us
 
 \begin{table}[h]
 \centering
+\caption{Graph node types and counts.}
 \begin{tabular}{llll}
 \hline
 Node Type & Description & Count (Train) & Count (Inference) \\
@@ -21,13 +22,13 @@ Device & Browser fingerprint & 11,221 & 12,313 \\
 IP & IP address & 30,783 & 34,635 \\
 \hline
 \end{tabular}
-\caption{Graph node types and counts.}
 \end{table}
 
 \textbf{Edge Types:} Five relationship types connect listings through shared entities:
 
 \begin{table}[h]
 \centering
+\caption{Graph edge types and counts.}
 \begin{tabular}{lll}
 \hline
 Edge Type & Description & Count (Train) \\
@@ -42,7 +43,6 @@ Reverse edges & Bidirectional message passing & $\sim$194,000 \\
 \textbf{Total} & & \textbf{$\sim$31,500,000} \\
 \hline
 \end{tabular}
-\caption{Graph edge types and counts.}
 \end{table}
 
 The \texttt{shares\_device} edge type dominates (12M edges) due to power users and fraud rings operating from single devices. Device sharing provides the strongest fraud signal per EDA findings (35.5\% fraud rate for super-connectors).
@@ -86,6 +86,7 @@ Each listing node receives a 44-dimensional feature vector comprising base featu
 
 \begin{table}[h]
 \centering
+\caption{Temporal encoding features for GNN input.}
 \begin{tabular}{ll}
 \hline
 Feature & Description \\
@@ -97,9 +98,8 @@ Feature & Description \\
 \texttt{recency} & Inverse of time (more recent = higher) \\
 \hline
 \end{tabular}
-\caption{Temporal encoding features for GNN input.}
 \end{table}
 
-Cyclical encoding (sin/cos transformation) captures temporal periodicity---hour 23 and hour 0 are adjacent despite numeric distance. The recency feature enables the model to weight recent patterns more heavily.
+Cyclical encoding (sin/cos transformation) captures temporal periodicity hour 23 and hour 0 are adjacent despite numeric distance. The recency feature enables the model to weight recent patterns more heavily.
 
 The resulting graph structure (47,588 listing nodes, 31M edges, 44-dimensional features) provides the input for GNN-based pattern extraction described in Section 3.7.

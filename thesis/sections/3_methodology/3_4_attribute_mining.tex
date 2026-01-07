@@ -40,19 +40,20 @@ These boolean features are cast to \texttt{Int8} for XGBoost compatibility while
 
 \textbf{Temporal Features (4 features):} Time-based patterns with cyclical encoding:
 \begin{itemize}
-    \item \texttt{event\_hour}: Hour of submission (0--23)
-    \item \texttt{event\_day\_of\_week}: Day (0--6)
+    \item \texttt{event\_hour}: Hour of submission (0-23)
+    \item \texttt{event\_day\_of\_week}: Day (0-6)
     \item Cyclical transformations: sin/cos encoding to capture periodicity
 \end{itemize}
 
 \subsection{Feature Selection Rationale}
 
-\textbf{Raw Signals over ML Scores:} The feature set deliberately uses raw SEON signals rather than SEON's pre-computed fraud scores (\texttt{fraud\_score}, \texttt{blackbox\_score}). This decision ensures model independence---using SEON's predictions as features would create dependency on their proprietary model and obscure which underlying signals drive predictions. Raw signals enable direct interpretability through SHAP analysis.
+\textbf{Raw Signals over ML Scores:} The feature set deliberately uses raw SEON signals rather than SEON's pre-computed fraud scores (\texttt{fraud\_score}, \texttt{blackbox\_score}). This decision ensures model independence using SEON's predictions as features would create dependency on their proprietary model and obscure which underlying signals drive predictions. Raw signals enable direct interpretability through SHAP analysis.
 
 \textbf{Boolean Signal Inclusion:} All boolean signals are included regardless of prevalence. Analysis revealed:
 
 \begin{table}[h]
 \centering
+\caption{Prevalence and precision of selected boolean signals.}
 \begin{tabular}{lll}
 \hline
 Signal & Prevalence & Fraud Rate When True \\
@@ -63,7 +64,6 @@ Signal & Prevalence & Fraud Rate When True \\
 \texttt{email/domain/free} & 60.6\% & 1.7\% \\
 \hline
 \end{tabular}
-\caption{Prevalence and precision of selected boolean signals.}
 \end{table}
 
 Low-prevalence signals (tor, disposable email/phone) provide high precision despite rare occurrence. High-prevalence signals (free email) provide contextual information even when individually weak predictors.

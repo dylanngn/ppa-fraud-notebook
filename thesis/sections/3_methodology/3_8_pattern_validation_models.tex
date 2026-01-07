@@ -26,6 +26,7 @@ XGBoost serves as the primary classification model due to demonstrated superiori
 
 \begin{table}[h]
 \centering
+\caption{XGBoost hyperparameter optimization results.}
 \begin{tabular}{lll}
 \hline
 Parameter & Search Range & Best Value \\
@@ -39,7 +40,6 @@ Parameter & Search Range & Best Value \\
 \texttt{scale\_pos\_weight} & [1.0, 20.0] & 11.0 \\
 \hline
 \end{tabular}
-\caption{XGBoost hyperparameter optimization results.}
 \end{table}
 
 \textbf{Class Imbalance Handling:} Rather than synthetic oversampling (SMOTE), we use \texttt{scale\_pos\_weight} to adjust loss weighting. Setting \texttt{scale\_pos\_weight} $\approx$ 11 (matching the 1:11 imbalance ratio) increases the penalty for false negatives on fraudulent listings. This approach avoids synthetic sample artifacts and integrates naturally with gradient boosting.
@@ -48,13 +48,13 @@ Parameter & Search Range & Best Value \\
 
 The hybrid GNN+XGBoost pipeline operates in two stages:
 
-\textbf{Stage 1 -- Pattern Extraction:}
+\textbf{Stage 1 - Pattern Extraction:}
 \begin{itemize}
     \item Train GNN on heterogeneous graph.
     \item Generate 16-dimensional embeddings for all listings.
 \end{itemize}
 
-\textbf{Stage 2 -- Pattern Validation:}
+\textbf{Stage 2 - Pattern Validation:}
 \begin{itemize}
     \item Concatenate embeddings with tabular features: $\mathbf{f}_v = [\mathbf{x}_v \| \mathbf{z}_v]$
     \item Train XGBoost on enriched 81-dimensional feature vectors.

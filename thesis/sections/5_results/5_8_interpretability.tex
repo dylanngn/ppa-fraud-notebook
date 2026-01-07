@@ -38,6 +38,7 @@ Aggregating SHAP values by feature category reveals the relative contribution of
 
 \begin{table}[h]
 \centering
+\caption{SHAP importance aggregated by feature category}
 \begin{tabular}{lcc}
 \hline
 \textbf{Feature Category} & \textbf{Total Importance} & \textbf{Percentage} \\
@@ -53,7 +54,6 @@ Phone Features & 0.213 & 2.1\% \\
 \textbf{Total} & \textbf{10.144} & \textbf{100\%} \\
 \hline
 \end{tabular}
-\caption{SHAP importance aggregated by feature category}
 \end{table}
 
 \textbf{Key Observations:}
@@ -67,7 +67,7 @@ Phone Features & 0.213 & 2.1\% \\
 
     \item \textbf{Network signals are relevant (14.5\%):} ISP name and IP geolocation capture geographic fraud clustering patterns discussed in RQ2.
 
-    \item \textbf{Temporal patterns exist (9.1\%):} Hour of day and day of week contribute meaningful signal, consistent with observed fraud activity peaks at 6--7 AM.
+    \item \textbf{Temporal patterns exist (9.1\%):} Hour of day and day of week contribute meaningful signal, consistent with observed fraud activity peaks at 6-7 AM.
 \end{enumerate}
 
 \subsection{GNN Embedding Analysis}
@@ -76,6 +76,7 @@ Breaking down the 16 GNN embeddings reveals heterogeneous contribution:
 
 \begin{table}[h]
 \centering
+\caption{Individual GNN embedding contribution to fraud detection}
 \begin{tabular}{lcl}
 \hline
 \textbf{Embedding Dimension} & \textbf{Mean |SHAP|} & \textbf{Notes} \\
@@ -83,13 +84,12 @@ Breaking down the 16 GNN embeddings reveals heterogeneous contribution:
 gnn\_emb\_3 & 0.198 & Highest individual contribution \\
 gnn\_emb\_7 & 0.165 & Second highest \\
 gnn\_emb\_12 & 0.142 & Third highest \\
-gnn\_emb\_0--gnn\_emb\_15 (avg) & 0.110 & Average across all 16 \\
+gnn\_emb\_0-gnn\_emb\_15 (avg) & 0.110 & Average across all 16 \\
 gnn\_emb\_14 & 0.063 & Lowest individual contribution \\
 \hline
 \textbf{Total (all 16)} & \textbf{1.753} & \textbf{17.3\% of model} \\
 \hline
 \end{tabular}
-\caption{Individual GNN embedding contribution to fraud detection}
 \end{table}
 
 Not all GNN dimensions contribute equally. The top 3 embeddings account for 28.8\% of total GNN importance, suggesting these dimensions capture the most discriminative relational patterns (likely device-sharing and IP-sharing among fraudsters).

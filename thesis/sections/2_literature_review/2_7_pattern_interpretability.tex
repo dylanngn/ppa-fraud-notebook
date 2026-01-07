@@ -11,7 +11,7 @@ SHAP produces complementary explanation types:
 
 \textbf{Global explanations} aggregate feature importance across the dataset, revealing which patterns most strongly predict fraud. Beeswarm plots show each feature's impact distribution, supporting model auditing and pattern validation.
 
-\textbf{Local explanations} decompose individual predictions into feature contributions. For a flagged listing, analysts see exactly which patterns elevated fraud score---``shared device with known fraud: +15\%, high-risk IP country: +12\%''---enabling informed investigation prioritization.
+\textbf{Local explanations} decompose individual predictions into feature contributions. For a flagged listing, analysts see exactly which patterns elevated fraud score ``shared device with known fraud: +15\%, high-risk IP country: +12\%'' enabling informed investigation prioritization.
 
 \textbf{GNN explanation methods} address the challenge of interpreting relational patterns encoded in embeddings. GNNExplainer \cite{ying2019gnnexplainer} identifies subgraph structures most influential for predictions through mutual information maximization. PGExplainer \cite{luo2020parameterized} parameterizes explanation generation for collective pattern identification across instances. GraphSVX \cite{duval2021graphsvx} extends Shapley values to graphs, aligning with SHAP methodology used for the validation classifier.
 
@@ -19,7 +19,7 @@ SHAP produces complementary explanation types:
 
 Beyond technical capability, explanations must meet operational requirements.
 
-\textbf{Analyst trust} develops when explanations align with domain expertise. If patterns match known fraud indicators (suspicious countries, device sharing, disposable emails), trust builds. Unexpected patterns prompt investigation---revealing either novel fraud tactics or model deficiencies.
+\textbf{Analyst trust} develops when explanations align with domain expertise. If patterns match known fraud indicators (suspicious countries, device sharing, disposable emails), trust builds. Unexpected patterns prompt investigation revealing either novel fraud tactics or model deficiencies.
 
 \textbf{Actionability} requires explanations that guide investigation. Knowing ``GNN dimension 7 contributed +8\%'' provides little guidance; knowing ``shared device with 3 flagged listings: +8\%'' directs analyst attention to specific relationships.
 

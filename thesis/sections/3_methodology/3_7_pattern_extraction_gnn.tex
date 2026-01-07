@@ -7,7 +7,7 @@ Graph Neural Networks serve as pattern extractors, learning representations that
 
 Four GNN architectures were evaluated to identify optimal pattern extraction for this fraud detection context:
 
-\textbf{GraphSAGE (Graph Sample and Aggregate)} employs learnable aggregation functions (mean, LSTM, or pooling) to combine neighborhood information. GraphSAGE's inductive capability enables embedding generation for new listings without retraining---essential for operational deployment. The mean aggregator provides computational efficiency on large graphs:
+\textbf{GraphSAGE (Graph Sample and Aggregate)} employs learnable aggregation functions (mean, LSTM, or pooling) to combine neighborhood information. GraphSAGE's inductive capability enables embedding generation for new listings without retraining essential for operational deployment. The mean aggregator provides computational efficiency on large graphs:
 
 \begin{equation}
 \mathbf{h}_v^{(l)} = \sigma\left(\mathbf{W} \cdot \text{AGG}\left(\{\mathbf{h}_u^{(l-1)} : u \in \mathcal{N}(v)\}\right)\right)
@@ -30,6 +30,7 @@ All architectures use consistent hyperparameters for fair comparison:
 
 \begin{table}[h]
 \centering
+\caption{GNN model hyperparameters.}
 \begin{tabular}{ll}
 \hline
 Parameter & Value \\
@@ -43,7 +44,6 @@ Dropout & 0.3 \\
 Neighbor sampling & 15 (layer 1), 10 (layer 2) \\
 \hline
 \end{tabular}
-\caption{GNN model hyperparameters.}
 \end{table}
 
 Input features: 44 dimensions (36 base + 8 temporal encoding).

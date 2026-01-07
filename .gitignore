@@ -16,4 +16,6 @@ mlruns
 artifacts
 **.db
 **.log
-
+**.lot
+**.lof
+main.synctex**

@@ -19,6 +19,7 @@ As an alternative to learned GNN embeddings, we experimented with explicit graph
 
 \begin{table}[h]
 \centering
+\caption{Performance degradation with handcrafted graph features}
 \begin{tabular}{lccc}
 \hline
 \textbf{Model} & \textbf{AUC-PR} & \textbf{Features} & \textbf{Change} \\
@@ -27,7 +28,6 @@ Vanilla XGBoost & 0.6639 & 65 & - \\
 With Handcrafted Graph Features & 0.4833 & 76 (+11) & \textbf{-36.6\%} \\
 \hline
 \end{tabular}
-\caption{Performance degradation with handcrafted graph features}
 \end{table}
 
 \textbf{Analysis of Failure:}
@@ -61,6 +61,7 @@ We tested whether restricting graph edges to positive fraud signals (connections
 
 \begin{table}[h]
 \centering
+\caption{Minimal benefit from positive-signal edge filtering}
 \begin{tabular}{lcc}
 \hline
 \textbf{Configuration} & \textbf{AUC-PR} & \textbf{Change} \\
@@ -69,7 +70,6 @@ All edges (~31M edges) & 0.6990 & - \\
 Positive-signal edges only (~8M edges) & 0.6967 & -0.3\% \\
 \hline
 \end{tabular}
-\caption{Minimal benefit from positive-signal edge filtering}
 \end{table}
 
 \textbf{Analysis:} Edge filtering provided no meaningful benefit. The supervised GNN training already learns to weight edges appropriately through backpropagation. Manual edge filtering removes potentially useful negative signals (legitimate users sharing IPs at public WiFi, for example) without compensating benefit.
@@ -99,6 +99,7 @@ Initial experiments trained the GNN using unsupervised link prediction (predicti
 
 \begin{table}[h]
 \centering
+\caption{Supervised GNN training outperforms unsupervised}
 \begin{tabular}{lcc}
 \hline
 \textbf{GNN Training Method} & \textbf{AUC-PR} & \textbf{Notes} \\
@@ -107,7 +108,6 @@ Unsupervised link prediction & 0.6621 & Embeddings not fraud-specific \\
 Supervised node classification & 0.6990 & \textbf{+5.6\% improvement} \\
 \hline
 \end{tabular}
-\caption{Supervised GNN training outperforms unsupervised}
 \end{table}
 
 \textbf{Analysis:} Unsupervised embeddings captured general graph structure but failed to focus on fraud-relevant patterns. Supervised training with fraud labels enabled the GNN to learn embeddings optimized for fraud detection.
@@ -118,6 +118,7 @@ Supervised node classification & 0.6990 & \textbf{+5.6\% improvement} \\
 
 \begin{table}[h]
 \centering
+\caption{Summary of all approaches tested}
 \begin{tabular}{lcl}
 \hline
 \textbf{Approach} & \textbf{AUC-PR} & \textbf{Recommendation} \\
@@ -130,7 +131,6 @@ Unsupervised GNN & 0.6621 & Use supervised instead \\
 \textbf{GraphSAGE + XGBoost (supervised)} & \textbf{0.6990} & \textbf{Recommended} \\
 \hline
 \end{tabular}
-\caption{Summary of all approaches tested}
 \end{table}
 
 These negative results establish that: (1) learned embeddings outperform handcrafted features, (2) supervised GNN training is essential, (3) simpler architectures (GraphSAGE) often outperform complex ones (CARE-GNN) when training efficiency is considered, and (4) edge filtering provides minimal benefit over full graph training.

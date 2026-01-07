@@ -26,21 +26,21 @@ The primary evaluation uses a fixed temporal split:
 
 \begin{table}[h]
 \centering
+\caption{Single temporal split configuration.}
 \begin{tabular}{llll}
 \hline
 Period & Date Range & Samples & Fraud Rate \\
 \hline
 Training & 2024-12-01 to 2025-06-01 & 380,190 & 6.19\% \\
-Gap & 2025-06-01 to 2025-06-08 & --- & --- \\
+Gap & 2025-06-01 to 2025-06-08 & - - & - - \\
 Test & 2025-06-08 to 2025-07-01 & 39,645 & 1.94\% \\
 \hline
 \end{tabular}
-\caption{Single temporal split configuration.}
 \end{table}
 
 The gap period serves dual purposes: allowing label maturation and simulating realistic deployment lag between model training and production scoring.
 
-Note the fraud rate differential between training (6.19\%) and test (1.94\%) periods---this reflects genuine temporal variation in fraud activity rather than data error, and validates the importance of temporal evaluation over random splits.
+Note the fraud rate differential between training (6.19\%) and test (1.94\%) periods this reflects genuine temporal variation in fraud activity rather than data error, and validates the importance of temporal evaluation over random splits.
 
 \subsection{Expanding Window Protocol}
 
@@ -48,18 +48,18 @@ To assess concept drift and data requirements, we implement expanding window val
 
 \begin{table}[h]
 \centering
+\caption{Expanding window protocol configuration.}
 \begin{tabular}{lllll}
 \hline
 Window & Train End & Test Period & Training Samples & Fraud Rate \\
 \hline
-1 & 2025-01-30 & Feb--Mar 2025 & 103,018 & 8.2\% \\
-2 & 2025-03-01 & Mar--Apr 2025 & 173,739 & 7.8\% \\
-3 & 2025-03-31 & Apr--May 2025 & 240,660 & 7.1\% \\
-4 & 2025-04-30 & May--Jun 2025 & 308,071 & 6.5\% \\
-5 & 2025-05-30 & Jun--Jul 2025 & 373,484 & 6.2\% \\
+1 & 2025-01-30 & Feb-Mar 2025 & 103,018 & 8.2\% \\
+2 & 2025-03-01 & Mar-Apr 2025 & 173,739 & 7.8\% \\
+3 & 2025-03-31 & Apr-May 2025 & 240,660 & 7.1\% \\
+4 & 2025-04-30 & May-Jun 2025 & 308,071 & 6.5\% \\
+5 & 2025-05-30 & Jun-Jul 2025 & 373,484 & 6.2\% \\
 \hline
 \end{tabular}
-\caption{Expanding window protocol configuration.}
 \end{table}
 
 Each window trains on all historical data up to the cutoff, tests on the subsequent 30-day period, then advances. This protocol:
@@ -75,6 +75,7 @@ Complementing expanding windows, sliding window validation maintains fixed train
 
 \begin{table}[h]
 \centering
+\caption{Sliding window protocol configuration.}
 \begin{tabular}{lll}
 \hline
 Configuration & Window Size & Overlap \\
@@ -83,10 +84,9 @@ Sliding-90 & 90 days & 30-day advance \\
 Sliding-180 & 180 days & 30-day advance \\
 \hline
 \end{tabular}
-\caption{Sliding window protocol configuration.}
 \end{table}
 
-Sliding windows test whether recent data is more predictive than accumulated historical data---particularly relevant if fraud patterns shift rapidly and older patterns become misleading. Comparison with expanding windows reveals the recency--volume trade-off for this dataset.
+Sliding windows test whether recent data is more predictive than accumulated historical data particularly relevant if fraud patterns shift rapidly and older patterns become misleading. Comparison with expanding windows reveals the recency-volume trade-off for this dataset.
 
 \subsection{Drift Detection Methods}
 

@@ -38,7 +38,7 @@ All timestamps are converted to UTC for consistent temporal operations.
     \item Device fingerprints $\rightarrow$ \texttt{session/device\_hash}
 \end{itemize}
 
-\textbf{Temporal Filtering:} Analysis of data density revealed sparse coverage before November 2024, when SEON integration commenced. Events from January--October 2024 average approximately 200 events per month compared to 60,000+ post-integration. We filter to \texttt{train\_start\_date = 2024-12-01} to ensure consistent feature availability across the training period.
+\textbf{Temporal Filtering:} Analysis of data density revealed sparse coverage before November 2024, when SEON integration commenced. Events from January-October 2024 average approximately 200 events per month compared to 60,000+ post-integration. We filter to \texttt{train\_start\_date = 2024-12-01} to ensure consistent feature availability across the training period.
 
 \textbf{ETL Implementation:} The pipeline uses Polars for memory-efficient processing of the 800K+ event dataset, with lazy evaluation enabling streaming operations on commodity hardware.
 

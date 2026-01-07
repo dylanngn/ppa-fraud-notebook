@@ -13,6 +13,8 @@
 \usepackage{float}
 \usepackage{subcaption}
 \usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
 
 % Professional formatting packages
 \usepackage[margin=2.5cm]{geometry}  % 1 inch margins (2.5cm)
@@ -102,12 +104,8 @@
 
 % Prevent page breaks immediately after section headings
 % Also ensure font resets to Times after section headings (outside math mode)
-\makeatletter
-\let\old@section\section
-\renewcommand{\section}[1]{\needspace{2.5\baselineskip}\old@section{#1}\@ifmmode{}{\rmfamily\selectfont}}
-\let\old@subsection\subsection
-\renewcommand{\subsection}[1]{\needspace{2.5\baselineskip}\old@subsection{#1}\@ifmmode{}{\rmfamily\selectfont}}
-\makeatother
+% Section redefinitions removed to fix incompatibility with titlesec
+% The needspace functionality should be handled via \titlespacing or a safer hook if required.
 
 % ============================================================================
 % TABLE OF CONTENTS FORMATTING
@@ -174,6 +172,22 @@
     xrightmargin=4pt
 }
 
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{darkgray}\bfseries,
+  basicstyle=\ttfamily\fontsize{9}{11}\selectfont,
+  sensitive=false,
+  comment=[l]{\#},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{green!50!black}\itshape,
+  stringstyle=\color{red!70!black},
+  moredelim=[l][\color{orange}]{\&},
+  moredelim=[l][\color{magenta}]{*},
+  moredelim=**[il][\color{blue!70!black}]{:},
+  morestring=[b]',
+  morestring=[b]"
+}
+
 % Ensure font resets properly after code blocks and inline code
 \makeatletter
 % Fix lstlisting to reset font after use (prevents font breakage)
@@ -234,7 +248,7 @@
 \newcommand{\degreeprogram}{Master of Software Engineering}
 \newcommand{\supervisor}{Professor Doan Xuan Huy Minh, Ph.D.}
 \newcommand{\institution}{FPT School of Business and Technology}
-\newcommand{\academicyear}{2024--2025}
+\newcommand{\academicyear}{2024-2025}
 
 \begin{document}
 
@@ -278,7 +292,7 @@
 \begin{abstract}
 Online marketplace fraud causes significant financial losses and erodes user trust. This thesis investigates graph-based fraud pattern discovery in real estate marketplaces, analyzing 804,717 listing events from Swiss Marketplace Group to identify relational fraud signatures and validate their predictive value.
 
-We construct a heterogeneous graph with 31 million edges encoding entity-sharing relationships (device fingerprints, IP addresses, emails, phones) and apply Graph Neural Network-based pattern extraction combined with XGBoost classification. Exploratory analysis reveals distinctive fraud ring structures: super-connector devices (35.5\% fraud rate versus 8.11\% baseline), geographic clustering (West African origins showing 60--90\% fraud rates), and temporal signatures (6--7 AM activity peaks, February 2025 spike).
+We construct a heterogeneous graph with 31 million edges encoding entity-sharing relationships (device fingerprints, IP addresses, emails, phones) and apply Graph Neural Network-based pattern extraction combined with XGBoost classification. Exploratory analysis reveals distinctive fraud ring structures: super-connector devices (35.5\% fraud rate versus 8.11\% baseline), geographic clustering (West African origins showing 60-90\% fraud rates), and temporal signatures (6-7 AM activity peaks, February 2025 spike).
 
 Model comparison across three independent runs shows GNN+XGBoost achieves mean AUC-PR of 0.733 $\pm$ 0.058, comparable to tabular-only XGBoost (0.733 $\pm$ 0.063), with marginal improvement of 0.08\%. Cross-validation reveals substantial performance degradation (mean 0.28 AUC-PR, 62\% drop) due to temporal distribution shift and decreasing fraud rates (1.97\% to 0.63\%), validating the need for frequent retraining in production deployment. While GNN embeddings contribute 17.3\% of feature importance (SHAP analysis), the primary predictive signal derives from tabular features (82.7\%). Critically, expanding window validation reveals catastrophic GNN degradation (0.22 AUC-PR, 70\% performance loss) under temporal distribution shift, compared to vanilla XGBoost's temporal robustness (0.63 AUC-PR, 86\% retention). This temporal instability limits GNN practical deployment despite supplementary signal in fixed-split evaluation.
 
