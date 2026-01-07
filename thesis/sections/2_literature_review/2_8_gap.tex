@@ -1,26 +1,58 @@
-\section{Research Gap and Positioning}
+\section{Research Gap and Thesis Positioning}
 \label{sec:2_8}
 
-The preceding sections have surveyed graph-based pattern mining, fraud pattern discovery, hybrid validation approaches, and methodological considerations for imbalanced, temporal, and interpretable analysis. This section identifies the specific gaps this thesis addresses.
+The preceding sections have surveyed graph-based pattern mining, fraud detection methodologies, and temporal validation approaches. This section establishes the specific scholarly gap this thesis addresses through systematic analysis of the literature landscape.
 
-\subsection{Identified Gaps}
+\subsection{The Absence of Graph-Based Research in Real Estate Fraud Detection}
 
-Three significant gaps emerge from the literature:
+Graph-based fraud detection has matured into an established research area with substantial academic and industrial impact---yet this body of work has entirely bypassed real estate marketplaces. A systematic search across Google Scholar, IEEE Xplore, ACM Digital Library, arXiv, and Semantic Scholar using terms combining graph methods (GNN, graph neural network, network analysis, heterogeneous graph) with real estate fraud concepts (real estate fraud, rental scam, property fraud, phantom listing) returned no relevant results.
 
-\textbf{Gap 1: Limited pattern discovery in real estate marketplaces.} Graph-based fraud research has focused on financial transactions (credit cards, payments) and e-commerce (fake reviews, account fraud). Real estate marketplaces present distinct characteristics: heterogeneous listing types, longer transaction cycles, and unique fraud modalities (phantom listings, rental scams). The entity-sharing patterns distinguishing fraud rings from legitimate property managers in this domain remain uncharacterized. Mutemi and Bação (2024) surveyed marketplace fraud but focused on retail platforms with different graph structures.
+\textbf{Evidence from systematic reviews.} Major surveys of fraud detection research confirm this absence. Cheng et al.'s \cite{cheng2024gnn} review in \emph{Frontiers of Computer Science} analyzes over 100 GNN-based fraud detection studies across credit card fraud, anti-money laundering, and transaction monitoring---real estate is not mentioned. Cherif et al.'s \cite{cherif2024financial} systematic review in \emph{Expert Systems with Applications} covers financial fraud detection using GNNs across credit cards, insurance, and money laundering domains, with no reference to property marketplaces. Mutemi and Bação's \cite{mutemi2024ecommerce} survey of 101 e-commerce fraud publications in \emph{Big Data Mining and Analytics} addresses eBay, Amazon, and Facebook Marketplace fraud but excludes real estate entirely. The taxonomy proposed by Compagnino et al. \cite{compagnino2025taxonomy} categorizes fraud into credit card, loan, insurance, financial statement, money laundering, and tax fraud---real estate fraud is absent from this classification scheme.
 
-\textbf{Gap 2: Unquantified data requirements for graph-based discovery.} Prior work demonstrates that graph patterns improve detection but does not investigate when this occurs. Practitioners lack guidance on minimum dataset sizes, graph density thresholds, or temporal coverage required for relational patterns to provide signal beyond attributes. This gap leaves organizations unable to assess whether graph-based approaches suit their data context.
+\textbf{Contrast with adjacent domains.} The contrast with domains where graph-based fraud detection thrives is instructive:
 
-\textbf{Gap 3: Limited temporal validation of discovered patterns.} Most studies employ single train-test splits without evaluating pattern validity under temporal shift. The interaction between data requirements and temporal validation whether patterns require large recent datasets versus large historical datasets remains unexamined.
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Domain} & \textbf{Representative Work} & \textbf{Scale/Impact} \\ \midrule
+E-commerce & eFraudCom (Taobao), C-FATH (JD.com) & Billions of transactions \\
+Financial transactions & CARE-GNN \cite{dou2020enhancing}, PC-GNN \cite{liu2020alleviating} & 200+ citations each \\
+Social networks & SybilFlyover, UPFD dataset & Twitter-scale deployment \\
+Insurance & BiRank \cite{oskarsdottir2022social} & 24pp recall improvement \\
+Cryptocurrency & Elliptic dataset \cite{weber2019elliptic} & 200K+ labeled transactions \\ \bottomrule
+\end{tabular}
+\caption{Graph-based fraud detection deployment in adjacent domains}
+\label{tab:adjacent_domains}
+\end{table}
+
+Standard benchmark datasets---YelpChi for review fraud, Amazon for product fraud, IEEE-CIS for payment fraud, Elliptic for cryptocurrency---have accelerated research in these domains. No equivalent dataset exists for real estate fraud.
+
+\textbf{Existing real estate fraud research.} The limited academic work on real estate fraud detection employs traditional methods without graph structures:
+
+\begin{itemize}
+    \item Mohd Amin et al. \cite{mohdamin2024clustering} apply K-means clustering to Malaysian property listings, achieving 96\% accuracy but without relational analysis
+    \item Park et al. (2017) detect Craigslist rental scams using heuristic rules and email matching across 2 million listings
+    \item Alsaleh et al. (2018) use price-based heuristics for Craigslist scam detection
+    \item The Zillow/Trulia patent (US9990639B1, 2018) describes SVM and gradient boosting classifiers---explicitly not graph-based
+\end{itemize}
+
+No peer-reviewed research applies GNNs, heterogeneous graphs, or network analysis to real estate marketplace fraud in any market (US, European, or Asian).
+
+\subsection{Why This Gap Matters}
+
+Real estate marketplaces exhibit natural graph structures that suggest graph-based methods would be highly applicable: listing-user-agent networks, cross-platform relationships (identical photos or descriptions across platforms), device and IP sharing patterns, and temporal posting clusters. The fraud modalities---phantom listings, rental advance fee scams, identity harvesting through fake applications---involve coordinated operations that leave relational traces invisible to single-listing analysis.
+
+The documented scale of the problem further motivates research attention. FBI Internet Crime Complaint Center reports indicate real estate fraud losses exceeding \$145 million annually in the United States alone \cite{fbi2023ic3}. Investigative journalism (BBC Radio 4, 2022) has documented ``gaping holes'' in fraud prevention at major platforms including Zoopla, while German consumer advocates have warned about persistent fake listings on ImmobilienScout24 despite claimed automated screening.
 
 \subsection{Thesis Positioning}
 
-This thesis addresses these gaps through systematic pattern discovery and validation:
+This thesis addresses the identified gap by providing the first application of graph-based pattern discovery to real estate marketplace fraud. Specifically:
 
-\textbf{Contribution to Gap 1:} We characterize entity-sharing patterns in real estate marketplace fraud, identifying topologies distinguishing fraud rings (e.g., 6,251 listings per device, 35.5\% fraud rate for super-connectors) from legitimate property management.
+\textbf{Addressing the domain gap:} We construct heterogeneous entity-sharing graphs from production data at Swiss Marketplace Group's Homegate and ImmoScout24 platforms, characterizing the topological properties of fraud networks in this previously unstudied domain. Our analysis reveals structural properties (the heterophily paradox) that differ fundamentally from assumptions in existing GNN fraud detection literature.
 
-\textbf{Contribution to Gap 2:} Through expanding window experiments across varying training sizes, we quantify the $\sim$300,000 sample threshold at which graph patterns begin providing signal beyond attribute-only analysis.
+\textbf{Addressing the methodological gap:} Through systematic expanding window experiments, we establish the first empirical quantification of data requirements for graph-based fraud pattern discovery ($\sim$300,000 samples), providing actionable guidance absent from prior literature.
 
-\textbf{Contribution to Gap 3:} Five-period temporal validation evaluates pattern stability under concept drift, revealing that graph pattern advantages observed in large single-split experiments do not transfer to scenarios with frequent retraining on smaller windows.
+\textbf{Addressing the temporal validation gap:} We evaluate pattern stability under production-realistic temporal drift scenarios, revealing regime-dependent performance that challenges conclusions from standard fixed-split benchmarks.
 
-By addressing these gaps with rigorous empirical methodology, this thesis contributes actionable guidance for practitioners and methodological insights for the data mining research community.
+By combining rigorous empirical methodology with production-scale data from a domain absent in prior research, this thesis contributes both domain-specific discoveries and methodological insights generalizable to the broader fraud detection research community.
