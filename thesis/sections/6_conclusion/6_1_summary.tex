@@ -4,7 +4,7 @@
 This research set out to investigate how graph-based data mining can be used to discover fraud patterns and develop predictive models for online real estate marketplaces. Using a dataset of over 800,000 listing events from the Swiss Marketplace Group, we built a heterogeneous graph with 31 million edges that encode relationships between users, devices, IP addresses, emails, and phone numbers. We then combined GNN-based pattern extraction with XGBoost classification and evaluated several different operational deployment strategies.
 
 \paragraph{Pattern Discovery}
-Our findings show that entity-sharing patterns provide a powerful signal for detecting fraud. Specifically, we found that "super-connector" devices associated with ten or more listings have a 35.5\% fraud rate—a significant increase over the 8.11\% baseline. We also identified geographic patterns, such as a high concentration of fraud originating from certain West African countries, and temporal peaks in activity between 6:00 and 7:00 AM, which suggest the use of automated attacks.
+Our findings show that entity-sharing patterns provide a powerful signal for detecting fraud. Specifically, we found that "super-connector" devices associated with ten or more listings have a 35.5\% fraud ratea significant increase over the 8.11\% baseline. We also identified geographic patterns, such as a high concentration of fraud originating from certain West African countries, and temporal peaks in activity between 6:00 and 7:00 AM, which suggest the use of automated attacks.
 
 \paragraph{Model Comparison and Development}
 We conducted a systematic comparison of four different model families and four GNN architectures, establishing a set of rigorous baselines that were previously missing from real estate fraud research.
@@ -17,11 +17,11 @@ We conducted a systematic comparison of four different model families and four G
 \toprule
 \textbf{Model} & \textbf{AUC-PR} & \textbf{vs. Baseline} & \textbf{Unique Catches} \\
 \midrule
-Logistic Regression & 0.577 & --- & --- \\
-Random Forest & 0.621 & +7.6\% & --- \\
+Logistic Regression & 0.577 & - & - \\
+Random Forest & 0.621 & +7.6\% & - \\
 Vanilla XGBoost & 0.733 & +27.0\% & 1 \\
 \textbf{GNN+XGBoost} & \textbf{0.733} & \textbf{+27.0\%} & \textbf{13} \\
-SEON (commercial) & 0.598 & +3.6\% & --- \\
+SEON (commercial) & 0.598 & +3.6\% & - \\
 \bottomrule
 \end{tabular}
 \end{table}

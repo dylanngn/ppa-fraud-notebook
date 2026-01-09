@@ -1,19 +1,32 @@
 \section{Research Gap and Thesis Positioning}
 \label{sec:2_8}
 
-While the preceding sections have covered the evolution of graph-based mining and fraud detection, it is clear that a significant gap exists in the current body of research. This section highlights that gap and explains how this thesis positions itself within the broader landscape of data mining literature.
+While the preceding sections have covered the evolution of graph-based mining and fraud detection, it is clear that a significant gap exists in the current body of research. This section systematically characterizes that gap, examines why it persists despite the suitability of real estate data for graph-based analysis, and explains how this thesis positions itself within the broader landscape of data mining literature.
 
 \subsection{The Absence of Graph-Based Research in Real Estate Fraud}
 
-Graph-based fraud detection has become a mature field with significant impact in both academia and industry. However, this progress seems to have entirely bypassed the real estate sector. A systematic search across major databases—including Google Scholar, IEEE Xplore, and the ACM Digital Library—combining terms like "Graph Neural Network" or "network analysis" with "real estate fraud" or "rental scam" yielded no relevant results.
+Graph-based fraud detection has become a mature field with significant impact in both academia and industry. Production deployments at major e-commerce platforms process billions of transactions daily using GNN architectures, while academic research has produced influential methods like CARE-GNN, PC-GNN, and GraphSAINT that advance the state of the art. However, this progress seems to have entirely bypassed the real estate sector.
 
-Major surveys of the field confirm this observation. For example, Cheng et al.'s \cite{cheng2024gnn} recent review of over 100 GNN-based fraud studies focuses on credit cards and money laundering, but makes no mention of real estate. Similarly, Mutemi and Bação's \cite{mutemi2024ecommerce} survey of e-commerce fraud addresses platforms like eBay and Amazon but excludes property marketplaces entirely. Even recent taxonomies of fraud domains, such as the one proposed by Compagnino et al. \cite{compagnino2025taxonomy}, leave real estate fraud out of their classification schemes.
+\textbf{Systematic Literature Search:} We conducted a comprehensive search across major academic databases Google Scholar, IEEE Xplore, ACM Digital Library, and Scopus using query combinations of graph-related terms (``Graph Neural Network,'' ``network analysis,'' ``heterogeneous graph,'' ``relational learning'') with real estate fraud terms (``real estate fraud,'' ``rental scam,'' ``property listing fraud,'' ``phantom listing''). This search, conducted in October 2024, yielded \textbf{zero relevant results} applying graph-based methods to real estate fraud detection.
 
-This lack of research is particularly striking when compared to adjacent domains where graph-based methods are thriving, as shown in Table~\ref{tab:adjacent_domains}.
+\textbf{Evidence from Systematic Reviews:} Major surveys of fraud detection research confirm this absence:
 
-\begin{table}[ht]
+\begin{itemize}
+    \item \textbf{Cheng et al. (2024)} \cite{cheng2024gnn}: Comprehensive review of 100+ GNN-based fraud detection studies in \emph{Frontiers of Computer Science}. Domains covered: credit card fraud, anti-money laundering, transaction monitoring, social network spam. Real estate: \emph{not mentioned}.
+    
+    \item \textbf{Cherif et al. (2024)} \cite{cherif2024financial}: Systematic review in \emph{Expert Systems with Applications} covering GNN applications to financial fraud. Domains covered: credit cards, insurance claims, money laundering. Real estate: \emph{not mentioned}.
+    
+    \item \textbf{Mutemi and Bação (2024)} \cite{mutemi2024ecommerce}: Survey of 101 e-commerce fraud publications in \emph{Big Data Mining and Analytics}. Platforms covered: eBay, Amazon, Facebook Marketplace. Property marketplaces: \emph{explicitly excluded}.
+    
+    \item \textbf{Compagnino et al. (2025)} \cite{compagnino2025taxonomy}: Proposed fraud taxonomy categorizing domains into credit card, loan, insurance, financial statement, money laundering, and tax fraud. Real estate: \emph{absent from taxonomy}.
+\end{itemize}
+
+The only peer-reviewed study addressing real estate fraud that we identified Mohd Amin et al. \cite{mohdamin2024clustering} employs traditional K-means clustering on Malaysian property listings, without any graph-based or relational analysis.
+
+\textbf{Comparison with Adjacent Domains:} This lack of research is particularly striking when compared to domains where graph-based methods are thriving, as shown in Table~\ref{tab:adjacent_domains}.
+
+\begin{table}[h]
 \centering
-\small
 \caption{Graph-based fraud detection deployment in adjacent domains}
 \label{tab:adjacent_domains}
 \begin{tabular}{@{}lll@{}}
@@ -31,22 +44,97 @@ The rapid progress in these other areas has been accelerated by standard benchma
 
 \subsection{Why This Gap Matters}
 
-The absence of research in this area is a missed opportunity, as real estate marketplaces exhibit natural graph structures that are perfectly suited for network analysis. Relationships between users, agents, and listings—along with shared device fingerprints and IP patterns—create a rich environment for discovering fraud. The most common fraud modalities, such as phantom listings and rental advance fee scams, are often coordinated operations that leave behind relational traces that are invisible if one only analyzes listings in isolation.
+The absence of graph-based research in real estate fraud represents a significant missed opportunity for several interconnected reasons.
 
-The scale of the problem also justifies more attention. The FBI’s Internet Crime Complaint Center has reported real estate fraud losses exceeding \$145 million annually in the United States \cite{fbi2023ic3}, and investigative reports in Europe have highlighted persistent "gaping holes" in the fraud prevention systems of major platforms.
+\textbf{Natural Graph Structure:} Real estate marketplaces exhibit rich relational structure that is ideally suited for graph-based analysis. Unlike single-transaction domains (e.g., credit card payments), property listings persist over time and accumulate multiple entity associations:
 
-\enlargethispage{3\baselineskip}
+\begin{itemize}
+    \item \textbf{User-listing relationships:} Property managers and agents create multiple listings, forming user-to-listing bipartite graphs
+    \item \textbf{Device fingerprinting:} Browser and device characteristics link listings created from the same machine, revealing coordinated operations
+    \item \textbf{IP address clustering:} Network infrastructure patterns connect geographically or organizationally related submissions
+    \item \textbf{Contact information reuse:} Email addresses and phone numbers shared across listings indicate common ownership or fraud ring membership
+    \item \textbf{Temporal coordination:} Synchronized posting patterns across related accounts suggest automated or coordinated fraud campaigns
+\end{itemize}
+
+These entity-sharing patterns create heterogeneous graphs with millions of edges precisely the structure that GNN architectures are designed to exploit. Yet no prior work has constructed or analyzed such graphs for real estate fraud.
+
+\textbf{Coordinated Fraud Operations:} The dominant fraud modalities in real estate marketplaces are inherently \emph{relational} rather than isolated:
+
+\begin{itemize}
+    \item \textbf{Phantom listing networks:} Fraudsters advertise multiple non-existent properties, often reusing photos, descriptions, and contact methods across listings. These operations form densely connected subgraphs through shared assets.
+    
+    \item \textbf{Advance fee fraud rings:} Organized groups operate networks of fake rental listings to collect deposits from multiple victims simultaneously. Ring members share infrastructure (devices, IPs, payment accounts) that creates detectable graph patterns.
+    
+    \item \textbf{Identity theft operations:} Scammers harvest applicant information (employment records, financial documents) through fake listings, then use these identities for subsequent fraud. The same operators typically run multiple harvesting listings concurrently.
+\end{itemize}
+
+Analyzing listings in isolation the approach taken by current commercial systems like SEON cannot detect these coordinated patterns. Only graph-based methods can identify fraud that manifests through \emph{relationships} rather than individual listing attributes.
+
+\textbf{Economic Scale:} The financial impact of real estate fraud justifies research attention commensurate with other fraud domains:
+
+\begin{itemize}
+    \item The FBI's Internet Crime Complaint Center reports real estate fraud losses exceeding \$145 million annually in the United States alone \cite{fbi2023ic3}
+    \item European consumer protection agencies document persistent ``gaping holes'' in marketplace fraud prevention, with rental scams among the most reported categories
+    \item Individual victims face significant harm average rental fraud losses of \$1,000-5,000 represent substantial financial and emotional impact
+    \item Marketplace platforms face reputational damage and user trust erosion when fraud is prevalent
+\end{itemize}
+
+Despite this economic significance, the research community has not applied modern graph-based detection methods to real estate fraud, leaving practitioners without academic guidance on effective approaches.
+
+\textbf{Unique Domain Characteristics:} Real estate fraud exhibits properties that may differ from assumptions in existing GNN fraud literature, making domain-specific research essential:
+
+\begin{itemize}
+    \item \textbf{Legitimate power users:} Unlike financial fraud where high transaction volume is suspicious, property managers legitimately create dozens or hundreds of listings. This inverts the typical assumption that high connectivity indicates fraud.
+    
+    \item \textbf{Temporal persistence:} Listings remain active for weeks or months, unlike instantaneous transactions. Graph structure evolves as listings are created, modified, and removed.
+    
+    \item \textbf{Geographic grounding:} Properties have physical locations that constrain fraud patterns a listing claiming to be in Zurich but submitted from Lagos exhibits geographic inconsistency detectable through IP intelligence.
+    
+    \item \textbf{Multi-platform operation:} Fraud rings often operate across multiple marketplace platforms simultaneously (e.g., Homegate and ImmoScout24), creating cross-platform graph patterns.
+\end{itemize}
+
+These characteristics suggest that real estate fraud graphs may exhibit different topological properties than the benchmark datasets (YelpChi, Elliptic) used to develop existing GNN methods. Without domain-specific research, practitioners cannot know whether methods validated on financial or social network fraud will transfer effectively to real estate.
+
 \subsection{Thesis Positioning}
 
-This thesis addresses these gaps by providing what we believe is the first application of graph-based pattern discovery to the real estate fraud domain. We contribute to the field in three main ways:
+This thesis addresses these gaps by providing what we believe is the first application of graph-based pattern discovery to the real estate fraud domain. We target four specific limitations in the current literature, with detailed findings presented in Chapter~\ref{ch:results}.
 
-\paragraph{Addressing the Domain Gap}
-We construct heterogeneous entity-sharing graphs from Swiss Marketplace Group production data, characterizing topological properties like the "heterophily paradox" that challenge standard GNN assumptions in fraud detection.
+\paragraph{Addressing the Domain Gap: First Graph-Based Analysis of Real Estate Fraud}
 
-\paragraph{Addressing the Methodological Gap}
-Through systematic experiments, we establish a $\sim$300,000 sample threshold for graph-based fraud discovery, providing practical guidance for practitioners at different data scales.
+We use production data from the Swiss Marketplace Group 804,717 listing events from Homegate and ImmoScout24 to construct heterogeneous entity-sharing graphs encoding device, IP, email, and phone relationships. This represents the first academic study applying GNN-based pattern extraction to real estate marketplace fraud.
 
-\paragraph{Addressing the Temporal Validation Gap}
-We evaluate pattern stability under realistic temporal drift, challenging the reliability of standard fixed-split benchmarks in adversarial environments.
+Our research questions investigate whether real estate fraud graphs exhibit different topological properties than the benchmark datasets (YelpChi, Elliptic) used to develop existing GNN methods. Specifically, we examine:
 
-By combining a rigorous empirical methodology with large-scale production data, this thesis provides both domain-specific discoveries and methodological insights valuable to the broader fraud detection research community.
+\begin{itemize}
+    \item Whether the assumption that fraudsters form dense clusters (as in CARE-GNN and PC-GNN) holds in real estate contexts where legitimate property managers also create many listings
+    \item How geographic and temporal patterns in real estate fraud differ from geographically uniform financial transaction datasets
+    \item What entity-sharing patterns characterize fraud rings versus legitimate multi-listing users
+\end{itemize}
+
+\paragraph{Addressing the Methodological Gap: Data Requirements Quantification}
+
+Prior GNN fraud detection literature demonstrates that graph patterns can improve detection but does not investigate \emph{when} this improvement occurs. Practitioners adopting graph-based methods have no guidance on minimum data requirements for their contexts.
+
+Through systematic expanding window experiments across multiple training set sizes, we aim to provide the first empirical quantification of data requirements for graph-based fraud pattern discovery. This addresses a methodological gap that leaves practitioners unable to assess whether graph-based approaches are viable for their data contexts before investing in graph infrastructure.
+
+\paragraph{Addressing the Temporal Validation Gap: Concept Drift Under Production Conditions}
+
+Standard academic benchmarks use fixed train/test splits that do not account for how fraud tactics evolve. This creates potentially optimistic performance estimates that may not reflect production deployment reality.
+
+We evaluate model stability under realistic temporal drift scenarios through:
+
+\begin{itemize}
+    \item \textbf{Expanding window validation:} Multiple temporal windows spanning 12 months, each training on accumulated historical data and testing on subsequent periods
+    \item \textbf{Drift detection integration:} DDM and ADWIN algorithms monitoring for distribution shift in streaming predictions
+    \item \textbf{Cross-validation comparison:} Temporal CV to assess whether fixed-split results generalize
+\end{itemize}
+
+This validation methodology tests whether GNN-based patterns remain stable as fraud tactics evolve, or whether graph structure introduces temporal brittleness absent in tabular approaches.
+
+\paragraph{Addressing the Evaluation Gap: Beyond Aggregate Metrics}
+
+Standard ML evaluation focuses on aggregate metrics (AUC-PR, F1-score) that summarize average performance across all cases. However, in fraud detection, understanding \emph{which} fraud patterns a model detects matters as much as overall accuracy particularly when models may detect fundamentally different fraud types.
+
+We introduce differential detection analysis examining which fraud cases each model uniquely catches to reveal pattern coverage beyond aggregate statistics. This multidimensional evaluation methodology aims to uncover whether graph-augmented models provide value that aggregate metrics obscure.
+
+By combining rigorous empirical methodology with large-scale production data from a previously unstudied domain, this thesis aims to provide both domain-specific discoveries and methodological insights that generalize to the broader fraud detection research community. The detailed findings, including quantitative results and their implications, are presented in Chapter~\ref{ch:results}.

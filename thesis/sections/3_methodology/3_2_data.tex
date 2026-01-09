@@ -3,11 +3,30 @@
 
 \subsection{Data Sources}
 
-The dataset comprises two primary sources from SMG's production systems covering the period from January 2024 to November 2025.
+The dataset comprises two primary sources from SMG's production systems covering the period from January 2024 to November 2025. These sources capture complementary aspects of listing creation: the listing content lifecycle and the user interaction context during submission.
 
-\textbf{Insertion Events} (\texttt{insertion\_events.csv}) contains 804,717 lifecycle events for real estate listings across Homegate and ImmoScout24 platforms. Each event records a status change (DRAFT, PENDING\_APPROVAL, APPROVED, PUBLISHED, ARCHIVED, DELETED) with associated listing attributes including property details, pricing, geographic information, and lister contact data.
+\textbf{Source 1: Insertion Lifecycle Events} (\texttt{insertion\_events.csv}) contains 804,717 lifecycle events representing \emph{data update snapshots} for real estate listings across Homegate and ImmoScout24 platforms. Each event captures a state transition in the listing lifecycle:
 
-\textbf{SEON Transactions} (\texttt{seon\_transactions.csv}) contains approximately 140,000 fraud detection API responses capturing device fingerprints, IP intelligence, email validation, phone verification, and behavioral signals collected at listing submission time.
+\begin{itemize}
+    \item \textbf{Status transitions:} DRAFT $\rightarrow$ PENDING\_APPROVAL $\rightarrow$ APPROVED $\rightarrow$ PUBLISHED $\rightarrow$ ARCHIVED (or DELETED for fraudulent/withdrawn listings)
+    \item \textbf{Listing attributes:} Property type, category, pricing (rent/buy), geographic coordinates, address details
+    \item \textbf{Lister information:} Contact email, phone number, user account identifier, billing details
+    \item \textbf{Temporal metadata:} Event timestamp, modification history, platform source
+\end{itemize}
+
+This source represents the \emph{content dimension} of fraud detection what the listing contains and how it evolves through the approval workflow. Each event is a snapshot of the listing state at a specific point in time, enabling temporal analysis of how fraudulent listings differ from legitimate ones across their lifecycle.
+
+\textbf{Source 2: SEON Transaction Records} (\texttt{seon\_transactions.csv}) contains approximately 140,000 fraud detection API responses capturing \emph{user web application and browser interaction} during the listing submission process. When a user submits an insertion for approval, the SMG platform sends a transaction request to the SEON fraud detection API, which collects and analyzes:
+
+\begin{itemize}
+    \item \textbf{Device fingerprinting:} Browser type, operating system, screen resolution, installed fonts, WebGL renderer, canvas fingerprint, and hardware characteristics that uniquely identify the submission device
+    \item \textbf{IP intelligence:} Geolocation, ISP identification, data center/VPN/proxy/Tor detection, and IP reputation scoring
+    \item \textbf{Email validation:} Domain age, disposable email detection, social media registration status (Facebook, Google, LinkedIn), DMARC/SPF compliance
+    \item \textbf{Phone verification:} Carrier identification, phone type (mobile/landline/VoIP), WhatsApp/Telegram registration status
+    \item \textbf{Behavioral signals:} Session duration, timezone consistency, adblock usage, incognito mode detection, and interaction patterns suggesting bot or human behavior
+\end{itemize}
+
+This source represents the \emph{behavioral dimension} of fraud detection how the user interacts with the platform during submission, independent of listing content. SEON signals are collected at the moment of submission, providing real-time fraud indicators that can detect suspicious technical fingerprints (e.g., Tor browser, data center IP, disposable email) invisible to content-only analysis.
 
 \textbf{Data Merge Strategy:} Events and SEON transactions occur at different timestamps, requiring temporal alignment. We implement an as-of join strategy:
 
@@ -22,8 +41,8 @@ This approach ensures features reflect information available at decision time, s
 
 \textbf{Datetime Handling:} The two data sources use different timestamp formats requiring standardization:
 \begin{itemize}
-    \item Events: \texttt{\%Y-\%m-\%d \%H:\%M:\%S\%.f \%z} (e.g., ``2025-01-15 10:30:45.123 +0100'')
-    \item SEON: \texttt{\%Y-\%m-\%dT\%H:\%M:\%S\%.f\%z} (e.g., ``2025-01-15T10:30:45.123+0000'')
+    \item \textbf{Insertion Lifecycle Events:} \texttt{\%Y-\%m-\%d \%H:\%M:\%S\%.f \%z} (e.g., ``2025-01-15 10:30:45.123 +0100'')
+    \item \textbf{SEON Transaction Records:} \texttt{\%Y-\%m-\%dT\%H:\%M:\%S\%.f\%z} (e.g., ``2025-01-15T10:30:45.123+0000'')
 \end{itemize}
 
 All timestamps are converted to UTC for consistent temporal operations.

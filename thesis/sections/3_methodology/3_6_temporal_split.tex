@@ -7,16 +7,7 @@ Fraud detection operates in non-stationary environments where patterns evolve ov
 
 Standard label assignment risks temporal leakage when fraud flags occur after the training cutoff. Consider a listing created May 15 but flagged June 10, with training cutoff June 1. Assigning \texttt{is\_fraud=1} during training uses future information (the June 10 flag) to predict May events.
 
-\textbf{Point-in-Time (PIT) Solution:} Labels are assigned based on flag timestamp relative to cutoff:
-
-\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
-if fraud_timestamp is not null AND fraud_timestamp <= train_end:
-    is_fraud = 1
-else:
-    is_fraud = 0  # Even if flagged later
-\end{lstlisting}
-
-This ensures training labels reflect only information available at the cutoff date. Listings flagged after the cutoff remain unlabeled (treated as legitimate) for training purposes, matching operational reality where future fraud status is unknown.
+\textbf{Point-in-Time (PIT) Solution:} Labels are assigned based on flag timestamp relative to cutoff. For each listing, if the fraud flag timestamp exists \emph{and} precedes the training cutoff date, the listing receives label \texttt{is\_fraud = 1}; otherwise, \texttt{is\_fraud = 0} even if the listing is flagged after the cutoff. This ensures training labels reflect only information available at the cutoff date. Listings flagged after the cutoff remain unlabeled (treated as legitimate) for training purposes, matching operational reality where future fraud status is unknown.
 
 \textbf{Label Maturation:} A 7-day gap between training end and test start allows pending fraud investigations to resolve, ensuring training labels are mature while test predictions reflect realistic conditions.
 

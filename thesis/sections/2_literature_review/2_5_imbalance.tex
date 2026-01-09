@@ -11,7 +11,6 @@ Class imbalance creates two interrelated challenges for pattern mining.
 
 \textbf{Pattern sparsity} means minority class patterns may lack sufficient examples for robust discovery. Fraud rings vary in structure; learning generalizable patterns requires diverse fraud examples. \citeauthor{he2009learning} \cite{he2009learning} surveyed approaches to imbalanced learning, categorizing solutions into data-level (resampling), algorithm-level (cost-sensitive), and hybrid methods.
 
-\enlargethispage{2\baselineskip}
 \subsection{Sampling Strategies}
 
 \textbf{Oversampling} methods increase minority class representation through synthetic example generation. SMOTE \cite{chawla2002smote} creates synthetic samples via interpolation between minority instances and their k-nearest neighbors. Borderline-SMOTE \cite{han2005borderline} focuses generation on decision boundary examples. ADASYN \cite{he2008adasyn} weights generation by local difficulty, creating more samples in regions with higher misclassification risk.
@@ -20,7 +19,6 @@ Class imbalance creates two interrelated challenges for pattern mining.
 
 \textbf{Cost-sensitive learning} adjusts loss functions rather than data distributions. XGBoost's \texttt{scale\_pos\_weight} parameter multiplies positive class loss, theoretically balancing class contributions. Focal Loss \cite{lin2017focal} down-weights well-classified examples regardless of class, focusing learning on difficult cases where fraud patterns are ambiguous.
 
-\enlargethispage{\baselineskip}
 \subsection{Evaluation for Imbalanced Patterns}
 
 Metric selection critically affects pattern validation conclusions.

@@ -36,7 +36,7 @@ Parameter & Search Range & Best Value \\
 \end{tabular}
 \end{table}
 
-To handle class imbalance, we opted for cost-sensitive learning rather than synthetic oversampling. By setting the \texttt{scale\_pos\_weight} to 11—which roughly matches our 1:11 fraud ratio—we increased the model's penalty for missing fraudulent listings. This approach avoids the potential artifacts introduced by synthetic data like SMOTE while integrating seamlessly with the gradient boosting process.
+To handle class imbalance, we opted for cost-sensitive learning rather than synthetic oversampling. By setting the \texttt{scale\_pos\_weight} to 11which roughly matches our 1:11 fraud ratiowe increased the model's penalty for missing fraudulent listings. This approach avoids the potential artifacts introduced by synthetic data like SMOTE while integrating seamlessly with the gradient boosting process.
 
 \subsection{Hybrid Pipeline Design}
 

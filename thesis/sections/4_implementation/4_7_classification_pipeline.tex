@@ -54,7 +54,7 @@ We employ a two-stage optimization strategy to manage the computational cost of 
 In the first stage, we run 50 trials to find the optimal XGBoost parameters while keeping the GNN embeddings fixed. We focus on maximizing AUC-PR and use early stopping to prevent overfitting.
 
 \paragraph{Stage 2: Joint GNN+XGBoost Optimization}
-In the second stage, we fix the XGBoost parameters found in Stage 1 and run another 30 trials to tune the GNN's hidden dimensions, output sizes, and number of layers. This allow us to find a high-performing joint configuration—such as a 2-layer GNN with a 32-dimensional hidden layer—without the prohibitive cost of an exhaustive joint search.
+In the second stage, we fix the XGBoost parameters found in Stage 1 and run another 30 trials to tune the GNN's hidden dimensions, output sizes, and number of layers. This allow us to find a high-performing joint configurationsuch as a 2-layer GNN with a 32-dimensional hidden layerwithout the prohibitive cost of an exhaustive joint search.
 
 \subsection{Model Training Flow}
 

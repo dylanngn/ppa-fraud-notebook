@@ -13,7 +13,15 @@ The fraud detection framework implements a modular pipeline architecture separat
 The architecture is designed as a layered system, where each component has a single, well-defined responsibility:
 
 \paragraph{Data Layer}
-This layer is responsible for ingesting raw CSV files from the SMG data warehouse, including the main insertion events and SEON transaction logs. These sources often use different timestamp formats, which are standardized at this stage.
+This layer is responsible for ingesting raw CSV files from the SMG data warehouse, comprising two complementary data sources:
+
+\begin{enumerate}
+    \item \textbf{Insertion Lifecycle Events:} Listing data update snapshots capturing status transitions (DRAFT $\rightarrow$ PENDING\_APPROVAL $\rightarrow$ PUBLISHED) with property attributes, pricing, and lister contact information. This source provides the \emph{content dimension} what fraudulent listings contain.
+    
+    \item \textbf{SEON Transaction Records:} User web application and browser interaction data collected when listings are submitted for approval. The SMG platform sends submission context to SEON's fraud detection API, which captures device fingerprints, IP intelligence, email/phone validation, and behavioral signals. This source provides the \emph{behavioral dimension} how fraudsters interact with the platform.
+\end{enumerate}
+
+These sources use different timestamp formats (insertion events: space-separated timezone; SEON: ISO 8601 format), which are standardized at this stage.
 
 \paragraph{ETL Pipeline}
 The ETL pipeline merges event and SEON data using temporal "as-of" joins. This is implemented using the Polars library, which allows for memory-efficient processing of over 800,000 events. The pipeline also handles the anonymization of personally identifiable information (PII) and filters the data based on temporal criteria. The final output is stored in compressed Parquet format to speed up downstream processing.
@@ -30,7 +38,7 @@ For real-time use, the serving layer provides an inference service built with Fa
 \paragraph{Monitoring}
 The system tracks prediction drift using the DDM (Drift Detection Method) and ADWIN (Adaptive Windowing) algorithms. This monitoring is essential for identifying when a model's performance begins to degrade due to shifting fraud tactics, which then triggers a new retraining cycle.
 
-All these components are orchestrated using Hydra for configuration management and MLflow for experiment tracking. The modular nature of the design means that individual parts—such as the GNN architecture—can be swapped out or upgraded with minimal impact on the rest of the pipeline.
+All these components are orchestrated using Hydra for configuration management and MLflow for experiment tracking. The modular nature of the design means that individual partssuch as the GNN architecturecan be swapped out or upgraded with minimal impact on the rest of the pipeline.
 
 \subsection{Project Structure}
 

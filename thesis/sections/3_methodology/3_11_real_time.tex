@@ -19,15 +19,10 @@ The incremental approach is implemented for production, with batch reconstructio
 
 \textbf{FastAPI Microservice:} The inference service exposes REST endpoints for integration with the marketplace platform:
 
-\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
-POST /predict
-  Input: EventPayload (listing attributes + SEON signals)
-  Output: PredictResponse (fraud probability, risk factors)
-
-POST /ingest
-  Input: EventPayload
-  Output: IngestResponse (confirmation, graph update status)
-\end{lstlisting}
+\begin{itemize}
+    \item \textbf{\texttt{POST /predict}}: Accepts an event payload containing listing attributes and SEON signals; returns fraud probability score with top contributing risk factors for explainability.
+    \item \textbf{\texttt{POST /ingest}}: Accepts an event payload for storage; returns confirmation with graph update status indicating new entity connections discovered.
+\end{itemize}
 
 \textbf{Internal Event Store:} An in-memory store tracks recent events for graph-like feature computation:
 \begin{itemize}

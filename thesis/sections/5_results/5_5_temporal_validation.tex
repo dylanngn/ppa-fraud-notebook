@@ -24,7 +24,7 @@ Expanding window validation assesses model stability and data requirements acros
         4 & 2025-04-30 & 308,071 & 0.7467 & 0.2376 \\
         5 & 2025-05-30 & 373,484 & 0.5982 & 0.2164 \\
         \midrule
-        \textbf{Mean} & — & — & \textbf{0.6286 $\pm$ 0.077} & 0.2187 $\pm$ 0.018 \\
+        \textbf{Mean} &  &  & \textbf{0.6286 $\pm$ 0.077} & 0.2187 $\pm$ 0.018 \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -48,4 +48,4 @@ Expanding window validation assesses model stability and data requirements acros
     \item Simpler deployment (no need to maintain entity-relationship graphs)
 \end{enumerate}
 
-GNN-augmented approaches may be viable only with: (1) very large, stable datasets ($>$300K samples), (2) static graph topology, or (3) graph-aware continual learning strategies to adapt to structural evolution. Future work should investigate temporal graph neural networks (e.g., ROLAND \cite{you2022roland}) designed for non-stationary graphs.
+GNN-augmented approaches may be viable only with: (1) very large, stable datasets ($>$300K samples), (2) static graph topology, or (3) graph-aware continual learning strategies to adapt to structural evolution. Future work should investigate temporal graph neural networks designed for non-stationary graphs, such as Temporal Graph Networks (TGN) or Temporal Graph Attention (TGAT) architectures.

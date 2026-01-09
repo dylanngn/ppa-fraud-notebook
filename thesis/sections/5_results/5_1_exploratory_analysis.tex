@@ -12,7 +12,7 @@ This section details the patterns and insights discovered during the exploratory
 
 \paragraph{Temporal Pattern Discoveries}
 
-Our analysis of the monthly fraud rate revealed a significant spike in February 2025, where the rate jumped to 13.12\%—a 62\% increase over the annual average of 8.11\%. Following this peak, the rate steadily declined to approximately 5\% by the middle of 2025. This downward trend likely reflects either successful interventions by the platform's security teams or a shift in fraudster activity toward other, less protected marketplaces.
+Our analysis of the monthly fraud rate revealed a significant spike in February 2025, where the rate jumped to 13.12\%a 62\% increase over the annual average of 8.11\%. Following this peak, the rate steadily declined to approximately 5\% by the middle of 2025. This downward trend likely reflects either successful interventions by the platform's security teams or a shift in fraudster activity toward other, less protected marketplaces.
 
 When looking at hourly data, we confirmed a distinct activity peak between 6:00 and 7:00 AM. During this window, fraud rates were 40\% higher than the midday averages. Furthermore, weekend submissions carried a noticeably higher risk (9.2\% on Saturday and 8.8\% on Sunday) compared to the weekday average of 7.4\%, which aligns with periods of reduced manual oversight.
 
@@ -25,8 +25,8 @@ When looking at hourly data, we confirmed a distinct activity peak between 6:00 
 
 \paragraph{Geographic Pattern Insights}
 
-Geographic origin remains one of the strongest indicators of fraudulent intent. Listings originating from specific West African countries—namely Benin, Togo, Ivory Coast, and Nigeria—accounted for 12\% of all fraudulent submissions, despite making up less than 0.5\% of the total volume. The fraud rates within these regions ranged from 60\% to 90\%, providing a high-precision signal for initial screening.
+Geographic origin remains one of the strongest indicators of fraudulent intent. Listings originating from specific West African countriesnamely Benin, Togo, Ivory Coast, and Nigeriaaccounted for 12\% of all fraudulent submissions, despite making up less than 0.5\% of the total volume. The fraud rates within these regions ranged from 60\% to 90\%, providing a high-precision signal for initial screening.
 
 \paragraph{Entity-Sharing and Network Patterns}
 
-The most compelling evidence of organized activity came from the analysis of shared device fingerprints. "Super-connector" devices—those linked to ten or more listings—showed a 35.5\% fraud rate, representing a 4.4-fold increase over the baseline. The most extreme case involved a single device fingerprint associated with 6,251 different listings, an unmistakable signature of a large-scale fraud ring. These observations were the primary motivation for the heterogeneous graph approach detailed in Section~\ref{sec:3_5}.
+The most compelling evidence of organized activity came from the analysis of shared device fingerprints. "Super-connector" devicesthose linked to ten or more listingsshowed a 35.5\% fraud rate, representing a 4.4-fold increase over the baseline. The most extreme case involved a single device fingerprint associated with 6,251 different listings, an unmistakable signature of a large-scale fraud ring. These observations were the primary motivation for the heterogeneous graph approach detailed in Section~\ref{sec:3_5}.

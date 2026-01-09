@@ -6,7 +6,7 @@
 
 \paragraph{RQ1: What relational fraud patterns exist in marketplace graphs, and do they provide predictive signal beyond individual listing attributes?}
 
-Relational fraud patterns, particularly those involving shared entities like devices, IP addresses, emails, and phone numbers, provide a strong signal for uncovering structured fraud rings. Our analysis shows that "super-connector" devices—those associated with ten or more listings—exhibit a 35.5\% fraud rate, which is more than four times the 8.11\% baseline. The hybrid GNN+XGBoost framework successfully captures these signals through GraphSAGE embeddings, which account for 17.3\% of the total SHAP importance. While the aggregate metrics show only a marginal gain—GNN+XGBoost achieved a mean AUC-PR of 0.733 $\pm$ 0.058 compared to vanilla XGBoost's 0.733 $\pm$ 0.063 across three independent runs—the value of the relational signal becomes clear when looking at specific cases.
+Relational fraud patterns, particularly those involving shared entities like devices, IP addresses, emails, and phone numbers, provide a strong signal for uncovering structured fraud rings. Our analysis shows that "super-connector" devices those associated with ten or more listings exhibit a 35.5\% fraud rate, which is more than four times the 8.11\% baseline. The hybrid GNN+XGBoost framework successfully captures these signals through GraphSAGE embeddings, which account for 17.3\% of the total SHAP importance. While the aggregate metrics show only a marginal gainGNN+XGBoost achieved a mean AUC-PR of 0.733 $\pm$ 0.058 compared to vanilla XGBoost's 0.733 $\pm$ 0.063 across three independent runsthe value of the relational signal becomes clear when looking at specific cases.
 
 Aggregate statistics often mask the most important findings: the GNN model identified 13 fraud cases that were entirely missed by the vanilla XGBoost model (Section~\ref{sec:5_10_1a}). These "GNN-unique" detections are typically linked to extreme device connectivity, with an average of 3,565 connections. This suggests that some fraud manifests purely through network topology rather than individual listing characteristics. By aggregating signals across these massive components, the GNN's message-passing mechanism uncovers coordinated operations that remain invisible to standard tabular analysis.
 
@@ -27,7 +27,7 @@ The integration of SHAP-based explainability provides a bridge between model pre
 \subsection{Data Mining Perspective: Beyond Aggregate Metrics}
 \label{sec:5_10_1a}
 
-Fully interpreting these findings requires a distinction between the standard machine learning evaluation and a broader data mining perspective. While machine learning research usually focuses on aggregate metrics like AUC-PR or F1-score, data mining places more emphasis on pattern discovery, knowledge extraction, and the generation of actionable insights—even if those insights do not drastically move the needle on summary statistics.
+Fully interpreting these findings requires a distinction between the standard machine learning evaluation and a broader data mining perspective. While machine learning research usually focuses on aggregate metrics like AUC-PR or F1-score, data mining places more emphasis on pattern discovery, knowledge extraction, and the generation of actionable insightseven if those insights do not drastically move the needle on summary statistics.
 
 \paragraph{Limitations of Aggregate Metrics for GNN Evaluation}
 
@@ -59,7 +59,7 @@ The most telling result is that the GNN caught 13 fraud cases that were complete
 
 \paragraph{Profiles of GNN-Unique Detections}
 
-A closer look at these 13 cases reveals a very specific profile. On average, these listings were part of networks with 3,565 device-sharing connections—massively higher than the dataset average of 847. They also showed a higher-than-average degree of IP clustering. These are classic "coordinated fraud rings" where the individual listings might appear perfectly normal if viewed in isolation. The vanilla XGBoost model, which looks at each listing as an independent data point, cannot see this relational context. The GNN's message-passing mechanism, however, aggregates signals across thousands of nodes, allowing it to flag listings based on their position within a suspicious network.
+A closer look at these 13 cases reveals a very specific profile. On average, these listings were part of networks with 3,565 device-sharing connectionsmassively higher than the dataset average of 847. They also showed a higher-than-average degree of IP clustering. These are classic "coordinated fraud rings" where the individual listings might appear perfectly normal if viewed in isolation. The vanilla XGBoost model, which looks at each listing as an independent data point, cannot see this relational context. The GNN's message-passing mechanism, however, aggregates signals across thousands of nodes, allowing it to flag listings based on their position within a suspicious network.
 
 \paragraph{Contributions to Knowledge Discovery}
 
@@ -84,7 +84,7 @@ The decision to use AUC-PR as our primary evaluation metric requires some explan
 
 In highly imbalanced domains like this one (with an 8.11\% fraud rate), AUC-ROC can often be misleadingly optimistic. A model that simply predicts all listings are legitimate would achieve nearly 92\% accuracy and a seemingly respectable AUC-ROC of around 0.85, even though it provides absolutely no operational value. AUC-PR correctly penalizes this behavior because precision drops sharply as false positives accumulate.
 
-The trade-off we see with the GNN model suggests that it is optimizing for precision at the decision thresholds that matter most—namely, when flagging high-confidence fraud for manual review. This is supported by our Precision@K results in Table~\ref{tab:5_2}, which show that the GNN achieves 98\% P@100. In practical terms, this means that 98 of the top 100 listings flagged by the model are genuine fraud. Since fraud analysts typically only have time to review the top 100–200 cases per day, performance at these high-confidence points has a direct impact on investigation efficiency. For this reason, AUC-PR and P@K are far better aligned with business objectives than global metrics like AUC-ROC.
+The trade-off we see with the GNN model suggests that it is optimizing for precision at the decision thresholds that matter mostnamely, when flagging high-confidence fraud for manual review. This is supported by our Precision@K results in Table~\ref{tab:5_2}, which show that the GNN achieves 98\% P@100. In practical terms, this means that 98 of the top 100 listings flagged by the model are genuine fraud. Since fraud analysts typically only have time to review the top 100–200 cases per day, performance at these high-confidence points has a direct impact on investigation efficiency. For this reason, AUC-PR and P@K are far better aligned with business objectives than global metrics like AUC-ROC.
 
 \subsection{Limitations}
 \label{sec:5_10_2}
@@ -107,7 +107,7 @@ The fraud labels used in this study come from SMG’s existing operational syste
 
 \paragraph{Dataset and Scope Constraints}
 
-Finally, our results are tied to a specific dataset from a Swiss real estate marketplace between 2024 and 2025. The patterns we identified, such as specific geographic clusters or device fingerprinting signals, may be specific to the actors targeting this platform during this time. Generalizing these findings to other regions or different types of marketplaces—like e-commerce or finance—would require further empirical validation. Other technical constraints, such as the use of neighbor sampling to handle our 31-million-edge graph, also limit the "receptive field" of our GNN to 2-hop neighborhoods. It is possible that larger fraud ring structures spanning more than three hops are being missed. Future research using multi-year data and more advanced sampling techniques could help address these questions of scale and long-term evolution.
+Finally, our results are tied to a specific dataset from a Swiss real estate marketplace between 2024 and 2025. The patterns we identified, such as specific geographic clusters or device fingerprinting signals, may be specific to the actors targeting this platform during this time. Generalizing these findings to other regions or different types of marketplaceslike e-commerce or financewould require further empirical validation. Other technical constraints, such as the use of neighbor sampling to handle our 31-million-edge graph, also limit the "receptive field" of our GNN to 2-hop neighborhoods. It is possible that larger fraud ring structures spanning more than three hops are being missed. Future research using multi-year data and more advanced sampling techniques could help address these questions of scale and long-term evolution.
 
 \subsection{Ethical Considerations and Fairness}
 \label{sec:5_10_2b}
@@ -118,13 +118,13 @@ The use of automated fraud detection naturally raises questions about fairness a
 
 One of our most significant findings was the high fraud rate associated with certain geographic regions. As noted in Section~\ref{sec:5_1}, IP addresses from some West African countries showed fraud rates as high as 60–90\%. While these signals are highly predictive and reflect genuine fraud infrastructure, they also introduce a risk of discrimination. If a model relies heavily on geography, legitimate users from these high-risk regions may face unfair scrutiny.
 
-We have tried to mitigate this by ensuring the model uses a multivariate decision process. Local SHAP explanations show that geography is rarely the sole factor in a decision; instead, it is usually combined with behavioral signals like unusual screen resolutions, disposable emails, or specific listing content. For instance, a high-risk flag might be triggered by a combination of a Benin IP, a missing timezone, and a specific bot fingerprint. However, the risk of "statistical discrimination"—where an entire group is penalized based on the average behavior of its region—remains a concern.
+We have tried to mitigate this by ensuring the model uses a multivariate decision process. Local SHAP explanations show that geography is rarely the sole factor in a decision; instead, it is usually combined with behavioral signals like unusual screen resolutions, disposable emails, or specific listing content. For instance, a high-risk flag might be triggered by a combination of a Benin IP, a missing timezone, and a specific bot fingerprint. However, the risk of "statistical discrimination"where an entire group is penalized based on the average behavior of its regionremains a concern.
 
 \paragraph{Feedback Loops and Safeguards}
 
 There is also a risk of creating "self-fulfilling prophecies" through label bias. If existing detection systems already over-scrutinize certain regions, those regions will naturally have higher rates of detected fraud, which the model will then learn and amplify. To break this loop, it is essential to have external validation and human-in-the-loop reviews. We recommend that listings from high-risk regions be flagged for manual review rather than being automatically rejected. We also suggest that platform operators track false positive rates by country to ensure that legitimate users from these areas are not being unfairly excluded.
 
-Finally, the interpretability of the model is not just a technical feature but a tool for fairness. By providing human-readable explanations for why a listing was flagged, we enable a more transparent appeals process. If a user can see that they were flagged for a specific, verifiable reason—like a disposable email—they have a better chance of contesting a false positive. This level of transparency is essential for building trust in automated systems, especially as regulations like the EU AI Act and GDPR increasingly require accountability for significant automated decisions.
+Finally, the interpretability of the model is not just a technical feature but a tool for fairness. By providing human-readable explanations for why a listing was flagged, we enable a more transparent appeals process. If a user can see that they were flagged for a specific, verifiable reasonlike a disposable emailthey have a better chance of contesting a false positive. This level of transparency is essential for building trust in automated systems, especially as regulations like the EU AI Act and GDPR increasingly require accountability for significant automated decisions.
 
 \subsection{Practical Implications}
 \label{sec:5_10_3}
@@ -137,7 +137,7 @@ Given the superior temporal robustness of the tabular approach, we recommend tha
 
 We suggest a tiered approach to fraud detection:
 \begin{itemize}
-    \item \textbf{Tier 1:} Use initial screening (such as SEON integration) to catch obvious fraud—like blacklisted IPs or disposable emails—at the moment of submission. This reduces the volume of listings that need to be scored by more complex models.
+    \item \textbf{Tier 1:} Use initial screening (such as SEON integration) to catch obvious fraudlike blacklisted IPs or disposable emailsat the moment of submission. This reduces the volume of listings that need to be scored by more complex models.
     \item \textbf{Tier 2:} Use the optimized Vanilla XGBoost model to score and rank the remaining listings. By targeting a P@100 of over 97\%, the system can ensure that analysts are focusing their time on the highest-probability fraud.
     \item \textbf{Research Track:} Maintain the GNN+XGBoost model as an offline tool for pattern discovery. While it may not be stable enough for real-time classification yet, its ability to identify large-scale fraud ring structures is invaluable for proactive investigation and for understanding how fraud networks are evolving.
 \end{itemize}

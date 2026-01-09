@@ -47,13 +47,7 @@ Reverse edges & Bidirectional message passing & $\sim$194,000 \\
 
 The \texttt{shares\_device} edge type dominates (12M edges) due to power users and fraud rings operating from single devices. Device sharing provides the strongest fraud signal per EDA findings (35.5\% fraud rate for super-connectors).
 
-\textbf{Edge Construction Logic:} For each entity type (device, IP, email, phone), edges connect all listing pairs sharing that entity:
-\begin{lstlisting}[language=Python, basicstyle=\ttfamily\fontsize{11}{13.2}\selectfont]
-For entity e with listings [L1, L2, L3]:
-  Create edges: (L1, L2), (L1, L3), (L2, L3)
-\end{lstlisting}
-
-This creates dense subgraphs for high-volume entities (e.g., 6,251 listings sharing one device creates $\sim$19.5M potential edges from that device alone), which we handle through neighbor sampling during training.
+\textbf{Edge Construction Logic:} For each entity type (device, IP, email, phone), edges connect all listing pairs sharing that entity. Given an entity $e$ associated with listings $\{L_1, L_2, \ldots, L_n\}$, we create edges between all pairs: $(L_i, L_j)$ for all $i < j$, resulting in $\binom{n}{2} = \frac{n(n-1)}{2}$ edges per entity. This creates dense subgraphs for high-volume entities (e.g., 6,251 listings sharing one device creates $\sim$19.5M potential edges from that device alone), which we handle through neighbor sampling during training.
 
 \subsection{Temporal Graph Integrity}
 

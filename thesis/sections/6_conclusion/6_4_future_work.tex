@@ -11,7 +11,7 @@
 Our findings have identified several open questions and technical challenges that point toward promising future research directions. We have organized these opportunities by their implementation timeline and compared them with existing literature.
 
 \paragraph{Short-Term Extensions}
-In the immediate future, several improvements could enhance the operational utility of the current system. First, developing a more robust MLOps pipeline with automated retraining is essential. Our research showed a significant performance drop for GNNs under concept drift, and while standard methods like DDM/ADWIN can flag these shifts, we need more "graph-aware" detection that can account for changes in network topology. Second, a formal shadow deployment would allow for a direct, head-to-head comparison between our models and the existing SEON system under identical production conditions. Finally, optimizing decision thresholds based on actual business costs and investigation capacity—rather than just the default 0.5—would further improve the practical value of the model.
+In the immediate future, several improvements could enhance the operational utility of the current system. First, developing a more robust MLOps pipeline with automated retraining is essential. Our research showed a significant performance drop for GNNs under concept drift, and while standard methods like DDM/ADWIN can flag these shifts, we need more "graph-aware" detection that can account for changes in network topology. Second, a formal shadow deployment would allow for a direct, head-to-head comparison between our models and the existing SEON system under identical production conditions. Finally, optimizing decision thresholds based on actual business costs and investigation capacityrather than just the default 0.5would further improve the practical value of the model.
 
 \paragraph{Medium-Term Research}
 Over the medium term, we see opportunities for more fundamental shifts in the system's architecture. Transitioning to real-time GNN inference would close the current gap between tabular scoring, which is nearly instantaneous, and graph embedding generation, which currently takes significantly longer. We also believe that cross-platform federation between Homegate and ImmoScout24 could be highly beneficial. Given the high rate of cross-platform fraud, a federated learning approach would allow both platforms to benefit from shared signals without compromising sensitive user data. Furthermore, incorporating active learning could help refine our ground truth labels by bringing fraud analysts into the loop, allowing the model to learn from human expertise on the most ambiguous cases.
@@ -32,7 +32,7 @@ Table~\ref{tab:6_4_comparison} summarizes how our future directions address the 
 \midrule
 No real estate graph fraud research \cite{mutemi2024ecommerce,cherif2024financial} & First GNN application to real estate marketplace & Cross-platform transfer learning \\
 \addlinespace
-GNN temporal stability assumed \cite{liu2021pick} & Quantified 70\% degradation under drift & Temporal GNNs (TGN, TGAT) \\
+GNN temporal stability assumed & Quantified 70\% degradation under drift & Temporal GNNs (TGN, TGAT) \\
 \addlinespace
 Data requirements unspecified \cite{dou2020enhancing} & Established $\sim$300K sample threshold & Investigate small-data GNN methods \\
 \addlinespace

@@ -62,14 +62,14 @@ Positive-signal edges only (~8M edges) & 0.6967 & -0.3\% \\
 \end{tabular}
 \end{table}
 
-It appears that supervised GNN training is already capable of weighting edges appropriately through backpropagation. Manual filtering likely removed potentially useful negative signals—such as legitimate users sharing IP addresses in public spaces—without providing any compensatory gain.
+It appears that supervised GNN training is already capable of weighting edges appropriately through backpropagation. Manual filtering likely removed potentially useful negative signalssuch as legitimate users sharing IP addresses in public spaceswithout providing any compensatory gain.
 
 \subsection{Alternative Architectures: CARE-GNN}
 
 We also evaluated the CARE-GNN (Camouflage-Resistant GNN) architecture \cite{dou2020enhancing}, which is specifically designed to identify fraudsters who attempt to mimic legitimate behavior.
 
 \paragraph{Implementation Challenges}
-Despite its theoretical advantages, CARE-GNN presented several practical challenges. It was significantly slower to train—taking 45 minutes per epoch compared to just 2 minutes for GraphSAGE—and required three times more memory due to its complex attention mechanisms. It was also highly sensitive to hyperparameters, particularly those related to label similarity.
+Despite its theoretical advantages, CARE-GNN presented several practical challenges. It was significantly slower to traintaking 45 minutes per epoch compared to just 2 minutes for GraphSAGEand required three times more memory due to its complex attention mechanisms. It was also highly sensitive to hyperparameters, particularly those related to label similarity.
 
 \paragraph{Outcome and Conclusion}
 Ultimately, CARE-GNN achieved an AUC-PR of 0.6945, which actually underperformed our GraphSAGE baseline. Given the 22-fold increase in training time and the lack of a performance gain, we concluded that GraphSAGE's simplicity and efficiency make it the better choice for this particular domain.
@@ -79,7 +79,7 @@ Ultimately, CARE-GNN achieved an AUC-PR of 0.6945, which actually underperformed
 Finally, we looked at whether an unsupervised training approach could learn general graph structures that would be useful for fraud detection.
 
 \paragraph{Hypothesis and Results}
-We trained the GNN using unsupervised link prediction—essentially predicting whether an edge exists between two nodes—rather than supervised classification based on fraud labels. As Table~\ref{tab:unsupervised_results} shows, this method was significantly less effective.
+We trained the GNN using unsupervised link predictionessentially predicting whether an edge exists between two nodesrather than supervised classification based on fraud labels. As Table~\ref{tab:unsupervised_results} shows, this method was significantly less effective.
 
 \begin{table}[h]
 \centering
