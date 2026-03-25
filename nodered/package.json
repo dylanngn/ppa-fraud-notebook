@@ -1,0 +1,14 @@
+{
+  "name": "ppa-fraud-nodered-demo",
+  "version": "1.0.0",
+  "description": "Node-RED fraud detection pipeline demo",
+  "scripts": {
+    "start": "node --no-deprecation $(which node-red) -s settings.js -u ."
+  },
+  "dependencies": {
+    "@node-red/nodes": "^4.0.0",
+    "node-red": "^4.0.0",
+    "node-red-dashboard": "^2.30.0",
+    "node-red-node-ui-table": "^0.4.5"
+  }
+}

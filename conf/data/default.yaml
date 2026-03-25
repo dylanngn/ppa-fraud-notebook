@@ -25,6 +25,37 @@ columns:
     time_col: "DATAPIPELINE_EVENT_SENT_AT"
     status_col: "STATUS"
     fraud_flag_col: "FLAGGEDFORFRAUD"
+
+    # Listing funnel statuses (V_INSERTION_FUNNEL_STREAM_TRANSFORMED)
+    #
+    # DRAFT                      - pre-submission; no SEON check; excluded from training
+    # PENDING_APPROVAL           - first submission; SEON runs here; PRIMARY scoring moment
+    # APPROVED                   - passed review + payment; post-scoring
+    # PUBLISHED                  - live on platform; post-scoring
+    # REPUBLISHING               - user triggered republish; transitional; no SEON check
+    # PENDING_REPUBLISH_APPROVAL - republish awaiting re-approval; SEON runs again;
+    #                              maps to a new SEON transaction via timestamp correlation;
+    #                              treated identically to PENDING_APPROVAL for scoring
+    # ARCHIVED                   - archived by user OR fraud detection (post-hoc, label leakage risk)
+    # DELETED                    - deleted by user OR fraud-archive deleted (post-hoc, label leakage risk)
+    #
+    # Training uses first event per (INSERTION_ID, STATUS), excluding DRAFT.
+    # STATUS itself is excluded from features due to label leakage (see schema.py).
+    # SEON correlation uses timestamp-based asof join — handles both PENDING_APPROVAL
+    # and PENDING_REPUBLISH_APPROVAL automatically.
+    exclude_statuses:
+      - "DRAFT"         # Pre-submission; no SEON check
+      - "REPUBLISHING"  # Transitional; no new SEON check
+      - "CONTACT_REQUESTED"  # Admin action (CCC suspects fraud, contacts customer); not a user event
+      - "REJECTED"      # 3 rows total; not in funnel vocabulary
+    seon_scoring_statuses:
+      - "PENDING_APPROVAL"
+      - "PENDING_REPUBLISH_APPROVAL"
+    primary_scoring_status: "PENDING_APPROVAL"
+    platform_col: "TARGETPLATFORM"
+    allowed_platforms:
+      - "homegate"
+      - "immoscout24"
   
   # SEON columns
   seon:

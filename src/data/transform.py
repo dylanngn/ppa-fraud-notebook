@@ -87,23 +87,25 @@ def correlate_events_to_seon(
         .alias(seon_unique_col)
     ).drop([f"{seon_unique_col}_fwd", f"{seon_unique_col}_bwd"])
 
-    matched = result.filter(pl.col(seon_unique_col).is_not_null())
-    
+    n_matched = result.filter(pl.col(seon_unique_col).is_not_null()).height
+    n_unmatched = total_events - n_matched
+
     stats = {
         "total_events": total_events,
-        "matched_events": len(matched),
-        "unmatched_events": total_events - len(matched),
+        "matched_events": n_matched,
+        "unmatched_events": n_unmatched,
     }
-    
-    if stats["unmatched_events"] > 0:
+
+    if n_unmatched > 0:
         logger.warning(
-            "Events without SEON match: %s (%.2f%%)",
-            f"{stats['unmatched_events']:,}",
-            stats['unmatched_events'] / total_events * 100,
+            "Events without SEON match: %s (%.1f%%) — kept with null SEON features",
+            f"{n_unmatched:,}",
+            n_unmatched / total_events * 100,
         )
-    
-    logger.info("  Correlated: %s → %s rows", f"{total_events:,}", f"{len(matched):,}")
-    return matched, stats
+
+    logger.info("  Correlated: %s matched, %s unmatched", f"{n_matched:,}", f"{n_unmatched:,}")
+    # Return ALL events — unmatched have null seon_unique_col; merge_seon_features uses left join
+    return result, stats
 
 
 def merge_seon_features(
@@ -124,10 +126,11 @@ def merge_seon_features(
     """
     logger.info("Merging SEON features...")
     
+    # Left join: events without a SEON match keep all event columns, SEON columns are null
     merged = events_df.join(
         seon_df,
         on=seon_unique_col,
-        how="inner",
+        how="left",
         suffix="_seon",
     )
     
@@ -162,19 +165,19 @@ def drop_all_null_columns(df: pl.DataFrame) -> Tuple[pl.DataFrame, Dict[str, Opt
     """
     if df.is_empty():
         return df, {"dropped": [], "savings_mb": None}
-    
-        before_bytes = df.estimated_size()
+
+    before_bytes = df.estimated_size()
     null_counts = df.null_count()
     row_counts = null_counts.row(0)
     empty_cols = [col for col, count in zip(null_counts.columns, row_counts) if count == len(df)]
-    
+
     if not empty_cols:
         return df, {"dropped": [], "savings_mb": 0.0}
-    
+
     pruned = df.drop(empty_cols)
-        after_bytes = pruned.estimated_size()
-        savings_mb = (before_bytes - after_bytes) / (1024 * 1024)
-    
+    after_bytes = pruned.estimated_size()
+    savings_mb = (before_bytes - after_bytes) / (1024 * 1024)
+
     return pruned, {"dropped": empty_cols, "savings_mb": savings_mb}
 
 
@@ -186,15 +189,20 @@ def transform_data(
 ) -> pl.DataFrame:
     """
     Main transformation pipeline.
-    
+
     Steps:
-    1. Collect events from LazyFrame
-    2. Filter to events with matching SEON IDs
-    3. Correlate events to SEON transactions by timestamp
-    4. Merge all SEON columns
-    5. Derive fraud label
-    6. Anonymize PII
-    7. Drop all-null columns
+    1. Collect all events from LazyFrame
+    2. Propagate insertion-level fraud flag (FLAGGEDFORFRAUD lives on ARCHIVED/DELETED rows;
+       must be propagated now before scoring-event filter removes those rows)
+    3. Filter to scoring events only (PENDING_APPROVAL + PENDING_REPUBLISH_APPROVAL) —
+       the only moments when SEON is called and the API scores a listing
+    4. Asof-join each scoring event to its closest SEON transaction by timestamp;
+       events with no SEON match are kept with null features (XGBoost handles nulls)
+    5. Merge all SEON columns (left join)
+    6. Derive preliminary fraud label from propagated FLAGGEDFORFRAUD
+       (temporal_split will re-apply point-in-time correction during training)
+    7. Anonymize PII
+    8. Drop all-null columns
 
     Args:
         events_lf: LazyFrame or DataFrame of events
@@ -208,6 +216,10 @@ def transform_data(
     logger.info("Starting transformation...")
 
     seon_unique_col = getattr(cfg.columns.seon, "unique_col", "id")
+    fraud_flag_col = cfg.columns.events.fraud_flag_col
+    scoring_statuses = list(
+        cfg.columns.events.get("seon_scoring_statuses", ["PENDING_APPROVAL", "PENDING_REPUBLISH_APPROVAL"])
+    )
 
     # Collect events
     if isinstance(events_lf, pl.LazyFrame):
@@ -221,25 +233,47 @@ def transform_data(
         logger.warning("No events to process.")
         return events_df
 
-    # Filter to matching SEON IDs
-    seon_ids = seon_df.select("INSERTION_ID").unique()
-    events_df = events_df.join(seon_ids, on="INSERTION_ID", how="semi")
-    logger.info("  After SEON filter: %s events", f"{len(events_df):,}")
-    
+    # Propagate insertion-level fraud timestamp BEFORE filtering to scoring events.
+    # FLAGGEDFORFRAUD is only non-null on ARCHIVED/ARCHIVING/DELETED rows; propagating
+    # it now ensures each PENDING_APPROVAL row carries the fraud flag for its insertion,
+    # so temporal_split's point-in-time logic works correctly after filtering.
+    if fraud_flag_col in events_df.columns:
+        insertion_fraud = (
+            events_df
+            .filter(pl.col(fraud_flag_col).is_not_null())
+            .group_by("INSERTION_ID")
+            .agg(pl.col(fraud_flag_col).first().alias("_fraud_propagated"))
+        )
+        events_df = (
+            events_df
+            .drop(fraud_flag_col)
+            .join(insertion_fraud, on="INSERTION_ID", how="left")
+            .rename({"_fraud_propagated": fraud_flag_col})
+        )
+        n_fraud_insertions = insertion_fraud.height
+        logger.info("  Propagated fraud flag for %s insertions", f"{n_fraud_insertions:,}")
+
+    # Filter to scoring events only — the moments when SEON is called in production
+    events_df = events_df.filter(pl.col("STATUS").is_in(scoring_statuses))
+    logger.info(
+        "  Scoring events (%s): %s",
+        " / ".join(scoring_statuses),
+        f"{len(events_df):,}",
+    )
+
     if events_df.is_empty():
-        logger.warning("No events match SEON IDs.")
+        logger.warning("No scoring events after status filter.")
         return events_df
 
-    # Correlate
-    events_df, stats = correlate_events_to_seon(events_df, seon_df, seon_unique_col)
-    if stats["matched_events"] == 0:
-        return events_df
-    
-    # Merge SEON features
+    # Correlate each scoring event to its closest SEON transaction by timestamp.
+    # Events with no SEON match are retained with null SEON id (see correlate_events_to_seon).
+    events_df, _stats = correlate_events_to_seon(events_df, seon_df, seon_unique_col)
+
+    # Merge SEON features (left join — keeps events with no SEON match as null rows)
     events_df = merge_seon_features(events_df, seon_df, seon_unique_col)
-    
-    # Derive label
-    events_df = derive_label(events_df, fraud_col=cfg.columns.events.fraud_flag_col)
+
+    # Derive preliminary label; temporal_split will re-apply PIT correction during training
+    events_df = derive_label(events_df, fraud_col=fraud_flag_col)
     
     # Anonymize
     events_df = anonymize_merged_data(events_df)

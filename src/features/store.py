@@ -158,7 +158,7 @@ class FeatureStore:
         train_end: datetime,
         test_end: datetime,
         gap_days: int = 7,
-        label_propagation: LabelPropagation = LabelPropagation.INSERTION_LEVEL,
+        label_propagation: LabelPropagation = LabelPropagation.INSERTION_LEVEL,  # NOTE: unused in main training path; main pipeline uses temporal_split.TemporalSplitter with POINT_IN_TIME
     ) -> Tuple[pl.DataFrame, pl.DataFrame]:
         """Prepare train/test splits with temporal ordering."""
         df = self.load_data().collect()

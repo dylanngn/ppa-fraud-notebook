@@ -6,9 +6,10 @@ defaults:
   - override hydra/sweeper: optuna
   - _self_
 
-# HPO-specific experiment settings
-experiment:
-  name: "HPO_XGBoost"
+# MLflow: HPO runs go to a dedicated experiment; skip Model Registry to avoid bloat
+mlflow:
+  experiment_name: "fraud-detection-hpo"
+  registered_model_name: null
 
 # Fixed training settings for HPO
 training:

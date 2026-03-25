@@ -11,13 +11,35 @@ from enum import Enum
 
 
 class EventType(str, Enum):
-    """Listing lifecycle events."""
-    DRAFT = "DRAFT"
-    SUBMITTED = "SUBMITTED"
-    PUBLISHED = "PUBLISHED"
-    REJECTED = "REJECTED"
-    FLAGGEDFORFRAUD = "FLAGGEDFORFRAUD"
-    DELETED = "DELETED"
+    """
+    Listing lifecycle status transitions in the PPA insertion funnel.
+
+    DRAFT                      — Listing created or edited before submission. No
+                                 SEON check yet. Excluded from training and scoring.
+    PENDING_APPROVAL           — First submission. SEON runs here. Primary scoring
+                                 moment — model is called at this event.
+    APPROVED                   — Passed review (auto or manual) + payment processed.
+    PUBLISHED                  — Live on ImmoScout24 / Homegate.
+    REPUBLISHING               — User triggered a republish; transitional state
+                                 before the new approval cycle. No new SEON check.
+    PENDING_REPUBLISH_APPROVAL — Republished listing awaiting re-approval. SEON
+                                 runs again here → maps to a new SEON transaction.
+                                 Treated identically to PENDING_APPROVAL for scoring
+                                 and SEON timestamp correlation.
+    ARCHIVED                   — Archived by user OR marked fraud by moderation
+                                 (post-hoc). STATUS leakage risk — excluded from
+                                 the feature schema.
+    DELETED                    — Deleted by user OR a fraud-ARCHIVED listing
+                                 subsequently deleted. Also post-hoc — excluded.
+    """
+    DRAFT                       = "DRAFT"
+    PENDING_APPROVAL            = "PENDING_APPROVAL"
+    APPROVED                    = "APPROVED"
+    PUBLISHED                   = "PUBLISHED"
+    REPUBLISHING                = "REPUBLISHING"
+    PENDING_REPUBLISH_APPROVAL  = "PENDING_REPUBLISH_APPROVAL"
+    ARCHIVED                    = "ARCHIVED"
+    DELETED                     = "DELETED"
 
 
 class RiskTier(str, Enum):
@@ -191,11 +213,24 @@ class BulkIngestResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Service health check response."""
-    
-    status: str = Field(..., description="'healthy' or 'unhealthy'")
+
+    status: str = Field(..., description="'healthy' or 'degraded'")
     model_loaded: bool
     events_in_store: int
     graph_nodes: int
     graph_edges: int
     last_graph_update: Optional[datetime]
+
+
+class ModelInfoResponse(BaseModel):
+    """Metadata about the currently loaded model."""
+
+    model_loaded: bool = Field(..., description="Whether a model is loaded")
+    model_uri: Optional[str] = Field(None, description="URI the model was loaded from")
+    mlflow_run_id: Optional[str] = Field(None, description="MLflow run that produced the model")
+    mlflow_model_name: str = Field(..., description="Registered model name in MLflow")
+    mlflow_model_alias: str = Field(..., description="Alias used to load the model (e.g. 'production')")
+    threshold_high: float = Field(..., description="Probability threshold for HIGH risk / DECLINE")
+    threshold_medium: float = Field(..., description="Probability threshold for MEDIUM risk / REVIEW")
+    service_version: str = Field(..., description="API service version")
 

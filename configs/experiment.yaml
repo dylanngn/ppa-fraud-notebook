@@ -4,39 +4,44 @@
 defaults:
   - _self_
 
-experiment:
-  name: "fraud_detection"
+# MLflow tracking configuration
+mlflow:
   tracking_uri: "sqlite:///ppa-fraud-detection-mlflow.db"
   artifact_location: "mlruns"
+  # All training runs use this experiment; use tags/run names to filter by variant.
+  # HPO runs override this to "fraud-detection-hpo" in their own configs.
+  experiment_name: "fraud-detection"
+  # Registers the best model to the MLflow Model Registry after training.
+  # Set to null to skip registration (recommended during HPO to avoid registry bloat).
+  registered_model_name: "fraud-detection"
 
 data:
   path: "artifacts/merged_events.parquet"
-  # Fixed train/test split for controlled A/B comparisons
-  # Note: SEON data starts 2024-11-16, so use 2024-12-01 as safe start
-  train_start_date: "2024-12-01"  # Exclude incomplete early data
-  train_end_date: "2025-06-01"    # Train on data up to this date
-  test_end_date: "2025-07-01"     # Test on data from train_end + gap to this date
+  # SEON data range: 2025-03-21 → 2026-03-20; events: 2025-03-07 → 2026-03-20
+  train_start_date: "2025-03-21"  # First reliable SEON coverage date
+  train_end_date: "2025-12-01"    # Train on data up to this date
+  test_end_date: "2026-02-01"     # Test on data from train_end + gap to this date
 
 training:
   mode: "single"  # "single" or "expanding"
-  gap_days: 7  # Gap between train and test to prevent leakage
-  run_shap: false  # Set to true to run SHAP analysis after training
+  gap_days: 7     # Days between train cutoff and test start (prevents feature leakage)
+  run_shap: false # Set to true to run SHAP analysis and log artifacts after training
 
-# Expanding window configuration (for mode="expanding")
+# Expanding window configuration (used when training.mode = "expanding")
 expanding_window:
-  window_days: 30  # Length of each test window
-  min_train_windows: 2  # Minimum training windows before first evaluation
+  window_days: 30       # Length of each test evaluation window
+  min_train_windows: 2  # Minimum windows before first evaluation
 
 model:
-  # Variants: logistic_regression, random_forest, vanilla_xgboost, gnn_xgboost
+  # Available variants: logistic_regression, random_forest, vanilla_xgboost, gnn_xgboost
   variant: "vanilla_xgboost"
-  
+
   # Logistic Regression baseline
   logistic_regression:
     C: 1.0
     max_iter: 1000
     class_weight: "balanced"
-  
+
   # Random Forest baseline
   random_forest:
     n_estimators: 100
@@ -44,8 +49,8 @@ model:
     min_samples_split: 5
     min_samples_leaf: 2
     class_weight: "balanced"
-  
-  # XGBoost (main model) - Best HPO parameters (2025-12-19)
+
+  # XGBoost classifier — best HPO parameters found on 2025-12-19
   xgboost:
     n_estimators: 500
     max_depth: 12
@@ -57,15 +62,15 @@ model:
     reg_alpha: 0.078
     reg_lambda: 0.406
     scale_pos_weight: 5.297
-    
-  # GNN embedder - Best HPO parameters (2025-12-19)
+
+  # GNN embedder — best HPO parameters found on 2025-12-19
   gnn:
-    encoder: "graphsage"  # "graphsage", "hgt", or "care"
+    encoder: "graphsage"  # Options: "graphsage", "hgt", "care"
     device: "cpu"
     hidden_dim: 32
     output_dim: 16
     num_layers: 2
-    num_heads: 4  # For HGT only
-    similarity_dim: 32  # For CARE-GNN only
+    num_heads: 4        # HGT only: number of attention heads
+    similarity_dim: 32  # CARE-GNN only: similarity projection dimension
     epochs: 10
-    supervised: true  # true = node classification, false = link prediction
+    supervised: true    # true = node classification loss, false = link prediction

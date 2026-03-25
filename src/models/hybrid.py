@@ -254,12 +254,22 @@ class HybridPipeline(HybridFraudDetector):
             if col in X.columns:
                 X[col] = X[col].astype("Int8")  # nullable int
 
-        # Handle categorical columns (string types only)
+        # Cast any numeric columns that arrived as object/string dtype to float
+        # (e.g. LISTING_CHARACTERISTICS_NUMBEROFBATHROOMS parsed as String by Polars)
+        numeric_cols = list(FEATURE_SCHEMA.all_numeric_features)
+        for col in numeric_cols:
+            if col in X.columns and X[col].dtype == object:
+                X[col] = pd.to_numeric(X[col], errors="coerce")
+
+        # Ordinal-encode categoricals → float with NaN for missing values.
+        # XGBoost 3.x does not reliably accept pandas category dtype via QuantileDMatrix
+        # even with enable_categorical=True; ordinal int encoding is robust across versions.
         cat_cols = list(FEATURE_SCHEMA.all_categorical_features)
         for col in cat_cols:
             if col in X.columns:
                 X[col] = X[col].astype("category")
                 self.train_categoricals[col] = X[col].cat.categories
+                X[col] = X[col].cat.codes.astype(float).replace(-1.0, np.nan)
 
         return X
     
@@ -359,14 +369,19 @@ class HybridPipeline(HybridFraudDetector):
             if col in X.columns:
                 X[col] = X[col].astype("Int8")
 
-        # Apply categorical encoding from training
+        # Cast numeric columns with object/string dtype to float
+        numeric_cols = list(FEATURE_SCHEMA.all_numeric_features)
+        for col in numeric_cols:
+            if col in X.columns and X[col].dtype == object:
+                X[col] = pd.to_numeric(X[col], errors="coerce")
+
+        # Ordinal-encode using categories stored at train time; unseen → NaN
         cat_cols = list(FEATURE_SCHEMA.all_categorical_features)
         for col in cat_cols:
             if col in X.columns and col in self.train_categoricals:
                 known_cats = self.train_categoricals[col]
-                X[col] = X[col].astype(
-                    pd.CategoricalDtype(categories=known_cats, ordered=False)
-                )
+                X[col] = pd.Categorical(X[col], categories=known_cats).codes.astype(float)
+                X[col] = X[col].replace(-1.0, np.nan)
 
         return X
     

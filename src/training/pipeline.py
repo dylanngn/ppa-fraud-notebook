@@ -32,11 +32,7 @@ from src.features.temporal_split import (
 )
 from src.models.hybrid import HybridPipeline
 from src.models.xgboost_classifier import XGBoostClassifier
-from src.models.graphsage import GraphSAGEEmbedder
-from src.models.hgt import HGTEmbedder
-from src.models.care_gnn import CAREGNNEmbedder
 from src.models.baselines import LogisticRegressionClassifier, RandomForestBaseline
-from src.features.graph_features import GraphFeatureExtractor, GraphFeatureConfig
 from src.utils.metrics import calculate_metrics
 from src.evaluation.shap_analysis import SHAPAnalyzer, SHAPConfig
 
@@ -61,18 +57,21 @@ def _create_gnn_embedder(gnn_params: Dict[str, Any]):
     }
     
     if encoder_type == "hgt":
+        from src.models.hgt import HGTEmbedder
         _log(f"Using HGT encoder with {gnn_params.get('num_heads', 4)} attention heads")
         return HGTEmbedder(
             **common_params,
             num_heads=gnn_params.get("num_heads", 4),
         )
     elif encoder_type == "care" or encoder_type == "care_gnn":
+        from src.models.care_gnn import CAREGNNEmbedder
         _log(f"Using CARE-GNN encoder (camouflage-resistant)")
         return CAREGNNEmbedder(
             **common_params,
             similarity_dim=gnn_params.get("similarity_dim", 32),
         )
     else:
+        from src.models.graphsage import GraphSAGEEmbedder
         _log(f"Using GraphSAGE encoder")
         return GraphSAGEEmbedder(**common_params)
 
@@ -160,6 +159,7 @@ class SingleTrainingPipeline:
         
         # 3. Add Graph Features (if using graph_features variant)
         if self.variant == ModelVariant.GRAPH_FEATURES_XGBOOST:
+            from src.features.graph_features import GraphFeatureExtractor, GraphFeatureConfig
             _log("Extracting handcrafted graph features...")
             gf_extractor = GraphFeatureExtractor(GraphFeatureConfig())
             gf_extractor.fit(train_df)
@@ -329,42 +329,79 @@ class SingleTrainingPipeline:
             traceback.print_exc()
     
     def _log_model(self, pipeline: HybridPipeline):
-        """Log trained model to MLflow."""
+        """
+        Log trained model artifacts to MLflow.
+
+        Artifacts logged
+        ----------------
+        model/             — XGBoost model (loadable via mlflow.xgboost.load_model)
+        model/categorical_encoding.json — Category levels fitted during training;
+                             required by the serving layer to reproduce the same
+                             categorical encoding at inference time.
+        model/feature_names.json        — Ordered list of feature columns the
+                             model was trained on; used for input validation.
+        gnn_model/gnn_state.pt          — GNN encoder weights (gnn_xgboost only).
+
+        Model Registry
+        --------------
+        If cfg.mlflow.registered_model_name is set the model is automatically
+        registered to the MLflow Model Registry.  Promote a version to the
+        "Production" alias via the UI or:
+            mlflow models set-model-version-alias \\
+                --name fraud-detection --version <N> --alias production
+        """
         try:
             from mlflow.models import infer_signature
-            
+
             xgb_native = pipeline.classifier.model
             input_example = pipeline.input_example_
-            
+
             signature = None
             if input_example is not None:
                 signature = infer_signature(
-                    input_example, 
-                    xgb_native.predict_proba(input_example)[:, 1]
+                    input_example,
+                    xgb_native.predict_proba(input_example)[:, 1],
                 )
-            
+
             req_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                "requirements.txt"
+                "requirements.txt",
             )
-            
+
+            # Resolve registered model name from config (may be None for HPO runs)
+            registered_model_name = self.cfg.get("mlflow", {}).get("registered_model_name")
+
             mlflow.xgboost.log_model(
                 xgb_native,
-                name="model",
+                artifact_path="model",
                 signature=signature,
-                pip_requirements=req_path
+                pip_requirements=req_path,
+                registered_model_name=registered_model_name,
             )
-            
-            # Log GNN state if exists
+
+            # Persist categorical encoding levels so the serving layer can
+            # reproduce the exact same encoding without access to training data.
+            if pipeline.train_categoricals:
+                cat_state = {col: list(levels) for col, levels in pipeline.train_categoricals.items()}
+                mlflow.log_dict(cat_state, "model/categorical_encoding.json")
+
+            # Persist ordered feature names for input validation at serving time.
+            if input_example is not None:
+                mlflow.log_dict(
+                    {"feature_names": list(input_example.columns)},
+                    "model/feature_names.json",
+                )
+
+            # Persist GNN encoder weights for the gnn_xgboost variant.
             if pipeline.embedder:
                 os.makedirs("tmp", exist_ok=True)
-                path = "tmp/gnn_state.pt"
-                pipeline.embedder.save(path)
-                mlflow.log_artifact(path, artifact_path="gnn_model")
-                os.remove(path)
-                
+                gnn_path = "tmp/gnn_state.pt"
+                pipeline.embedder.save(gnn_path)
+                mlflow.log_artifact(gnn_path, artifact_path="gnn_model")
+                os.remove(gnn_path)
+
             _log("Model artifacts logged to MLflow")
-            
+
         except Exception as e:
             _log(f"Failed to log model artifacts: {e}")
 

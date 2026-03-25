@@ -29,56 +29,72 @@ class FeatureEngineer:
     4. Graph-like features (from event store)
     """
     
-    # Expected feature order (must match training)
-    # Uses raw SEON signals only, not SEON's ML prediction scores
+    # Expected feature order — must match training exactly (model.get_booster().feature_names)
     FEATURE_ORDER = [
-        # SEON IP (raw signals)
+        # SEON IP numeric
         "ip_latitude",
         "ip_longitude",
-        "data_center_proxy",
-        "residential_proxy",
-        "public_proxy",
-        "tor",
-        "vpn",
-        
-        # SEON Email
+
+        # SEON Email numeric
         "email/number_of_breaches",
-        "email/domain/disposable",
-        "email/domain/free",
-        "email/deliverable",
-        
-        # SEON Phone
-        "phone_is_disposable",
-        "phone_is_valid",
-        
-        # SEON Session
+
+        # SEON Session counts
         "session/video_input_count",
         "session/audio_input_count",
         "session/audio_output_count",
         "session/font_count",
         "session/plugin_count",
-        "session/private",
-        "session/device_vpn",
-        "session/adblock",
-        "session/cookie_enabled",
-        
-        # Listing Numeric
+
+        # Listing numeric
         "LISTING_PRICES_BUY_PRICE",
         "LISTING_PRICES_RENT_GROSS",
         "LISTING_PRICES_RENT_NET",
         "LISTING_CHARACTERISTICS_NUMBEROFROOMS",
+        "LISTING_CHARACTERISTICS_NUMBEROFBATHROOMS",
+        "LISTING_CHARACTERISTICS_LOTSIZE",
         "LISTING_CHARACTERISTICS_LIVINGSPACE",
-        
+        "LISTING_CHARACTERISTICS_YEARBUILT",
+        "LISTING_CHARACTERISTICS_FLOOR",
+        "LISTING_CHARACTERISTICS_NUMBEROFFLOORS",
+
         # Temporal
         "event_hour",
         "event_weekday",
         "event_is_weekend",
         "event_is_business_hours",
-        
-        # Categorical (will be encoded)
+
+        # SEON IP booleans
+        "data_center_proxy",
+        "residential_proxy",
+        "public_proxy",
+
+        # SEON Email booleans
+        "email/domain/disposable",
+        "email/domain/free",
+        "email/deliverable",
+        "email/haveibeenpwned_listed",
+        "email/domain/suspicious_tld",
+        "email/domain/custom",
+        "email/domain/registered",
+        "email/domain/dmarc_enforced",
+        "email/domain/website_exists",
+
+        # SEON Phone booleans
+        "phone_is_disposable",
+        "phone_is_valid",
+
+        # SEON Session booleans
+        "session/private",
+        "session/device_vpn",
+        "session/adblock",
+        "session/cookie_enabled",
+
+        # Categorical (ordinal-encoded at train time; NaN for unknown at inference)
         "ip_type",
         "ip_country",
         "ip_isp_name",
+        "ip_state_prov",
+        "ip_timezone_offset",
         "phone_type",
         "phone_country",
         "phone_carrier",
@@ -86,28 +102,34 @@ class FeatureEngineer:
         "session/os",
         "session/browser",
         "session/platform",
+        "session/region_timezone",
         "session/screen_resolution",
         "LISTING_OFFERTYPE",
         "LISTING_CATEGORIES",
         "LISTING_PLATFORMS",
+        "CUSTOMERSEGMENT",
+        "LISTING_PRICES_CURRENCY",
         "LISTING_ADDRESS_COUNTRY",
-        
-        # Graph-like features (from store)
-        "email_link_count",
-        "phone_link_count",
-        "ip_link_count",
-        "device_link_count",
-        "user_listing_count",
+        "LISTING_LISTER_BILLING_ADDRESS_COUNTRY",
+        "billing_country",
+        "payment_mode",
+        "action_type",
+        "TARGETPLATFORM",
     ]
     
     def __init__(self, event_store: EventStore):
         """
         Initialize feature engineer.
-        
+
         Args:
             event_store: Event store for graph-like features
         """
         self.event_store = event_store
+        self._cat_encoding: dict = {}   # col → list[category_string] (train-time order)
+
+    def set_categorical_encoding(self, encoding: dict) -> None:
+        """Load train-time ordinal category mappings (from categorical_encoding.json artifact)."""
+        self._cat_encoding = encoding
     
     def compute_features(
         self,
@@ -187,6 +209,13 @@ class FeatureEngineer:
             "email/domain/disposable": event.seon_email_disposable,
             "email/domain/free": event.seon_email_free,
             "email/deliverable": event.seon_email_deliverable,
+            # Extended email signals — not in EventPayload, default to None
+            "email/haveibeenpwned_listed": None,
+            "email/domain/suspicious_tld": None,
+            "email/domain/custom": None,
+            "email/domain/registered": None,
+            "email/domain/dmarc_enforced": None,
+            "email/domain/website_exists": None,
         }
     
     def _extract_seon_phone(self, event: EventPayload) -> Dict[str, Any]:
@@ -275,22 +304,37 @@ class FeatureEngineer:
             if col in df.columns:
                 df[col] = df[col].astype("Int8")
         
-        # Categorical columns
+        # Categorical columns: ordinal-encode using train-time mappings when available,
+        # otherwise NaN (XGBoost treats as missing).
         cat_cols = [
-            "ip_type", "ip_country", "ip_isp_name", "phone_type",
-            "phone_country", "phone_carrier", "session/device_type",
-            "session/os", "session/browser", "session/platform",
-            "session/screen_resolution", "LISTING_OFFERTYPE",
-            "LISTING_CATEGORIES", "LISTING_PLATFORMS", "LISTING_ADDRESS_COUNTRY",
+            "ip_type", "ip_country", "ip_isp_name", "ip_state_prov",
+            "ip_timezone_offset", "phone_type", "phone_country", "phone_carrier",
+            "session/device_type", "session/os", "session/browser", "session/platform",
+            "session/region_timezone", "session/screen_resolution",
+            "LISTING_OFFERTYPE", "LISTING_CATEGORIES", "LISTING_PLATFORMS",
+            "CUSTOMERSEGMENT", "LISTING_PRICES_CURRENCY", "LISTING_ADDRESS_COUNTRY",
+            "LISTING_LISTER_BILLING_ADDRESS_COUNTRY", "billing_country",
+            "payment_mode", "action_type", "TARGETPLATFORM",
         ]
-        
+
         for col in cat_cols:
-            if col in df.columns:
-                df[col] = df[col].astype("category")
-        
-        # Numeric columns - fill NaN with 0
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        df[numeric_cols] = df[numeric_cols].fillna(0)
-        
+            if col not in df.columns:
+                continue
+            if col in self._cat_encoding:
+                # Map string → ordinal index; unknown / None → NaN
+                cat_index = {v: i for i, v in enumerate(self._cat_encoding[col])}
+                df[col] = df[col].map(cat_index).astype("float64")
+            else:
+                df[col] = np.nan
+
+        # Cast all remaining columns to float64.
+        # Columns initialised to None have object dtype; XGBoost rejects object columns.
+        for col in df.columns:
+            if col not in bool_cols and col not in cat_cols:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
+                except Exception:
+                    df[col] = np.nan
+
         return df
 

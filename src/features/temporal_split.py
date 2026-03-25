@@ -135,9 +135,10 @@ class TemporalSplitter:
             return df
         
         # Parse fraud timestamp (normalize to UTC)
+        # Snowflake exports FLAGGEDFORFRAUD as "YYYY-MM-DD HH:MM:SS.fff" (no T, no Z)
         df = df.with_columns(
             pl.col(cfg.fraud_flag_column)
-            .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.fZ", strict=False)
+            .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", strict=False)
             .dt.replace_time_zone("UTC")
             .alias("_fraud_timestamp")
         )
@@ -357,7 +358,7 @@ def compute_pit_label_stats(
     # Parse fraud timestamp (normalize to UTC)
     df = df.with_columns(
         pl.col(fraud_flag_column)
-        .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.fZ", strict=False)
+        .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", strict=False)
         .dt.replace_time_zone("UTC")
         .alias("_fraud_ts")
     )

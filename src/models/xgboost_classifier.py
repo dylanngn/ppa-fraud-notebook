@@ -32,10 +32,6 @@ class XGBoostClassifier(BaseClassifier):
         y_val: Optional[Any] = None,
     ) -> "XGBoostClassifier":
         
-        # Ensure enable_categorical is set if not provided
-        if "enable_categorical" not in self.params:
-            self.params["enable_categorical"] = True
-        
         eval_set = None
         if X_val is not None and y_val is not None:
             eval_set = [(X_val, y_val)]

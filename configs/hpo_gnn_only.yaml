@@ -8,8 +8,9 @@ defaults:
   - override hydra/sweeper: optuna
   - _self_
 
-experiment:
-  name: "HPO_GNN_Only"
+mlflow:
+  experiment_name: "fraud-detection-hpo"
+  registered_model_name: null
 
 training:
   gap_days: 7

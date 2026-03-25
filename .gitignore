@@ -20,3 +20,8 @@ artifacts
 **.lof
 main.synctex**
 main.loa
+
+nodered/node_modules
+
+**.pptx
+**.ppt
