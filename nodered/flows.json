@@ -1,95 +1,27 @@
 [
   {
-    "id": "tab-prod",
+    "id": "tab-main",
     "type": "tab",
     "label": "Production Simulator",
     "disabled": false,
-    "info": "Unified production simulator: auto-SHAP for suspicious events, auto-retrain on drift, interactive review queue."
+    "info": ""
   },
   {
-    "id": "ui-tab-pipeline",
+    "id": "ui-tab-spa",
     "type": "ui_tab",
-    "name": "Live Pipeline",
+    "name": "Fraud Pipeline",
     "icon": "dashboard",
     "order": 1,
     "disabled": false,
     "hidden": false
   },
   {
-    "id": "ui-tab-review",
-    "type": "ui_tab",
-    "name": "Review Queue",
-    "icon": "assignment",
-    "order": 2,
-    "disabled": false,
-    "hidden": false
-  },
-  {
-    "id": "ui-tab-health",
-    "type": "ui_tab",
-    "name": "System Health",
-    "icon": "monitor_heart",
-    "order": 3,
-    "disabled": false,
-    "hidden": false
-  },
-  {
-    "id": "grp-live-feed",
+    "id": "grp-spa",
     "type": "ui_group",
-    "name": "Live Feed",
-    "tab": "ui-tab-pipeline",
+    "name": "",
+    "tab": "ui-tab-spa",
     "order": 1,
-    "disp": true,
-    "width": "12",
-    "collapse": false
-  },
-  {
-    "id": "grp-live-counts",
-    "type": "ui_group",
-    "name": "Decision Counters",
-    "tab": "ui-tab-pipeline",
-    "order": 2,
-    "disp": true,
-    "width": "12",
-    "collapse": false
-  },
-  {
-    "id": "grp-queue-main",
-    "type": "ui_group",
-    "name": "Pending Review",
-    "tab": "ui-tab-review",
-    "order": 1,
-    "disp": true,
-    "width": "12",
-    "collapse": false
-  },
-  {
-    "id": "grp-drift",
-    "type": "ui_group",
-    "name": "Concept Drift",
-    "tab": "ui-tab-health",
-    "order": 1,
-    "disp": true,
-    "width": "12",
-    "collapse": false
-  },
-  {
-    "id": "grp-storage",
-    "type": "ui_group",
-    "name": "Storage & Model",
-    "tab": "ui-tab-health",
-    "order": 2,
-    "disp": true,
-    "width": "12",
-    "collapse": false
-  },
-  {
-    "id": "grp-controls",
-    "type": "ui_group",
-    "name": "Controls",
-    "tab": "ui-tab-health",
-    "order": 3,
-    "disp": true,
+    "disp": false,
     "width": "12",
     "collapse": false
   },
@@ -127,7 +59,7 @@
           "edited": true
         },
         "page-backgroundColor": {
-          "value": "#101820",
+          "value": "#0a1018",
           "edited": true
         },
         "page-sidebar-backgroundColor": {
@@ -139,11 +71,11 @@
           "edited": true
         },
         "group-borderColor": {
-          "value": "#2a3a50",
+          "value": "#0a1018",
           "edited": true
         },
         "group-backgroundColor": {
-          "value": "#1a2535",
+          "value": "#0a1018",
           "edited": true
         },
         "widget-textColor": {
@@ -171,7 +103,7 @@
     },
     "site": {
       "name": "PPA Fraud Detection",
-      "hideToolbar": "false",
+      "hideToolbar": "true",
       "allowSwipe": "false",
       "lockMenu": "false",
       "allowInstall": "false",
@@ -191,10 +123,34 @@
     }
   },
   {
-    "id": "inject-sim",
+    "id": "inject-tick",
     "type": "inject",
-    "z": "tab-prod",
-    "name": "Fire event every 3s",
+    "z": "tab-main",
+    "name": "Ticker 1s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 0.5,
+    "payload": "",
+    "payloadType": "date",
+    "x": 110,
+    "y": 80,
+    "wires": [
+      [
+        "fn-virtual-clock"
+      ]
+    ]
+  },
+  {
+    "id": "inject-queue",
+    "type": "inject",
+    "z": "tab-main",
+    "name": "Queue poll 3s",
     "props": [
       {
         "p": "payload"
@@ -203,37 +159,69 @@
     "repeat": "3",
     "crontab": "",
     "once": true,
-    "onceDelay": 1,
-    "topic": "",
-    "payload": "{\"scenario\":\"RANDOM\"}",
-    "payloadType": "json",
-    "x": 130,
-    "y": 80,
+    "onceDelay": 1.5,
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 160,
     "wires": [
       [
-        "fn-gate-sim"
+        "http-get-queue"
       ]
     ]
   },
   {
-    "id": "fn-gate-sim",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Gate (pause check)",
-    "func": "if (flow.get('sim_paused')) return null;\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 235,
-    "y": 80,
-    "wires": [["http-simulate"]]
+    "id": "inject-drift",
+    "type": "inject",
+    "z": "tab-main",
+    "name": "Drift poll 5s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 2,
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 240,
+    "wires": [
+      [
+        "http-drift-status"
+      ]
+    ]
+  },
+  {
+    "id": "inject-retrain",
+    "type": "inject",
+    "z": "tab-main",
+    "name": "Retrain poll 3s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "3",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 2.5,
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 320,
+    "wires": [
+      [
+        "http-retrain-status"
+      ]
+    ]
   },
   {
     "id": "http-simulate",
     "type": "http request",
-    "z": "tab-prod",
+    "z": "tab-main",
     "name": "POST /admin/simulate",
     "method": "POST",
     "ret": "obj",
@@ -244,540 +232,18 @@
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 340,
+    "x": 440,
     "y": 80,
     "wires": [
       [
-        "fn-parse-sim"
-      ]
-    ]
-  },
-  {
-    "id": "fn-parse-sim",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Parse & route",
-    "func": "const p = msg.payload;\nif (!p || p.fraud_probability === undefined) return [null, null, null];\nmsg.topic = p.risk_tier || 'UNKNOWN';\nmsg.insertion_id = p.insertion_id;\nmsg.fraud_probability = p.fraud_probability;\nconst gaugeMsg = { payload: Math.round(p.fraud_probability * 100) };\nconst chartMsg = { payload: [{ series: ['Fraud Score'], data: [[{ x: Date.now(), y: p.fraud_probability }]], labels: [''] }] };\nreturn [msg, gaugeMsg, chartMsg];",
-    "outputs": 3,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 560,
-    "y": 80,
-    "wires": [
-      [
-        "switch-risk"
-      ],
-      [
-        "gauge-fraud-prob"
-      ],
-      [
-        "chart-score-timeline"
-      ]
-    ]
-  },
-  {
-    "id": "switch-risk",
-    "type": "switch",
-    "z": "tab-prod",
-    "name": "Route by risk tier",
-    "property": "topic",
-    "propertyType": "msg",
-    "rules": [
-      {
-        "t": "eq",
-        "v": "LOW",
-        "vt": "str"
-      },
-      {
-        "t": "eq",
-        "v": "MEDIUM",
-        "vt": "str"
-      },
-      {
-        "t": "eq",
-        "v": "HIGH",
-        "vt": "str"
-      }
-    ],
-    "checkall": "false",
-    "repair": false,
-    "outputs": 3,
-    "x": 780,
-    "y": 80,
-    "wires": [
-      [
-        "fn-count-approved"
-      ],
-      [
-        "fn-count-review",
-        "fn-build-auto-shap"
-      ],
-      [
-        "fn-count-declined",
-        "notify-fraud"
-      ]
-    ]
-  },
-  {
-    "id": "fn-count-approved",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Count approved",
-    "func": "let n = flow.get('approved_count') || 0;\nflow.set('approved_count', ++n);\nmsg.payload = n;\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1020,
-    "y": 40,
-    "wires": [
-      [
-        "text-approved"
-      ]
-    ]
-  },
-  {
-    "id": "fn-count-review",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Count review",
-    "func": "let n = flow.get('review_count') || 0;\nflow.set('review_count', ++n);\nmsg.payload = n;\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1020,
-    "y": 80,
-    "wires": [
-      [
-        "text-review"
-      ]
-    ]
-  },
-  {
-    "id": "fn-count-declined",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Count declined",
-    "func": "let n = flow.get('declined_count') || 0;\nflow.set('declined_count', ++n);\nmsg.payload = n;\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1020,
-    "y": 120,
-    "wires": [
-      [
-        "text-declined"
-      ]
-    ]
-  },
-  {
-    "id": "gauge-fraud-prob",
-    "type": "ui_gauge",
-    "z": "tab-prod",
-    "name": "Fraud Score",
-    "group": "grp-live-feed",
-    "order": 1,
-    "width": 4,
-    "height": 4,
-    "gtype": "gage",
-    "title": "Fraud Score (%)",
-    "label": "",
-    "format": "{{value}}%",
-    "min": 0,
-    "max": 100,
-    "colors": [
-      "#00b500",
-      "#e6e600",
-      "#ca3838"
-    ],
-    "seg1": 30,
-    "seg2": 70,
-    "className": "",
-    "x": 780,
-    "y": 160,
-    "wires": []
-  },
-  {
-    "id": "chart-score-timeline",
-    "type": "ui_chart",
-    "z": "tab-prod",
-    "name": "Score Timeline",
-    "group": "grp-live-feed",
-    "order": 2,
-    "width": 8,
-    "height": 4,
-    "label": "Fraud Score Over Time",
-    "chartType": "line",
-    "legend": "false",
-    "xformat": "HH:mm:ss",
-    "interpolate": "linear",
-    "nodata": "",
-    "dot": false,
-    "ymin": 0,
-    "ymax": 1,
-    "removeOlder": 60,
-    "removeOlderPoints": "60",
-    "removeOlderUnit": "3600",
-    "cutout": 0,
-    "useOneColor": false,
-    "colors": [
-      "#1f77b4"
-    ],
-    "useOldColors": false,
-    "outputs": 0,
-    "useDifferentColor": false,
-    "className": "",
-    "x": 780,
-    "y": 200,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "text-approved",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-live-counts",
-    "order": 1,
-    "width": 4,
-    "height": 1,
-    "name": "Approved",
-    "label": "\u2705 Auto-Approved",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 16,
-    "color": "#2ecc71",
-    "x": 1230,
-    "y": 40,
-    "wires": []
-  },
-  {
-    "id": "text-review",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-live-counts",
-    "order": 2,
-    "width": 4,
-    "height": 1,
-    "name": "Review",
-    "label": "\ud83d\udd0d Sent to Review",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 16,
-    "color": "#e6a817",
-    "x": 1230,
-    "y": 80,
-    "wires": []
-  },
-  {
-    "id": "text-declined",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-live-counts",
-    "order": 3,
-    "width": 4,
-    "height": 1,
-    "name": "Declined",
-    "label": "\ud83d\udeab Auto-Declined",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 16,
-    "color": "#e74c3c",
-    "x": 1230,
-    "y": 120,
-    "wires": []
-  },
-  {
-    "id": "btn-pause-sim",
-    "type": "ui_button",
-    "z": "tab-prod",
-    "name": "Pause/Resume Sim",
-    "group": "grp-live-counts",
-    "order": 4,
-    "width": 4,
-    "height": 1,
-    "passthru": false,
-    "label": "\u23f8 Pause / \u25b6 Resume",
-    "tooltip": "Toggle the live event stream on or off",
-    "color": "",
-    "bgcolor": "#555555",
-    "className": "",
-    "icon": "",
-    "payload": "",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 130,
-    "y": 200,
-    "wires": [
-      [
-        "fn-toggle-pause"
-      ]
-    ]
-  },
-  {
-    "id": "fn-toggle-pause",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Toggle pause",
-    "func": "const paused = !flow.get('sim_paused');\nflow.set('sim_paused', paused);\nmsg.payload = paused ? '\u23f8 PAUSED' : '\u25cf LIVE';\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 340,
-    "y": 200,
-    "wires": [
-      [
-        "text-sim-status"
-      ]
-    ]
-  },
-  {
-    "id": "text-sim-status",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-live-counts",
-    "order": 5,
-    "width": 4,
-    "height": 1,
-    "name": "Sim Status",
-    "label": "Stream",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 16,
-    "color": "#2ecc71",
-    "x": 550,
-    "y": 200,
-    "wires": []
-  },
-  {
-    "id": "notify-fraud",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "FRAUD ALERT",
-    "group": "grp-live-feed",
-    "order": 6,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "4",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "Dismiss",
-    "raw": false,
-    "className": "",
-    "msg": "\u26a0\ufe0f HIGH RISK AUTO-DECLINED: {{msg.insertion_id}} \u2014 score {{msg.fraud_probability}}",
-    "x": 1230,
-    "y": 160,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "fn-build-auto-shap",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Build SHAP request",
-    "func": "const id = msg.insertion_id;\nif (!id) return null;\nmsg.url = 'http://localhost:8000/admin/shap/' + id;\nmsg.method = 'POST';\nmsg.payload = {};\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1020,
-    "y": 280,
-    "wires": [
-      [
-        "http-shap-auto"
-      ]
-    ]
-  },
-  {
-    "id": "http-shap-auto",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/shap/{id}",
-    "method": "use",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 1240,
-    "y": 280,
-    "wires": [
-      [
-        "fn-store-shap"
-      ]
-    ]
-  },
-  {
-    "id": "fn-store-shap",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Store SHAP & trigger refresh",
-    "func": "const r = msg.payload;\nconst id = msg.insertion_id;\nif (!r || !id || r.detail) {\n    node.debug('SHAP unavailable for ' + id + ': ' + (r && r.detail ? r.detail : 'unknown'));\n    flow.set('shap_' + id, { image: null, bars: '<p style=\"color:#666;font-size:12px\">' + (r && r.detail ? r.detail : 'SHAP unavailable') + '</p>' });\n    return null;\n}\nconst indicators = (r.top_fraud_indicators || []).slice(0, 8);\nconst rows = indicators.map(function(it) {\n    const pct = Math.min(Math.abs(it.shap_value * 300), 150).toFixed(0);\n    const color = it.shap_value > 0 ? '#e74c3c' : '#2ecc71';\n    return '<div style=\"display:flex;align-items:center;gap:6px;margin:3px 0;font-size:12px\">'\n        + '<span style=\"min-width:160px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\">' + it.feature + '</span>'\n        + '<div style=\"background:' + color + ';width:' + pct + 'px;height:12px;border-radius:2px;min-width:2px\"></div>'\n        + '<span style=\"color:' + color + '\">' + (it.shap_value >= 0 ? '+' : '') + it.shap_value.toFixed(3) + '</span>'\n        + '</div>';\n}).join('');\nconst barsHtml = '<div style=\"padding:8px;background:#0a1018;border-radius:4px\">'\n    + '<p style=\"color:#97d4e2;font-size:12px;margin:0 0 8px\">Fraud prob: <b>' + (r.prediction_value * 100).toFixed(1) + '%</b> &middot; base: ' + (r.base_value || 0).toFixed(3) + '</p>'\n    + rows + '</div>';\nflow.set('shap_' + id, { image: r.waterfall_chart_base64 || null, bars: barsHtml });\nmsg.payload = Date.now();\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1470,
-    "y": 280,
-    "wires": [
-      [
-        "link-shap-done"
-      ]
-    ]
-  },
-  {
-    "id": "link-shap-done",
-    "type": "link out",
-    "z": "tab-prod",
-    "name": "SHAP done \u2192 queue refresh",
-    "links": [
-      "link-in-queue"
-    ],
-    "x": 1670,
-    "y": 280,
-    "wires": []
-  },
-  {
-    "id": "btn-force-review",
-    "type": "ui_button",
-    "z": "tab-prod",
-    "name": "Force Medium Review",
-    "group": "grp-queue-main",
-    "order": 2,
-    "width": 4,
-    "height": 1,
-    "passthru": false,
-    "label": "\u26a1 Send to Review Queue",
-    "tooltip": "Inject a MEDIUM_RISK event directly into the review queue",
-    "color": "",
-    "bgcolor": "#7b5a00",
-    "className": "",
-    "icon": "",
-    "payload": "",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 130,
-    "y": 380,
-    "wires": [
-      [
-        "fn-force-medium"
-      ]
-    ]
-  },
-  {
-    "id": "fn-force-medium",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Build MEDIUM_RISK request",
-    "func": "msg.payload = { scenario: 'MEDIUM_RISK' };\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 355,
-    "y": 380,
-    "wires": [
-      [
-        "http-simulate"
-      ]
-    ]
-  },
-  {
-    "id": "inject-queue-poll",
-    "type": "inject",
-    "z": "tab-prod",
-    "name": "Poll queue every 3s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "3",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 1.5,
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 130,
-    "y": 420,
-    "wires": [
-      [
-        "http-get-queue"
-      ]
-    ]
-  },
-  {
-    "id": "link-in-queue",
-    "type": "link in",
-    "z": "tab-prod",
-    "name": "Queue refresh trigger",
-    "links": [
-      "link-shap-done"
-    ],
-    "x": 130,
-    "y": 460,
-    "wires": [
-      [
-        "http-get-queue"
+        "fn-parse-event"
       ]
     ]
   },
   {
     "id": "http-get-queue",
     "type": "http request",
-    "z": "tab-prod",
+    "z": "tab-main",
     "name": "GET /admin/queue",
     "method": "GET",
     "ret": "obj",
@@ -788,182 +254,18 @@
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [],
     "x": 340,
-    "y": 440,
+    "y": 160,
     "wires": [
       [
-        "fn-merge-shap"
-      ]
-    ]
-  },
-  {
-    "id": "fn-merge-shap",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Merge SHAP into items",
-    "func": "const data = msg.payload;\nif (!data || !data.items) { msg.payload = []; return msg; }\nmsg.payload = data.items.map(function(it) {\n    const s = it.event_summary || {};\n    const shap = flow.get('shap_' + it.insertion_id) || null;\n    return {\n        full_id: it.insertion_id,\n        id_short: (it.insertion_id || '').slice(0, 10) + '\\u2026',\n        score: (it.fraud_probability * 100).toFixed(1) + '%',\n        category: s.listing_category || '-',\n        price: s.listing_price || '-',\n        ip_country: s.seon_ip_country || '-',\n        tor: !!s.seon_tor,\n        vpn: !!s.seon_vpn,\n        disposable: !!s.seon_email_disposable,\n        queued_at: (it.queued_at || '').slice(11, 19),\n        shap_ready: !!shap,\n        shap_image: shap ? shap.image : null,\n        shap_bars:  shap ? shap.bars  : null\n    };\n});\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 560,
-    "y": 440,
-    "wires": [
-      [
-        "tmpl-queue"
-      ]
-    ]
-  },
-  {
-    "id": "tmpl-queue",
-    "type": "ui_template",
-    "z": "tab-prod",
-    "group": "grp-queue-main",
-    "name": "Interactive Review Queue",
-    "order": 1,
-    "width": 12,
-    "height": 14,
-    "outputs": 1,
-    "format": "<style>\n.q-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #2a3a50;cursor:pointer;flex-wrap:wrap;transition:background .15s}\n.q-row:hover{background:#1e2d40}\n.shap-panel{background:#0a1318;padding:14px;border-left:3px solid #097479;margin-bottom:2px}\n.score-badge{padding:3px 10px;border-radius:12px;font-size:12px;font-weight:bold;color:#fff;background:#b8390e}\n.btn{border:none;border-radius:5px;padding:7px 18px;cursor:pointer;font-size:13px;font-weight:bold}\n.btn:hover{opacity:.8}\n.btn-approve{background:#27ae60;color:#fff}\n.btn-decline{background:#c0392b;color:#fff}\n.notes-inp{background:#1a2535;color:#e0e0e0;border:1px solid #2a3a50;padding:6px 10px;border-radius:4px;flex:1;font-size:13px}\n.tag{font-size:11px;padding:1px 6px;border-radius:8px;font-weight:bold}\n.tag-tor{background:#7b1818;color:#ff9e9e}\n.tag-vpn{background:#7b5a00;color:#ffe082}\n.tag-disp{background:#1a3a5c;color:#90caf9}\n</style>\n\n<div ng-if=\"!msg.payload || msg.payload.length === 0\" style=\"color:#555;padding:40px;text-align:center;font-size:14px\">\n  \u2705 No items pending review\n</div>\n\n<div ng-repeat=\"item in msg.payload\" style=\"margin-bottom:1px\">\n  <div class=\"q-row\" ng-click=\"toggle(item.full_id)\">\n    <span class=\"score-badge\">{{item.score}}</span>\n    <span style=\"color:#97d4e2;font-family:monospace;font-size:12px\">{{item.id_short}}</span>\n    <span style=\"color:#ccc;font-size:13px\">{{item.category}}</span>\n    <span style=\"color:#aaa;font-size:12px\">CHF {{item.price}}</span>\n    <span style=\"color:#aaa;font-size:12px\">\ud83c\udf10 {{item.ip_country}}</span>\n    <span ng-if=\"item.tor\" class=\"tag tag-tor\">TOR</span>\n    <span ng-if=\"item.vpn\" class=\"tag tag-vpn\">VPN</span>\n    <span ng-if=\"item.disposable\" class=\"tag tag-disp\">DISPOSABLE</span>\n    <span style=\"margin-left:auto;color:#555;font-size:11px\">{{item.queued_at}}</span>\n    <span ng-if=\"item.shap_ready\" style=\"color:#097479;font-size:12px\" title=\"SHAP ready\">\ud83d\udcca</span>\n    <span ng-if=\"!item.shap_ready\" style=\"color:#444;font-size:12px\" title=\"Computing SHAP\">\u23f3</span>\n    <span style=\"font-size:10px;color:#555;display:inline-block;transition:transform .2s\" ng-style=\"{transform: expanded[item.full_id] ? 'rotate(90deg)' : 'none'}\">\u25b6</span>\n  </div>\n  <div ng-if=\"expanded[item.full_id]\" class=\"shap-panel\">\n    <div ng-if=\"item.shap_image\" style=\"margin-bottom:12px\">\n      <img ng-src=\"data:image/png;base64,{{item.shap_image}}\" style=\"max-width:100%;border-radius:6px\"/>\n    </div>\n    <div ng-if=\"item.shap_bars\" ng-bind-html=\"item.shap_bars\" style=\"margin-bottom:12px\"></div>\n    <div ng-if=\"!item.shap_ready\" style=\"color:#666;font-size:13px;padding:12px 0\">\n      \u23f3 SHAP analysis is being computed \u2014 it will appear automatically once ready.\n    </div>\n    <div style=\"display:flex;align-items:center;gap:10px;margin-top:12px\">\n      <input class=\"notes-inp\" ng-model=\"notes[item.full_id]\" placeholder=\"Notes (optional)\u2026\"/>\n      <button class=\"btn btn-approve\" ng-click=\"decide(item.full_id,'APPROVE',notes[item.full_id])\">\u2705 Approve</button>\n      <button class=\"btn btn-decline\" ng-click=\"decide(item.full_id,'DECLINE',notes[item.full_id])\">\ud83d\udeab Decline</button>\n    </div>\n  </div>\n</div>\n\n<script>\n(function(scope){\n  scope.expanded = scope.expanded || {};\n  scope.notes    = scope.notes    || {};\n  scope.toggle   = function(id){ scope.expanded[id] = !scope.expanded[id]; };\n  scope.decide   = function(id, dec, notes){\n    scope.expanded[id] = false;\n    scope.send({ payload: { insertion_id: id, decision: dec, notes: notes || '' } });\n  };\n})(scope);\n</script>",
-    "storeOutMessages": true,
-    "fwdInMessages": false,
-    "resendOnRefresh": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 800,
-    "y": 440,
-    "wires": [
-      [
-        "fn-build-decision"
-      ]
-    ]
-  },
-  {
-    "id": "fn-build-decision",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Build decision request",
-    "func": "const p = msg.payload;\nif (!p || !p.insertion_id || !p.decision) return null;\nmsg.url = 'http://localhost:8000/admin/decision/' + p.insertion_id;\nmsg.method = 'POST';\nmsg.payload = { decision: p.decision, admin_id: 'admin-1', notes: p.notes || '' };\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1040,
-    "y": 440,
-    "wires": [
-      [
-        "http-post-decision"
-      ]
-    ]
-  },
-  {
-    "id": "http-post-decision",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/decision/{id}",
-    "method": "use",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 1270,
-    "y": 440,
-    "wires": [
-      [
-        "fn-decision-resp"
-      ]
-    ]
-  },
-  {
-    "id": "fn-decision-resp",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Format decision response",
-    "func": "const r = msg.payload;\nif (r && r.admin_decision) {\n    msg.payload = (r.admin_decision === 'APPROVE' ? '\u2705 Approved' : '\ud83d\udeab Declined') + ' \u2014 bucket: ' + r.bucket;\n} else {\n    msg.payload = 'Error: ' + JSON.stringify(r);\n}\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1490,
-    "y": 440,
-    "wires": [
-      [
-        "notify-decision"
-      ]
-    ]
-  },
-  {
-    "id": "notify-decision",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Decision recorded",
-    "group": "grp-queue-main",
-    "order": 2,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "4",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "",
-    "x": 1700,
-    "y": 440,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "inject-drift",
-    "type": "inject",
-    "z": "tab-prod",
-    "name": "Poll drift every 8s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "8",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 2,
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 120,
-    "y": 600,
-    "wires": [
-      [
-        "http-drift-status"
+        "fn-build-queue"
       ]
     ]
   },
   {
     "id": "http-drift-status",
     "type": "http request",
-    "z": "tab-prod",
+    "z": "tab-main",
     "name": "GET /admin/drift/status",
     "method": "GET",
     "ret": "obj",
@@ -974,10 +276,8 @@
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 340,
-    "y": 600,
+    "x": 350,
+    "y": 240,
     "wires": [
       [
         "fn-parse-drift"
@@ -985,914 +285,9 @@
     ]
   },
   {
-    "id": "fn-parse-drift",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Parse drift status",
-    "func": "const d = msg.payload || {};\nconst psi = d.prediction_psi || 0;\nconst overall = !!d.overall_drift;\nconst features = d.drifted_features || [];\nconst dist = d.score_distribution || {};\nconst featHtml = features.length\n    ? '<ul style=\"color:#e74c3c;margin:0;padding-left:16px\">' + features.map(function(f){ return '<li>' + f + '</li>'; }).join('') + '</ul>'\n    : '<p style=\"color:#2ecc71;margin:0\">No drifted features</p>';\nconst histMsg = { payload: [{ series:['Predictions'], data:[[dist['0.0-0.1']||0,dist['0.1-0.3']||0,dist['0.3-0.5']||0,dist['0.5-0.7']||0,dist['0.7-1.0']||0]], labels:['0\u20130.1','0.1\u20130.3','0.3\u20130.5','0.5\u20130.7','0.7\u20131.0'] }] };\nreturn [\n    { payload: Math.round(psi * 1000) / 10 },\n    { payload: d.drift_label || 'COLLECTING DATA' },\n    { payload: featHtml },\n    histMsg,\n    overall ? { payload: '\\u26a0\\ufe0f CONCEPT DRIFT DETECTED \\u2014 PSI: ' + psi.toFixed(3) + '\\nAuto-retrain will be triggered.' } : null,\n    overall ? { payload: { overall_drift: true, psi: psi } } : null\n];",
-    "outputs": 6,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 560,
-    "y": 600,
-    "wires": [
-      [
-        "gauge-psi"
-      ],
-      [
-        "text-drift-label"
-      ],
-      [
-        "tmpl-drifted-features"
-      ],
-      [
-        "chart-score-dist"
-      ],
-      [
-        "notify-drift"
-      ],
-      [
-        "fn-retrain-cooldown"
-      ]
-    ]
-  },
-  {
-    "id": "gauge-psi",
-    "type": "ui_gauge",
-    "z": "tab-prod",
-    "group": "grp-drift",
-    "order": 1,
-    "width": 3,
-    "height": 3,
-    "gtype": "gage",
-    "title": "Prediction PSI",
-    "label": "",
-    "format": "{{value}}",
-    "min": 0,
-    "max": 25,
-    "colors": [
-      "#00b500",
-      "#e6e600",
-      "#ca3838"
-    ],
-    "seg1": 10,
-    "seg2": 20,
-    "className": "",
-    "x": 800,
-    "y": 540,
-    "wires": []
-  },
-  {
-    "id": "text-drift-label",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-drift",
-    "order": 2,
-    "width": 3,
-    "height": 1,
-    "name": "Drift Label",
-    "label": "Status",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#ffffff",
-    "x": 800,
-    "y": 580,
-    "wires": []
-  },
-  {
-    "id": "tmpl-drifted-features",
-    "type": "ui_template",
-    "z": "tab-prod",
-    "group": "grp-drift",
-    "name": "Drifted Features",
-    "order": 3,
-    "width": 3,
-    "height": 3,
-    "format": "<div ng-bind-html=\"msg.payload\" style=\"font-size:13px\"></div>",
-    "storeOutMessages": false,
-    "fwdInMessages": false,
-    "resendOnRefresh": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 800,
-    "y": 620,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "chart-score-dist",
-    "type": "ui_chart",
-    "z": "tab-prod",
-    "group": "grp-drift",
-    "order": 4,
-    "width": 3,
-    "height": 3,
-    "label": "Score Distribution",
-    "chartType": "bar",
-    "legend": "false",
-    "xformat": "HH:mm:ss",
-    "interpolate": "linear",
-    "nodata": "Accumulating\u2026",
-    "dot": false,
-    "ymin": 0,
-    "ymax": "",
-    "removeOlder": 0,
-    "removeOlderPoints": "",
-    "removeOlderUnit": "3600",
-    "cutout": 0,
-    "useOneColor": true,
-    "colors": [
-      "#3498db"
-    ],
-    "useOldColors": false,
-    "outputs": 0,
-    "useDifferentColor": false,
-    "className": "",
-    "x": 800,
-    "y": 660,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "notify-drift",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Drift Alert",
-    "group": "grp-drift",
-    "order": 5,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "8",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "",
-    "x": 980,
-    "y": 700,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "fn-retrain-cooldown",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Retrain cooldown (5 min)",
-    "func": "const last = flow.get('last_auto_retrain') || 0;\nconst now = Date.now();\nif (now - last < 5 * 60 * 1000) {\n    const remaining = Math.round((5 * 60 * 1000 - (now - last)) / 1000);\n    node.warn('Auto-retrain skipped \u2014 cooldown: ' + remaining + 's remaining');\n    const mins = Math.floor(remaining / 60);\n    const secs = remaining % 60;\n    return [null, { payload: '\\u23f3 ' + mins + 'm ' + secs + 's until auto-retrain' }];\n}\nflow.set('last_auto_retrain', now);\nnode.warn('Drift confirmed \u2014 triggering auto-retrain');\nmsg.payload = {};\nreturn [msg, { payload: '' }];",
-    "outputs": 2,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 800,
-    "y": 760,
-    "wires": [
-      [
-        "http-retrain-auto"
-      ],
-      [
-        "text-retrain-cooldown"
-      ]
-    ]
-  },
-  {
-    "id": "http-retrain-auto",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/retrain/trigger",
-    "method": "POST",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/retrain/trigger",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 1040,
-    "y": 760,
-    "wires": [
-      [
-        "fn-retrain-resp"
-      ]
-    ]
-  },
-  {
-    "id": "inject-storage",
-    "type": "inject",
-    "z": "tab-prod",
-    "name": "Poll storage every 10s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "10",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 2.5,
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 130,
-    "y": 920,
-    "wires": [
-      [
-        "http-storage-stats"
-      ]
-    ]
-  },
-  {
-    "id": "http-storage-stats",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "GET /admin/storage/stats",
-    "method": "GET",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/storage/stats",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 360,
-    "y": 920,
-    "wires": [
-      [
-        "fn-storage"
-      ]
-    ]
-  },
-  {
-    "id": "fn-storage",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Extract storage fields",
-    "func": "const s = msg.payload || {};\nreturn [\n    { payload: s.approved_count || 0 },\n    { payload: s.declined_count || 0 },\n    { payload: s.pending_retrain_rows || 0 },\n    { payload: s.queue_size || 0 }\n];",
-    "outputs": 4,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 590,
-    "y": 920,
-    "wires": [
-      [
-        "text-stor-approved"
-      ],
-      [
-        "text-stor-declined"
-      ],
-      [
-        "text-stor-retrain"
-      ],
-      [
-        "text-stor-queue"
-      ]
-    ]
-  },
-  {
-    "id": "text-stor-approved",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 1,
-    "width": 3,
-    "height": 1,
-    "name": "Approved",
-    "label": "\u2705 Approved",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#2ecc71",
-    "x": 820,
-    "y": 880,
-    "wires": []
-  },
-  {
-    "id": "text-stor-declined",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 2,
-    "width": 3,
-    "height": 1,
-    "name": "Declined",
-    "label": "\ud83d\udeab Declined",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#e74c3c",
-    "x": 820,
-    "y": 920,
-    "wires": []
-  },
-  {
-    "id": "text-stor-retrain",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 3,
-    "width": 3,
-    "height": 1,
-    "name": "Retrain Pool",
-    "label": "\ud83d\udd01 Retrain Pool",
-    "format": "{{msg.payload}} rows",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#3498db",
-    "x": 820,
-    "y": 960,
-    "wires": []
-  },
-  {
-    "id": "text-stor-queue",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 4,
-    "width": 3,
-    "height": 1,
-    "name": "Queue Size",
-    "label": "\ud83d\udd0d In Queue",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#e6a817",
-    "x": 820,
-    "y": 1000,
-    "wires": []
-  },
-  {
-    "id": "inject-model",
-    "type": "inject",
-    "z": "tab-prod",
-    "name": "Poll model every 15s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "15",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 3,
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 120,
-    "y": 1060,
-    "wires": [
-      [
-        "http-model-info",
-        "http-health"
-      ]
-    ]
-  },
-  {
-    "id": "http-model-info",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "GET /model-info",
-    "method": "GET",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/model-info",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 340,
-    "y": 1040,
-    "wires": [
-      [
-        "fn-model-info"
-      ]
-    ]
-  },
-  {
-    "id": "fn-model-info",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Extract model info",
-    "func": "const m = msg.payload || {};\nreturn [\n    { payload: m.model_uri || 'not loaded' },\n    { payload: m.mlflow_run_id || '-' },\n    { payload: (m.mlflow_model_alias || '-').toUpperCase() }\n];",
-    "outputs": 3,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 560,
-    "y": 1040,
-    "wires": [
-      [
-        "text-model-uri"
-      ],
-      [
-        "text-run-id"
-      ],
-      [
-        "text-alias"
-      ]
-    ]
-  },
-  {
-    "id": "text-model-uri",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 5,
-    "width": 12,
-    "height": 1,
-    "name": "Model URI",
-    "label": "\ud83d\udce6 Model URI",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 11,
-    "color": "#97d4e2",
-    "x": 790,
-    "y": 1020,
-    "wires": []
-  },
-  {
-    "id": "text-run-id",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 6,
-    "width": 6,
-    "height": 1,
-    "name": "Run ID",
-    "label": "\ud83d\udd2c MLflow Run",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 11,
-    "color": "#97d4e2",
-    "x": 790,
-    "y": 1060,
-    "wires": []
-  },
-  {
-    "id": "text-alias",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 7,
-    "width": 6,
-    "height": 1,
-    "name": "Alias",
-    "label": "\ud83c\udff7 Active Alias",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#2ecc71",
-    "x": 790,
-    "y": 1100,
-    "wires": []
-  },
-  {
-    "id": "http-health",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "GET /health",
-    "method": "GET",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/health",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 340,
-    "y": 1080,
-    "wires": [
-      [
-        "fn-health",
-        "fn-health-status"
-      ]
-    ]
-  },
-  {
-    "id": "fn-health",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Extract health",
-    "func": "const h = msg.payload || {};\nreturn [{ payload: h.events_in_store || 0 }, { payload: h.graph_nodes || 0 }];",
-    "outputs": 2,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 540,
-    "y": 1080,
-    "wires": [
-      [
-        "text-events"
-      ],
-      [
-        "gauge-graph"
-      ]
-    ]
-  },
-  {
-    "id": "text-events",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 8,
-    "width": 6,
-    "height": 1,
-    "name": "Events in Store",
-    "label": "\ud83d\udce1 Events in Store",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 12,
-    "color": "#97d4e2",
-    "x": 760,
-    "y": 1140,
-    "wires": []
-  },
-  {
-    "id": "gauge-graph",
-    "type": "ui_gauge",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 9,
-    "width": 6,
-    "height": 3,
-    "gtype": "gage",
-    "title": "Graph Nodes",
-    "label": "listings",
-    "format": "{{value}}",
-    "min": 0,
-    "max": 100000,
-    "colors": [
-      "#00b500",
-      "#e6e600",
-      "#ca3838"
-    ],
-    "seg1": 10000,
-    "seg2": 80000,
-    "className": "",
-    "x": 760,
-    "y": 1180,
-    "wires": []
-  },
-  {
-    "id": "fn-health-status",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Build health status panel",
-    "func": "const h = msg.payload || {};\nconst apiOk = h.status === 'healthy';\nconst modelOk = h.model_loaded === true;\nconst dot = function(ok, label, sub) {\n    const col = ok ? '#2ecc71' : '#e74c3c';\n    const icon = ok ? '\u2714' : '\u2716';\n    return '<div style=\"display:flex;align-items:center;gap:8px;margin:5px 0\">'\n        + '<span style=\"font-size:18px;color:' + col + '\">' + icon + '</span>'\n        + '<div><div style=\"color:#e0e0e0;font-size:13px\">' + label + '</div>'\n        + (sub ? '<div style=\"color:#888;font-size:11px\">' + sub + '</div>' : '')\n        + '</div></div>';\n};\nmsg.payload = '<div style=\"padding:10px\">' \n    + dot(apiOk, 'API Server', h.status || 'unknown')\n    + dot(modelOk, 'Model Loaded', modelOk ? 'ready' : 'not loaded')\n    + dot((h.graph_nodes || 0) > 0, 'Graph Store', (h.graph_nodes || 0) + ' nodes')\n    + '</div>';\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 545,
-    "y": 1200,
-    "wires": [
-      [
-        "tmpl-health-status"
-      ]
-    ]
-  },
-  {
-    "id": "tmpl-health-status",
-    "type": "ui_template",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "name": "Service Status",
-    "order": 9,
-    "width": 3,
-    "height": 3,
-    "format": "<div ng-bind-html=\"msg.payload\"></div>",
-    "storeOutMessages": false,
-    "fwdInMessages": false,
-    "resendOnRefresh": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 760,
-    "y": 1200,
-    "wires": [[]]
-  },
-  {
-    "id": "btn-retrain-manual",
-    "type": "ui_button",
-    "z": "tab-prod",
-    "name": "Manual Retrain",
-    "group": "grp-controls",
-    "order": 1,
-    "width": 4,
-    "height": 1,
-    "passthru": false,
-    "label": "\ud83d\udd01 Trigger Retrain",
-    "tooltip": "Requires \u226550 labelled rows",
-    "color": "",
-    "bgcolor": "#0077aa",
-    "className": "",
-    "icon": "",
-    "payload": "",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 130,
-    "y": 1320,
-    "wires": [
-      [
-        "http-retrain-manual"
-      ]
-    ]
-  },
-  {
-    "id": "http-retrain-manual",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/retrain/trigger",
-    "method": "POST",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/retrain/trigger",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 370,
-    "y": 1320,
-    "wires": [
-      [
-        "fn-retrain-resp"
-      ]
-    ]
-  },
-  {
-    "id": "fn-retrain-resp",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Format retrain response",
-    "func": "const r = msg.payload || {};\nif (r.status === 'triggered') {\n    msg.payload = '\\ud83d\\ude80 Retraining started with ' + r.training_rows + ' rows. Monitor in MLflow \\u2192 make register-model';\n} else if (r.status === 'insufficient_data') {\n    msg.payload = '\\u26a0\\ufe0f Not enough data: ' + r.rows + ' / ' + r.required + ' rows required.';\n} else {\n    msg.payload = JSON.stringify(r);\n}\nreturn msg;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 640,
-    "y": 1320,
-    "wires": [
-      [
-        "notify-retrain"
-      ]
-    ]
-  },
-  {
-    "id": "notify-retrain",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Retrain notification",
-    "group": "grp-controls",
-    "order": 2,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "6",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "",
-    "x": 870,
-    "y": 1320,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "btn-drift-reset",
-    "type": "ui_button",
-    "z": "tab-prod",
-    "name": "Reset Drift Reference",
-    "group": "grp-controls",
-    "order": 3,
-    "width": 4,
-    "height": 1,
-    "passthru": false,
-    "label": "\ud83d\udd04 Reset Drift Reference",
-    "tooltip": "Clear reference distribution and restart tracking",
-    "color": "",
-    "bgcolor": "#555",
-    "className": "",
-    "icon": "",
-    "payload": "",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 150,
-    "y": 1380,
-    "wires": [
-      [
-        "http-drift-reset"
-      ]
-    ]
-  },
-  {
-    "id": "btn-inject-drift",
-    "type": "ui_button",
-    "z": "tab-prod",
-    "name": "Inject Drift Burst",
-    "group": "grp-controls",
-    "order": 2,
-    "width": 4,
-    "height": 1,
-    "passthru": false,
-    "label": "\ud83c\udf0a Inject Drift Burst",
-    "tooltip": "Fire 25 HIGH_RISK events to skew prediction distribution and trigger drift",
-    "color": "",
-    "bgcolor": "#7b1818",
-    "className": "",
-    "icon": "",
-    "payload": "",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 150,
-    "y": 1440,
-    "wires": [
-      [
-        "fn-drift-burst"
-      ]
-    ]
-  },
-  {
-    "id": "fn-drift-burst",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Fire 25\u00d7 HIGH_RISK events",
-    "func": "for (var i = 0; i < 25; i++) {\n    node.send({ payload: { scenario: 'HIGH_RISK' } });\n}\nreturn null;",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 390,
-    "y": 1440,
-    "wires": [
-      [
-        "http-simulate"
-      ]
-    ]
-  },
-  {
-    "id": "http-drift-reset",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/drift/reset",
-    "method": "POST",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/drift/reset",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 390,
-    "y": 1380,
-    "wires": [
-      [
-        "notify-drift-reset"
-      ]
-    ]
-  },
-  {
-    "id": "notify-drift-reset",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Reset notification",
-    "group": "grp-controls",
-    "order": 4,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "3",
-    "showCountdown": false,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "Reference distribution reset \u2014 accumulating new data\u2026",
-    "x": 640,
-    "y": 1380,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "inject-retrain-status",
-    "type": "inject",
-    "z": "tab-prod",
-    "name": "Poll retrain status every 5s",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
-    "repeat": "5",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 3.5,
-    "topic": "",
-    "payload": "",
-    "payloadType": "date",
-    "x": 150,
-    "y": 1160,
-    "wires": [
-      [
-        "http-retrain-status"
-      ]
-    ]
-  },
-  {
     "id": "http-retrain-status",
     "type": "http request",
-    "z": "tab-prod",
+    "z": "tab-main",
     "name": "GET /admin/retrain/status",
     "method": "GET",
     "ret": "obj",
@@ -1903,386 +298,431 @@
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 390,
-    "y": 1160,
+    "x": 350,
+    "y": 320,
     "wires": [
       [
-        "fn-parse-retrain-status"
+        "fn-parse-retrain"
       ]
     ]
   },
   {
-    "id": "fn-parse-retrain-status",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Parse retrain status",
-    "func": "const s = msg.payload || {};\nconst status = s.status || 'idle';\nconst prev = flow.get('retrain_status_prev') || 'idle';\nflow.set('retrain_status_prev', status);\n\nconst labels = { idle: '\u2b1c IDLE', running: '\ud83d\udd04 TRAINING\u2026', completed: '\u2705 COMPLETED', failed: '\u274c FAILED' };\nconst label = labels[status] || status.toUpperCase();\n\n// Build detail line\nlet detail = '';\nif (s.started_at) detail += 'Started: ' + s.started_at.slice(11,19) + ' UTC';\nif (s.finished_at) detail += '  |  Finished: ' + s.finished_at.slice(11,19) + ' UTC';\nif (s.training_rows) detail += '  |  Rows: ' + s.training_rows;\n\n// Only fire toast on transitions\nlet toastMsg = null;\nif (prev !== status) {\n    if (status === 'running') toastMsg = { payload: '\ud83d\udd04 Retraining in progress\u2026 (' + s.training_rows + ' rows)' };\n    else if (status === 'completed') toastMsg = { payload: '\u2705 Retraining completed! Run make register-model to promote.' };\n    else if (status === 'failed') toastMsg = { payload: '\u274c Retraining failed: ' + (s.error || 'unknown error') };\n}\n\nreturn [\n    { payload: label },\n    { payload: detail },\n    toastMsg,\n    (prev !== status && status === 'completed') ? { payload: {} } : null\n];\n",
-    "outputs": 4,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 630,
-    "y": 1160,
-    "wires": [
-      [
-        "text-retrain-status-label"
-      ],
-      [
-        "text-retrain-status-detail"
-      ],
-      [
-        "notify-retrain-status"
-      ],
-      [
-        "http-model-promote"
-      ]
-    ]
-  },
-  {
-    "id": "text-retrain-status-label",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 10,
-    "width": 3,
-    "height": 1,
-    "name": "Retrain Status Label",
-    "label": "Training Job",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#ffffff",
-    "x": 880,
-    "y": 1140,
-    "wires": []
-  },
-  {
-    "id": "text-retrain-status-detail",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 11,
-    "width": 6,
-    "height": 1,
-    "name": "Retrain Status Detail",
-    "label": "",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 12,
-    "color": "#aaaaaa",
-    "x": 880,
-    "y": 1180,
-    "wires": []
-  },
-  {
-    "id": "notify-retrain-status",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Retrain status toast",
-    "group": "grp-controls",
-    "order": 6,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "7",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "",
-    "x": 880,
-    "y": 1220,
+    "id": "http-retrain-trigger",
+    "type": "http request",
+    "z": "tab-main",
+    "name": "POST /admin/retrain/trigger",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:8000/admin/retrain/trigger",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "x": 680,
+    "y": 80,
     "wires": [
       []
     ]
   },
   {
-    "id": "http-model-promote",
+    "id": "http-drift-reset",
     "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/model/promote",
+    "z": "tab-main",
+    "name": "POST /admin/drift/reset",
     "method": "POST",
     "ret": "obj",
     "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/model/promote",
+    "url": "http://localhost:8000/admin/drift/reset",
     "tls": "",
     "persist": false,
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 360,
-    "y": 1800,
-    "wires": [
-      [
-        "fn-parse-promote"
-      ]
-    ]
-  },
-  {
-    "id": "fn-parse-promote",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Parse promote response",
-    "func": "const r = msg.payload || {};\nif (r.status !== 'promoted') {\n    node.warn('Promote failed: ' + JSON.stringify(r));\n    return null;\n}\nmsg._promote_version = r.version;\nmsg.payload = {};\nreturn msg;\n",
-    "outputs": 1,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 590,
-    "y": 1800,
-    "wires": [
-      [
-        "http-model-reload"
-      ]
-    ]
-  },
-  {
-    "id": "http-model-reload",
-    "type": "http request",
-    "z": "tab-prod",
-    "name": "POST /admin/model/reload",
-    "method": "POST",
-    "ret": "obj",
-    "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/model/reload",
-    "tls": "",
-    "persist": false,
-    "proxy": "",
-    "insecureHTTPParser": false,
-    "authType": "",
-    "senderr": false,
-    "headers": [
-      {
-        "keyType": "other",
-        "keyValue": "Content-Type",
-        "valueType": "other",
-        "valueValue": "application/json"
-      }
-    ],
-    "x": 820,
-    "y": 1800,
-    "wires": [
-      [
-        "fn-parse-reload"
-      ]
-    ]
-  },
-  {
-    "id": "fn-parse-reload",
-    "type": "function",
-    "z": "tab-prod",
-    "name": "Parse reload response",
-    "func": "const r = msg.payload || {};\nif (r.status !== 'reloaded') {\n    node.warn('Reload failed: ' + JSON.stringify(r));\n    return [null, null];\n}\nconst toast = { payload: '\\ud83d\\udd04 Model v' + (msg._promote_version || '?') + ' hot-swapped \\u2192 ' + (r.model_uri || 'unknown') };\nreturn [toast, { payload: Date.now() }];\n",
-    "outputs": 2,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 1060,
-    "y": 1800,
-    "wires": [
-      [
-        "notify-model-swap"
-      ],
-      [
-        "http-model-info",
-        "http-health"
-      ]
-    ]
-  },
-  {
-    "id": "notify-model-swap",
-    "type": "ui_toast",
-    "z": "tab-prod",
-    "name": "Model swap notification",
-    "group": "grp-controls",
-    "order": 7,
-    "width": 0,
-    "height": 0,
-    "outputField": "payload",
-    "inputField": "payload",
-    "timeout": "10",
-    "showCountdown": true,
-    "outputs": 1,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "raw": false,
-    "className": "",
-    "msg": "",
-    "x": 1290,
-    "y": 1800,
+    "x": 880,
+    "y": 480,
     "wires": [
       []
     ]
   },
   {
-    "id": "text-retrain-cooldown",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-controls",
-    "order": 8,
-    "width": 6,
-    "height": 1,
-    "name": "Retrain Cooldown",
-    "label": "Cooldown",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 13,
-    "color": "#e6c84a",
-    "x": 820,
-    "y": 1900,
-    "wires": []
-  },
-  {
-    "id": "watch-mlflow-db",
-    "type": "watch",
-    "z": "tab-prod",
-    "name": "Watch MLflow DB",
-    "files": "ppa-fraud-detection-mlflow.db",
-    "recursive": false,
-    "x": 130,
-    "y": 1960,
-    "wires": [
-      [
-        "http-last-result"
-      ]
-    ]
-  },
-  {
-    "id": "http-last-result",
+    "id": "http-post-decision",
     "type": "http request",
-    "z": "tab-prod",
-    "name": "GET /admin/retrain/last-result",
-    "method": "GET",
+    "z": "tab-main",
+    "name": "POST /admin/decision/:id",
+    "method": "use",
     "ret": "obj",
     "paytoqs": "ignore",
-    "url": "http://localhost:8000/admin/retrain/last-result",
+    "url": "",
     "tls": "",
     "persist": false,
     "proxy": "",
     "insecureHTTPParser": false,
     "authType": "",
-    "senderr": false,
-    "headers": [],
-    "x": 360,
-    "y": 1960,
+    "x": 880,
+    "y": 560,
     "wires": [
-      [
-        "fn-parse-last-result"
-      ]
+      []
     ]
   },
   {
-    "id": "fn-parse-last-result",
+    "id": "fn-virtual-clock",
     "type": "function",
-    "z": "tab-prod",
-    "name": "Parse last-result metrics",
-    "func": "const r = msg.payload || {};\nif (r.status !== 'FINISHED') return [null, null, null];\nconst m = r.metrics || {};\nreturn [\n    { payload: m.auc_pr  != null ? m.auc_pr.toFixed(4)  : '\\u2014' },\n    { payload: m.auc_roc != null ? m.auc_roc.toFixed(4) : '\\u2014' },\n    { payload: r.run_name || (r.run_id ? r.run_id.slice(0,8) : '\\u2014') }\n];\n",
+    "z": "tab-main",
+    "name": "Virtual Clock",
+    "func": "var WINDOWS = [\n  {start:Date.parse('2025-03-21'),end:Date.parse('2025-05-20'),low:70,med:20,high:10,auc:null,label:'W0 Training'},\n  {start:Date.parse('2025-05-21'),end:Date.parse('2025-06-20'),low:70,med:20,high:10,auc:0.64,label:'W1 Stable'},\n  {start:Date.parse('2025-06-21'),end:Date.parse('2025-07-20'),low:65,med:22,high:13,auc:0.59,label:'W2 Declining'},\n  {start:Date.parse('2025-07-21'),end:Date.parse('2025-08-20'),low:70,med:20,high:10,auc:0.73,label:'W3 Peak'},\n  {start:Date.parse('2025-08-21'),end:Date.parse('2025-09-20'),low:65,med:22,high:13,auc:0.64,label:'W4 Stable'},\n  {start:Date.parse('2025-09-21'),end:Date.parse('2025-10-20'),low:60,med:25,high:15,auc:0.58,label:'W5 Drift!'},\n  {start:Date.parse('2025-10-21'),end:Date.parse('2025-11-20'),low:50,med:28,high:22,auc:0.49,label:'W6 Severe!'},\n  {start:Date.parse('2025-11-21'),end:Date.parse('2025-12-20'),low:65,med:22,high:13,auc:0.63,label:'W7 Recovery'},\n  {start:Date.parse('2025-12-21'),end:Date.parse('2026-02-01'),low:67,med:20,high:13,auc:0.54,label:'W8 Stabilizing'}\n];\nvar RETRAIN_AT = {6:true, 7:true};\nvar SIM_START = Date.parse('2025-03-21');\nvar SIM_END   = Date.parse('2026-02-01');\n\nfunction findWin(ms) {\n  for (var i = WINDOWS.length-1; i >= 0; i--) {\n    if (ms >= WINDOWS[i].start) return i;\n  }\n  return 0;\n}\n\nvar paused     = flow.get('sim_paused')   || false;\nvar retraining = flow.get('retraining')  || false;\nvar speed      = flow.get('sim_speed')    || 1.0;\nvar virtualMs  = flow.get('virtual_ms')  || SIM_START;\nvar curWin     = findWin(virtualMs);\nvar winInfo    = WINDOWS[curWin];\nvar simDone    = virtualMs >= SIM_END;\n\nvar simState = {\n  topic: 'sim_state',\n  payload: {\n    virtual_date: new Date(virtualMs).toISOString().slice(0,10),\n    window_index: curWin,\n    window_label: winInfo.label,\n    window_auc:   winInfo.auc,\n    speed:        speed,\n    paused:       paused,\n    retraining:   retraining,\n    sim_done:     simDone,\n    approved:     flow.get('approved_count') || 0,\n    rejected:     flow.get('rejected_count') || 0,\n    pending:      flow.get('pending_count')  || 0,\n    windows: WINDOWS.map(function(w,i){ return {label:w.label,auc:w.auc,passed:virtualMs>w.end,current:i===curWin}; }),\n    train_pct: (function(){var tEnd=curWin>0?WINDOWS[curWin-1].end:Math.min(virtualMs,WINDOWS[0].end);return Math.min((tEnd-SIM_START)/(SIM_END-SIM_START)*100,100);})(),\n    cursor_pct: Math.min((virtualMs-SIM_START)/(SIM_END-SIM_START)*100,100),\n    windows_detail: WINDOWS.map(function(w,i){var tot=SIM_END-SIM_START;return{label:w.label,auc:w.auc,start_pct:(w.start-SIM_START)/tot*100,width_pct:(Math.min(w.end,SIM_END)-w.start)/tot*100,passed:virtualMs>w.end,current:i===curWin,retrain_entry:!!(RETRAIN_AT[i])};}) \n  }\n};\n\nif (paused || retraining || simDone) {\n  return [null, null, simState];\n}\n\nvar newMs   = virtualMs + speed * 24 * 3600 * 1000;\nflow.set('virtual_ms', newMs);\nvar newWin = findWin(newMs);\nflow.set('current_window', newWin);\n\nvar retrainMsg = null;\nif (newWin !== curWin && RETRAIN_AT[newWin]) {\n  var lastR = flow.get('last_retrain_ms') || 0;\n  if (newMs - lastR > 25 * 24 * 3600 * 1000) {\n    flow.set('last_retrain_ms', newMs);\n    flow.set('retraining', true);\n    flow.set('sim_paused', true);\n    retrainMsg = {payload:{}, headers:{'Content-Type':'application/json'}};\n  }\n}\n\nvar w = WINDOWS[newWin];\nvar r = Math.random() * 100;\nvar scenario = r < w.low ? 'LOW_RISK' : (r < w.low + w.med ? 'MEDIUM_RISK' : 'HIGH_RISK');\n\nreturn [\n  {payload:{scenario:scenario}, headers:{'Content-Type':'application/json'}},\n  retrainMsg,\n  simState\n];",
     "outputs": 3,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 610,
-    "y": 1960,
+    "x": 280,
+    "y": 80,
     "wires": [
       [
-        "text-auc-pr"
+        "http-simulate"
       ],
       [
-        "text-auc-roc"
+        "http-retrain-trigger"
       ],
       [
-        "text-run-name"
+        "link-out-simstate"
       ]
     ]
   },
   {
-    "id": "text-auc-pr",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 12,
-    "width": 3,
-    "height": 1,
-    "name": "AUC-PR",
-    "label": "AUC-PR",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#2ecc71",
-    "x": 840,
-    "y": 1940,
+    "id": "fn-parse-event",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Parse Event",
+    "func": "var p = msg.payload;\nif (!p || p.fraud_probability === undefined) return null;\nvar tier = p.risk_tier || 'LOW';\nif (tier === 'HIGH')        flow.set('rejected_count', (flow.get('rejected_count')||0)+1);\nelse if (tier === 'MEDIUM') flow.set('pending_count',  (flow.get('pending_count') ||0)+1);\nelse                        flow.set('approved_count', (flow.get('approved_count')||0)+1);\nvar eventMsg = {\n  topic: 'event',\n  payload: { insertion_id: p.insertion_id || '', fraud_probability: p.fraud_probability, risk_tier: tier }\n};\n// Auto-trigger SHAP for anything that isn't low-risk\nvar shapMsg = null;\nif (tier !== 'LOW' && p.insertion_id) {\n  shapMsg = {payload: {insertion_id: p.insertion_id}};\n}\nreturn [eventMsg, shapMsg];",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 610,
+    "y": 80,
+    "wires": [
+      [
+        "link-out-main"
+      ],
+      [
+        "fn-build-shap"
+      ]
+    ]
+  },
+  {
+    "id": "fn-build-queue",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Build Queue",
+    "func": "var data = msg.payload;\nvar raw = Array.isArray(data) ? data : (data && data.items ? data.items : []);\nvar items = raw.map(function(it) {\n  var s = it.event_summary || {};\n  var prob = (it.fraud_probability !== undefined) ? it.fraud_probability : ((s.score||0)/100);\n  return {\n    insertion_id:     it.insertion_id || '',\n    fraud_probability: prob,\n    score_pct:        (prob*100).toFixed(1),\n    category:         s.category || s.listing_category || '-',\n    price:            s.price    || s.listing_price    || '-',\n    ip_country:       s.ip_country || s.seon_ip_country || '-',\n    tor:              !!(s.tor || s.seon_tor),\n    vpn:              !!(s.vpn || s.seon_vpn),\n    disposable:       !!(s.disposable || s.seon_email_disposable),\n    queued_at:        (s.queued_at || it.queued_at || '').slice(0,19)\n  };\n});\nreturn {topic:'queue', payload:items};",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 530,
+    "y": 160,
+    "wires": [
+      [
+        "link-out-main"
+      ]
+    ]
+  },
+  {
+    "id": "fn-parse-drift",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Parse Drift",
+    "func": "var d = msg.payload || {};\nreturn {\n  topic: 'drift',\n  payload: {\n    psi:              d.prediction_psi   || 0,\n    overall_drift:    !!d.overall_drift,\n    drift_label:      d.drift_label      || 'COLLECTING',\n    drifted_features: d.drifted_features || []\n  }\n};",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 240,
+    "wires": [
+      [
+        "link-out-main"
+      ]
+    ]
+  },
+  {
+    "id": "fn-parse-retrain",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Parse Retrain",
+    "func": "var s      = msg.payload || {};\nvar status = (s.status || 'idle').toLowerCase();\nvar prev   = (flow.get('retrain_status_prev') || 'idle').toLowerCase();\nflow.set('retrain_status_prev', status);\nif (prev === 'running' && (status === 'completed' || status === 'failed' || status === 'idle')) {\n  if (flow.get('retraining')) {\n    flow.set('retraining', false);\n    flow.set('sim_paused', false);\n  }\n}\nreturn [\n  {topic:'retrain', payload:{\n    status:        s.status || 'idle',\n    started_at:    s.started_at   || null,\n    finished_at:   s.finished_at  || null,\n    training_rows: s.training_rows|| 0,\n    error:         s.error        || null\n  }},\n  null\n];",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 320,
+    "wires": [
+      [
+        "link-out-main"
+      ],
+      []
+    ]
+  },
+  {
+    "id": "fn-action-router",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Action Router",
+    "func": "var action = (msg.payload || {}).action;\nif (action === 'toggle_pause')  return [msg,null,null,null,null,null];\nif (action === 'set_speed')     return [null,msg,null,null,null,null];\nif (action === 'force_future')  return [null,null,msg,null,null,null];\nif (action === 'reset')         return [null,null,null,{payload:{},headers:{'Content-Type':'application/json'}},null,null];\nif (action === 'decision')      return [null,null,null,null,msg,null];\nif (action === 'request_shap')  return [null,null,null,null,null,msg];\nreturn [null,null,null,null,null,null];",
+    "outputs": 6,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 660,
+    "y": 420,
+    "wires": [
+      [
+        "fn-toggle-pause"
+      ],
+      [
+        "fn-set-speed"
+      ],
+      [
+        "fn-future-event"
+      ],
+      [
+        "fn-reset-state"
+      ],
+      [
+        "fn-build-decision"
+      ],
+      [
+        "fn-build-shap"
+      ]
+    ]
+  },
+  {
+    "id": "fn-toggle-pause",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Toggle Pause",
+    "func": "flow.set('sim_paused', !(flow.get('sim_paused') || false));\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 380,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "fn-set-speed",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Set Speed",
+    "func": "var s = parseFloat((msg.payload||{}).speed) || 1.0;\nflow.set('sim_speed', Math.min(8, Math.max(0.25, s)));\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 420,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "fn-build-decision",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Build Decision",
+    "func": "var p = msg.payload || {};\nif (!p.insertion_id || !p.decision) return null;\nmsg.url     = 'http://localhost:8000/admin/decision/' + p.insertion_id;\nmsg.method  = 'POST';\nmsg.payload = {decision:p.decision, admin_id:'admin-1', notes:p.notes||''};\nmsg.headers = {'Content-Type':'application/json'};\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 560,
+    "wires": [
+      [
+        "http-post-decision"
+      ]
+    ]
+  },
+  {
+    "id": "fn-reset-state",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Reset State",
+    "func": "flow.set('approved_count',    0);\nflow.set('rejected_count',    0);\nflow.set('pending_count',     0);\nflow.set('virtual_ms',        Date.parse('2025-03-21'));\nflow.set('sim_speed',         1.0);\nflow.set('current_window',    0);\nflow.set('retraining',        false);\nflow.set('sim_paused',        false);\nflow.set('last_retrain_ms',   0);\nflow.set('retrain_status_prev','idle');\nmsg.payload = {};\nmsg.headers = {'Content-Type':'application/json'};\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 500,
+    "wires": [
+      [
+        "http-drift-reset"
+      ]
+    ]
+  },
+  {
+    "id": "link-out-main",
+    "type": "link out",
+    "z": "tab-main",
+    "name": "→ SPA",
+    "mode": "link",
+    "links": [
+      "link-in-main"
+    ],
+    "x": 775,
+    "y": 200,
     "wires": []
   },
   {
-    "id": "text-auc-roc",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 13,
-    "width": 3,
-    "height": 1,
-    "name": "AUC-ROC",
-    "label": "AUC-ROC",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#3498db",
-    "x": 840,
-    "y": 1980,
+    "id": "link-out-simstate",
+    "type": "link out",
+    "z": "tab-main",
+    "name": "→ SPA simstate",
+    "mode": "link",
+    "links": [
+      "link-in-main"
+    ],
+    "x": 775,
+    "y": 80,
     "wires": []
   },
   {
-    "id": "text-run-name",
-    "type": "ui_text",
-    "z": "tab-prod",
-    "group": "grp-storage",
-    "order": 14,
-    "width": 6,
-    "height": 1,
-    "name": "Run Name",
-    "label": "Last Run",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
+    "id": "link-in-main",
+    "type": "link in",
+    "z": "tab-main",
+    "name": "SPA ←",
+    "links": [
+      "link-out-main",
+      "link-out-simstate"
+    ],
+    "x": 155,
+    "y": 420,
+    "wires": [
+      [
+        "tmpl-spa"
+      ]
+    ]
+  },
+  {
+    "id": "tmpl-spa",
+    "type": "ui_template",
+    "z": "tab-main",
+    "group": "grp-spa",
+    "name": "Single Page App",
+    "order": 1,
+    "width": "12",
+    "height": "20",
+    "format": "<style>\n*{box-sizing:border-box;margin:0;padding:0}\n/* Break out of Node-RED grid to full viewport */\n.spa-root{\n  position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;\n  display:flex;flex-direction:column;\n  background:#f8fafc;color:#0f172a;\n  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;\n  font-size:13px;line-height:1.5;overflow:hidden;\n}\n\n/* chips & badges */\n.chip{display:inline-flex;align-items:center;padding:3px 12px;border-radius:999px;font-size:11px;font-weight:500;border:1px solid}\n.chip-date{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;font-size:13px;font-weight:700;letter-spacing:.3px}\n.chip-win{background:#f0f9ff;color:#0369a1;border-color:#bae6fd}\n.chip-auc{background:#f0fdf4;color:#166534;border-color:#bbf7d0}\n.chip-speed{background:#fafafa;color:#64748b;border-color:#e2e8f0}\n.status-badge{margin-left:auto;padding:4px 14px;border-radius:999px;font-size:12px;font-weight:700;border:1.5px solid;transition:background .3s,color .3s,border-color .3s}\n.badge-live{background:#f0fdf4;color:#16a34a;border-color:#86efac}\n.badge-paused{background:#fffbeb;color:#d97706;border-color:#fde68a}\n.badge-retrain{background:#faf5ff;color:#7c3aed;border-color:#ddd6fe}\n\n/* pipeline steps */\n.pipe-track{display:flex;align-items:stretch;height:60px}\n.pipe-step{\n  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;\n  background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;margin:0 3px;padding:4px;\n  transition:border-color .2s ease,background .2s ease,box-shadow .2s ease;\n}\n.step-low{border-color:#22c55e;background:#f0fdf4;box-shadow:0 0 0 3px rgba(34,197,94,.1),0 2px 8px rgba(34,197,94,.2);animation:stepPop .25s ease}\n.step-medium{border-color:#f97316;background:#fff7ed;box-shadow:0 0 0 3px rgba(249,115,22,.1),0 2px 8px rgba(249,115,22,.2);animation:stepPop .25s ease}\n.step-high{border-color:#ef4444;background:#fef2f2;box-shadow:0 0 0 3px rgba(239,68,68,.1),0 2px 8px rgba(239,68,68,.2);animation:stepPop .25s ease}\n@keyframes stepPop{0%{transform:scale(.9);opacity:.5}60%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}\n.step-icon{font-size:16px;line-height:1}\n.step-lbl{font-size:9px;color:#94a3b8;margin-top:2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600;text-align:center}\n.pipe-arrow{color:#cbd5e1;font-size:16px;flex-shrink:0;align-self:center;margin:0 -4px;z-index:1}\n\n/* timeline */\n.tl-header{display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;font-weight:500;margin-bottom:4px}\n.tl-track{position:relative;height:30px}\n.tl-segs-inner{position:absolute;inset:0;display:flex;border-radius:6px;overflow:hidden}\n.tl-seg{flex:none;height:100%;display:flex;align-items:center;justify-content:center;position:relative;transition:background .35s;border-right:1px solid rgba(255,255,255,.5)}\n.tl-seg:last-child{border-right:none}\n.tl-seg.tl-cur{box-shadow:inset 0 0 0 2px rgba(99,102,241,.6)}\n.tl-seg-lbl{font-size:9px;font-weight:700;color:rgba(0,0,0,.4);white-space:nowrap;overflow:hidden;pointer-events:none;user-select:none}\n.tl-train-bar{position:absolute;bottom:-4px;left:0;height:4px;background:#6366f1;border-radius:999px;transition:width 1s ease;pointer-events:none;z-index:4}\n.tl-retrain-mark{position:absolute;top:-16px;transform:translateX(-50%);font-size:12px;z-index:6;pointer-events:none;line-height:1}\n/* smooth cursor slide */\n.tl-cursor-wrap{position:absolute;top:-4px;bottom:-8px;width:2px;transform:translateX(-1px);pointer-events:none;z-index:5;transition:left 1s ease}\n.tl-cursor-line{width:2px;height:100%;background:#0f172a;border-radius:2px}\n.tl-cursor-dot{width:8px;height:8px;background:#0f172a;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.25);position:absolute;bottom:-4px;left:50%;transform:translateX(-50%)}\n.tl-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;margin-top:6px}\n.tl-train-lbl{color:#6366f1;font-weight:700}\n.tl-prog-lbl{color:#0f172a;font-weight:700}\n.tl-win-info{font-size:10px;color:#64748b;text-align:center}\n\n/* cards */\n.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px}\n.sec-title{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:#94a3b8;font-weight:700;margin-bottom:8px}\n.psi-track{width:100%;height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden;margin:6px 0}\n.psi-fill{height:100%;border-radius:999px;transition:width .7s ease,background .5s ease}\n.psi-label{font-size:18px;font-weight:800;text-align:center;margin-top:4px;transition:color .4s}\n.cnt-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}\n.cnt-cell{background:#f8fafc;border:1px solid #f1f5f9;border-radius:10px;padding:8px 6px;text-align:center}\n.cnt-num{font-size:22px;font-weight:800;line-height:1}\n.cnt-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;margin-top:3px;font-weight:600}\n.c-green{color:#16a34a}.c-orange{color:#d97706}.c-red{color:#dc2626}\n.feat-list{display:flex;flex-wrap:wrap;gap:4px}\n.feat-chip{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:2px 8px;font-size:11px;color:#dc2626;font-family:monospace;font-weight:500;animation:chipIn .2s ease}\n@keyframes chipIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}\n.feat-none{color:#22c55e;font-size:12px}\n.rtrain-info{font-size:12px;color:#64748b;line-height:2}\n\n/* queue */\n.q-sec-hdr{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:#94a3b8;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px}\n.q-empty{color:#94a3b8;text-align:center;padding:40px 20px;font-size:13px}\n.q-item{margin-bottom:6px;animation:itemIn .2s ease}\n@keyframes itemIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}\n.q-row{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;transition:box-shadow .15s,border-color .15s}\n.q-row:hover{box-shadow:0 2px 12px rgba(0,0,0,.08);border-color:#c7d2fe}\n.score-bd{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;flex-shrink:0;min-width:50px;text-align:center}\n.sc-high{background:#fef2f2;color:#dc2626}\n.sc-med{background:#fff7ed;color:#ea580c}\n.sc-low{background:#f0fdf4;color:#16a34a}\n.id-mono{color:#6366f1;font-family:monospace;font-size:11px;font-weight:600;flex-shrink:0}\n.q-meta{color:#64748b;font-size:12px}\n.q-tag{font-size:10px;padding:2px 6px;border-radius:999px;font-weight:600;flex-shrink:0;border:1px solid}\n.tag-tor{background:#fef2f2;color:#dc2626;border-color:#fecaca}\n.tag-vpn{background:#fff7ed;color:#ea580c;border-color:#fed7aa}\n.tag-disp{background:#eff6ff;color:#2563eb;border-color:#bfdbfe}\n.sub-badge{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;margin-left:auto;flex-shrink:0;border:1px solid}\n.sb-first{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}\n.sb-update{background:#fffbeb;color:#d97706;border-color:#fde68a}\n.chevron{font-size:10px;color:#cbd5e1;transition:transform .2s;flex-shrink:0}\n.chevron.open{transform:rotate(90deg)}\n\n/* SHAP */\n.shap-panel{background:#fff;border:1.5px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:12px;margin-bottom:6px;animation:fadeDown .18s ease}\n@keyframes fadeDown{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}\n.shap-meta{font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6}\n.shap-loading{text-align:center;padding:14px;color:#94a3b8;font-size:12px;animation:breathe 1.2s ease-in-out infinite}\n@keyframes breathe{0%,100%{opacity:.4}50%{opacity:1}}\n.shap-feat-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}\n.shap-feat-nm{font-family:monospace;font-size:11px;color:#475569;min-width:140px}\n.shap-feat-bg{flex:1;background:#f1f5f9;border-radius:999px;height:7px;overflow:hidden}\n.shap-feat-fill{height:100%;border-radius:999px;width:0;transition:width .5s ease}\n.shap-feat-val{font-size:11px;color:#94a3b8;min-width:46px;text-align:right;font-family:monospace}\n.notes-inp{background:#f8fafc;color:#0f172a;border:1.5px solid #e2e8f0;padding:7px 11px;border-radius:8px;font-size:13px;width:100%;margin-bottom:8px;outline:none;transition:border-color .15s;font-family:inherit}\n.notes-inp:focus{border-color:#6366f1;background:#fff}\n.act-row{display:flex;gap:8px}\n.qbtn{border:none;border-radius:8px;padding:7px 20px;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;font-family:inherit}\n.qbtn:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.15)}\n.qbtn:active{transform:scale(.97)}\n.qbtn-app{background:#22c55e;color:#fff}\n.qbtn-dec{background:#ef4444;color:#fff}\n\n/* action bar */\n.ftbtn{border-radius:8px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;font-family:inherit;border:1.5px solid}\n.ftbtn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.1)}\n.ftbtn:active{transform:scale(.97)}\n.ft-pause{background:#eff6ff;color:#2563eb;border-color:#bfdbfe}\n.ft-send{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}\n.ft-reset{background:#f8fafc;color:#64748b;border-color:#e2e8f0}\n.spd-wrap{display:flex;align-items:center;gap:8px;margin-left:auto}\n.spd-lbl{font-size:11px;color:#94a3b8;font-weight:500}\n.spd-val{font-size:13px;font-weight:700;color:#6366f1;min-width:32px;text-align:right}\ninput[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}\n.retrain-banner{background:#faf5ff;border:1.5px solid #ddd6fe;border-radius:8px;padding:6px 12px;color:#7c3aed;font-size:12px;font-weight:600;text-align:center;animation:blink 1.5s ease-in-out infinite}\n.done-banner{background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:6px 12px;color:#16a34a;font-size:12px;text-align:center}\n@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}\n\n/* 2-column landscape layout */\n.main-cols{display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden}\n.col-left{display:flex;flex-direction:column;flex:0 0 58%;border-right:1px solid #e2e8f0;overflow:hidden}\n.col-right{display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden}\n#pipe-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 16px 8px;box-shadow:0 1px 3px rgba(0,0,0,.04);flex-shrink:0}\n.meta-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}\n#timeline{margin-top:8px}\n#monitor-pane{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:#f8fafc}\n#queue-pane{flex:1;overflow-y:auto;padding:12px;background:#f8fafc}\n#action-bar{background:#fff;border-top:1px solid #e2e8f0;padding:8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;box-shadow:0 -1px 4px rgba(0,0,0,.04)}\n.action-btns{display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n</style>\n\n<div class=\"spa-root\">\n  <div class=\"main-cols\">\n\n    <!-- LEFT: pipeline + monitor -->\n    <div class=\"col-left\">\n      <div id=\"pipe-bar\">\n        <div class=\"meta-row\">\n          <span class=\"chip chip-date\">{{ simState.virtual_date || '2025-03-21' }}</span>\n          <span class=\"chip chip-win\">{{ simState.window_label || 'W0 Training' }}</span>\n          <span ng-if=\"simState.window_auc\" class=\"chip chip-auc\">AUC-PR {{ simState.window_auc }}</span>\n          <span class=\"chip chip-speed\">{{ simState.speed || 1 }}x</span>\n          <span class=\"status-badge\" ng-class=\"statusCls()\">{{ statusLbl() }}</span>\n        </div>\n        <div class=\"pipe-track\">\n          <div class=\"pipe-step\" ng-class=\"stepCls(0)\"><span class=\"step-icon\">&#x1F4E5;</span><span class=\"step-lbl\">Event</span></div>\n          <span class=\"pipe-arrow\">&#x203A;</span>\n          <div class=\"pipe-step\" ng-class=\"stepCls(1)\"><span class=\"step-icon\">&#x2699;</span><span class=\"step-lbl\">Features</span></div>\n          <span class=\"pipe-arrow\">&#x203A;</span>\n          <div class=\"pipe-step\" ng-class=\"stepCls(2)\"><span class=\"step-icon\">&#x1F517;</span><span class=\"step-lbl\">Graph</span></div>\n          <span class=\"pipe-arrow\">&#x203A;</span>\n          <div class=\"pipe-step\" ng-class=\"stepCls(3)\"><span class=\"step-icon\">&#x1F916;</span><span class=\"step-lbl\">Model</span></div>\n          <span class=\"pipe-arrow\">&#x203A;</span>\n          <div class=\"pipe-step\" ng-class=\"stepCls(4)\"><span class=\"step-icon\">&#x2696;</span><span class=\"step-lbl\">Decision</span></div>\n          <span class=\"pipe-arrow\">&#x203A;</span>\n          <div class=\"pipe-step\" ng-class=\"stepCls(5)\"><span class=\"step-icon\">&#x1F4BE;</span><span class=\"step-lbl\">Stored</span></div>\n        </div>\n        <div id=\"timeline\">\n          <div class=\"tl-header\"><span>Mar 2025</span><span>Feb 2026</span></div>\n          <div class=\"tl-track\">\n            <div class=\"tl-segs-inner\">\n              <div class=\"tl-seg\" ng-repeat=\"w in simState.windows_detail track by $index\"\n                   ng-class=\"{'tl-cur': w.current}\"\n                   ng-style=\"{width: w.width_pct+'%', background: segColor(w)}\"\n                   title=\"{{ w.label }}{{ w.auc ? ' \\u2014 AUC-PR ' + w.auc : '' }}\">\n                <span class=\"tl-seg-lbl\" ng-if=\"w.width_pct > 7\">W{{ $index }}</span>\n              </div>\n            </div>\n            <div class=\"tl-train-bar\" ng-style=\"{width: (simState.train_pct||0)+'%'}\"></div>\n            <div class=\"tl-retrain-mark\" ng-repeat=\"w in simState.windows_detail track by $index\"\n                 ng-if=\"w.retrain_entry\" ng-style=\"{left: w.start_pct+'%'}\">&#x26A1;</div>\n            <div class=\"tl-cursor-wrap\" ng-style=\"{left: (simState.cursor_pct||0)+'%'}\">\n              <div class=\"tl-cursor-line\"><div class=\"tl-cursor-dot\"></div></div>\n            </div>\n          </div>\n          <div class=\"tl-footer\">\n            <span>&#x25A0; Train: <span class=\"tl-train-lbl\">{{ (simState.train_pct||0)|number:1 }}%</span></span>\n            <span class=\"tl-win-info\" ng-if=\"simState.window_auc\">{{ simState.window_label }}&nbsp;&#xB7;&nbsp;AUC-PR {{ simState.window_auc }}</span>\n            <span>Elapsed: <span class=\"tl-prog-lbl\">{{ (simState.cursor_pct||0)|number:0 }}%</span></span>\n          </div>\n        </div>\n      </div>\n\n      <div id=\"monitor-pane\">\n        <div class=\"card\">\n          <div class=\"sec-title\">Drift Monitor</div>\n          <div style=\"display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:2px\">\n            <span>PSI Score</span><span style=\"font-weight:600;color:#475569\">{{ (driftState.psi||0).toFixed(3) }}</span>\n          </div>\n          <div class=\"psi-track\"><div class=\"psi-fill\" ng-style=\"{width:psiWidth(),background:psiColor()}\"></div></div>\n          <div class=\"psi-label\" ng-class=\"psiCls()\">{{ driftState.drift_label || 'COLLECTING' }}</div>\n        </div>\n        <div class=\"card\">\n          <div class=\"sec-title\">Decisions</div>\n          <div class=\"cnt-grid\">\n            <div class=\"cnt-cell\"><div class=\"cnt-num c-green\">{{ simState.approved||0 }}</div><div class=\"cnt-lbl\">Approved</div></div>\n            <div class=\"cnt-cell\"><div class=\"cnt-num c-red\">{{ simState.rejected||0 }}</div><div class=\"cnt-lbl\">Rejected</div></div>\n            <div class=\"cnt-cell\"><div class=\"cnt-num c-orange\">{{ simState.pending||0 }}</div><div class=\"cnt-lbl\">Pending</div></div>\n          </div>\n        </div>\n        <div class=\"card\">\n          <div class=\"sec-title\">Drifted Features</div>\n          <div class=\"feat-list\">\n            <span ng-if=\"!driftState.drifted_features||driftState.drifted_features.length===0\" class=\"feat-none\">None detected</span>\n            <span ng-repeat=\"f in driftState.drifted_features\" class=\"feat-chip\">{{ f }}</span>\n          </div>\n        </div>\n        <div class=\"card\">\n          <div class=\"sec-title\">Retrain</div>\n          <div class=\"rtrain-info\">\n            Status: <strong style=\"color:#0f172a\">{{ retrainState.status||'idle' }}</strong><br>\n            <span ng-if=\"retrainState.training_rows\">Rows: {{ retrainState.training_rows }}<br></span>\n            <span ng-if=\"retrainState.error\" style=\"color:#dc2626;font-size:11px\">{{ retrainState.error }}</span>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <!-- RIGHT: queue + actions -->\n    <div class=\"col-right\">\n      <div id=\"queue-pane\">\n        <div class=\"q-sec-hdr\">\n          Pending Review\n          <span style=\"background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:1px 8px;color:#64748b;font-size:11px\">\n            {{ (queueItems||[]).length }}\n          </span>\n        </div>\n        <div ng-if=\"!queueItems||queueItems.length===0\" class=\"q-empty\">No items pending review</div>\n        <div class=\"q-item\" ng-repeat=\"item in queueItems track by item.insertion_id\">\n          <div class=\"q-row\" ng-click=\"toggleItem(item.insertion_id)\">\n            <span class=\"score-bd\" ng-class=\"scoreCls(item.fraud_probability)\">{{ item.score_pct }}%</span>\n            <span class=\"id-mono\">{{ item.insertion_id.slice(0,10) }}&#x2026;</span>\n            <span class=\"q-meta\">{{ item.category }}</span>\n            <span class=\"q-meta\">CHF&#xA0;{{ item.price }}</span>\n            <span class=\"q-meta\">{{ item.ip_country }}</span>\n            <span ng-if=\"item.tor\" class=\"q-tag tag-tor\">TOR</span>\n            <span ng-if=\"item.vpn\" class=\"q-tag tag-vpn\">VPN</span>\n            <span ng-if=\"item.disposable\" class=\"q-tag tag-disp\">DISPOSABLE</span>\n            <span class=\"sub-badge\" ng-class=\"seenIds[item.insertion_id] ? 'sb-update' : 'sb-first'\">\n              {{ seenIds[item.insertion_id] ? 'UPDATE' : 'FIRST SUBMIT' }}\n            </span>\n            <span class=\"chevron\" ng-class=\"expanded[item.insertion_id] ? 'open' : ''\">&#x25BA;</span>\n          </div>\n          <div ng-if=\"expanded[item.insertion_id]\" class=\"shap-panel\">\n            <div class=\"shap-meta\">\n              Fraud probability: <strong style=\"color:#ea580c\">{{ (item.fraud_probability*100).toFixed(1) }}%</strong>\n              &nbsp;&#xB7;&nbsp; {{ item.category }} &nbsp;&#xB7;&nbsp; CHF {{ item.price }}\n              &nbsp;&#xB7;&nbsp; IP: {{ item.ip_country }}\n              <span ng-if=\"item.queued_at\">&nbsp;&#xB7;&nbsp; {{ item.queued_at }}</span>\n            </div>\n            <div ng-if=\"shapLoading[item.insertion_id] && !shapData[item.insertion_id]\" class=\"shap-loading\">\n              &#x23F3; Computing SHAP explanation&#x2026;\n            </div>\n            <div ng-if=\"shapData[item.insertion_id]\">\n              <div ng-if=\"shapData[item.insertion_id].message\" style=\"font-size:11px;color:#94a3b8;font-style:italic;margin-bottom:8px\">\n                {{ shapData[item.insertion_id].message }}\n              </div>\n              <img ng-if=\"shapData[item.insertion_id].waterfall_chart_base64\"\n                   ng-src=\"data:image/png;base64,{{ shapData[item.insertion_id].waterfall_chart_base64 }}\"\n                   style=\"width:100%;border-radius:8px;margin-bottom:10px;border:1px solid #e2e8f0\"/>\n              <div ng-if=\"!shapData[item.insertion_id].waterfall_chart_base64 && shapData[item.insertion_id].top_fraud_indicators.length\">\n                <div style=\"font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;font-weight:700;margin-bottom:8px\">SHAP Feature Contributions</div>\n                <div class=\"shap-feat-row\" ng-repeat=\"f in shapData[item.insertion_id].top_fraud_indicators | limitTo:8\">\n                  <span class=\"shap-feat-nm\">{{ f.feature }}</span>\n                  <div class=\"shap-feat-bg\"><div class=\"shap-feat-fill\" ng-style=\"{width:Math.min(Math.abs(f.shap_value)*200,100)+'%',background:f.shap_value>0?'#ef4444':'#22c55e'}\"></div></div>\n                  <span class=\"shap-feat-val\">{{ f.shap_value>0?'+':'' }}{{ f.shap_value.toFixed(3) }}</span>\n                </div>\n              </div>\n            </div>\n            <input class=\"notes-inp\" ng-model=\"notes[item.insertion_id]\" placeholder=\"Add notes&#x2026;\"/>\n            <div class=\"act-row\">\n              <button class=\"qbtn qbtn-app\" ng-click=\"decide(item.insertion_id,'APPROVE')\">&#x2713; Approve</button>\n              <button class=\"qbtn qbtn-dec\" ng-click=\"decide(item.insertion_id,'DECLINE')\">&#x2715; Decline</button>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <div id=\"action-bar\">\n        <div ng-if=\"simState.retraining\" class=\"retrain-banner\">&#x21BA; RETRAINING IN PROGRESS &#x2014; simulation paused</div>\n        <div ng-if=\"simState.sim_done\" class=\"done-banner\">&#x2713; Timeline complete &#x2014; replayed</div>\n        <div class=\"action-btns\">\n          <button class=\"ftbtn ft-pause\" ng-click=\"doAction('toggle_pause')\">{{ simState.paused ? '&#x25BA; Resume' : '&#x23F8; Pause' }}</button>\n          <button class=\"ftbtn ft-send\" ng-click=\"doAction('force_future')\">&#x21AA; Pull Future Event</button>\n          <button class=\"ftbtn ft-reset\" ng-click=\"doAction('reset')\">&#x21BA; Reset</button>\n          <div class=\"spd-wrap\">\n            <span class=\"spd-lbl\">Speed</span>\n            <input type=\"range\" class=\"spd-sl\" min=\"0\" max=\"5\" step=\"1\" ng-model=\"speedIdx\" ng-change=\"setSpeed()\"/>\n            <span class=\"spd-val\">{{ speedLabels[speedIdx] }}</span>\n          </div>\n        </div>\n      </div>\n    </div>\n\n  </div>\n</div>\n\n<script>\n// --- state (direct on scope, no IIFE) ---\nscope.simState     = {virtual_date:'2025-03-21',window_label:'W0 Training',window_auc:null,speed:1,paused:false,retraining:false,sim_done:false,approved:0,rejected:0,pending:0,windows_detail:[],train_pct:0,cursor_pct:0};\nscope.driftState   = {psi:0,drift_label:'COLLECTING',drifted_features:[]};\nscope.retrainState = {status:'idle',training_rows:0,error:null};\nscope.queueItems   = [];\nscope.expanded     = {};\nscope.notes        = {};\nscope.seenIds      = {};\nscope.shapData     = {};\nscope.shapLoading  = {};\nscope.pipeStage    = -1;\nscope.pipeRisk     = 'low';\nscope.speedIdx     = 2;\nscope.speedLabels  = ['0.25x','0.5x','1x','2x','4x','8x'];\nscope.speedValues  = [0.25,0.5,1,2,4,8];\n\n// closure vars for animation state\nvar _pipeAnimating = false;\nvar _pipeIv        = null;\nvar _simTick       = 0;\n\n// cleanup on hot-redeploy\nscope.$on('$destroy', function() {\n  if (_pipeIv) { clearInterval(_pipeIv); _pipeIv = null; }\n});\n\n// --- message handler (called from both $watch and $on) ---\nfunction handleMsg(msg) {\n  if (!msg || !msg.topic) return;\n  var t = msg.topic, p = msg.payload;\n\n  if (t === 'sim_state') {\n    scope.simState = p;\n    var si = [0.25,0.5,1,2,4,8].indexOf(p.speed);\n    scope.speedIdx = si < 0 ? 2 : si;\n    if (!p.paused && !p.retraining && !p.sim_done) {\n      _simTick++;\n      if (_simTick % 3 === 0) {\n        var r = Math.random();\n        scope.pipeRisk = r < 0.7 ? 'low' : r < 0.9 ? 'medium' : 'high';\n        animatePipe();\n      }\n    }\n\n  } else if (t === 'event') {\n    var tier = (p.risk_tier || 'LOW').toUpperCase();\n    scope.pipeRisk = tier === 'HIGH' ? 'high' : tier === 'MEDIUM' ? 'medium' : 'low';\n    animatePipe();\n\n  } else if (t === 'queue') {\n    (p || []).forEach(function(it) {\n      if (!scope.seenIds.hasOwnProperty(it.insertion_id)) scope.seenIds[it.insertion_id] = false;\n      else scope.seenIds[it.insertion_id] = true;\n    });\n    scope.queueItems = p || [];\n\n  } else if (t === 'drift') {\n    scope.driftState = p;\n\n  } else if (t === 'retrain') {\n    scope.retrainState = p;\n\n  } else if (t === 'shap_loading') {\n    if (!scope.shapData[p.insertion_id]) scope.shapLoading[p.insertion_id] = true;\n\n  } else if (t === 'shap') {\n    scope.shapLoading[p.insertion_id] = false;\n    scope.shapData[p.insertion_id] = p;\n  }\n}\n\n// Primary: $watch catches every time scope.msg is set by the dashboard\nscope.$watch('msg', function(msg) { handleMsg(msg); });\n\n// Fallback: $on for dashboards that broadcast instead\nscope.$on('msg:update', function(evt, msg) { handleMsg(msg); });\n\n// --- pipeline animation ---\nfunction animatePipe() {\n  if (_pipeAnimating) return;\n  _pipeAnimating = true;\n  var stage = 0;\n  scope.pipeStage = 0;\n  _pipeIv = setInterval(function() {\n    stage++;\n    try { scope.$apply(function() { scope.pipeStage = stage; }); } catch(e) { scope.pipeStage = stage; }\n    if (stage >= 5) {\n      clearInterval(_pipeIv);\n      _pipeIv = null;\n      setTimeout(function() {\n        try { scope.$apply(function() { scope.pipeStage = -1; _pipeAnimating = false; }); }\n        catch(e) { scope.pipeStage = -1; _pipeAnimating = false; }\n      }, 700);\n    }\n  }, 170);\n}\n\n// --- helpers ---\nscope.segColor = function(w) {\n  if (!w.passed && !w.current) return '#f1f5f9';\n  if (w.auc === null) return '#c7d2fe';\n  if (w.auc >= 0.70)  return '#bbf7d0';\n  if (w.auc >= 0.62)  return '#d1fae5';\n  if (w.auc >= 0.57)  return '#fef9c3';\n  if (w.auc >= 0.50)  return '#fde68a';\n  return '#fecaca';\n};\nscope.stepCls = function(idx) {\n  if (scope.pipeStage < 0 || idx > scope.pipeStage) return '';\n  return 'step-' + scope.pipeRisk;\n};\nscope.statusCls = function() {\n  if (scope.simState.retraining) return 'badge-retrain';\n  if (scope.simState.paused)     return 'badge-paused';\n  return 'badge-live';\n};\nscope.statusLbl = function() {\n  if (scope.simState.retraining) return 'RETRAINING';\n  if (scope.simState.paused)     return 'PAUSED';\n  return 'LIVE';\n};\nscope.psiWidth = function() { return Math.min((scope.driftState.psi||0)/0.3*100,100)+'%'; };\nscope.psiColor = function() {\n  var p = scope.driftState.psi||0;\n  return p < 0.1 ? '#4ade80' : p < 0.2 ? '#f59e0b' : '#ef4444';\n};\nscope.psiCls = function() {\n  var l = (scope.driftState.drift_label||'').toLowerCase();\n  return l.indexOf('stable')>=0||l.indexOf('collect')>=0 ? 'c-green' : l.indexOf('moderate')>=0 ? 'c-orange' : 'c-red';\n};\nscope.scoreCls = function(prob) { return prob>=0.7?'sc-high':prob>=0.4?'sc-med':'sc-low'; };\n\nscope.toggleItem = function(id) {\n  scope.expanded[id] = !scope.expanded[id];\n  if (scope.expanded[id] && !scope.shapData[id] && !scope.shapLoading[id]) {\n    scope.shapLoading[id] = true;\n    scope.send({topic:'action', payload:{action:'request_shap', insertion_id:id}});\n  }\n};\nscope.decide = function(id, decision) {\n  scope.expanded[id] = false;\n  scope.queueItems = (scope.queueItems||[]).filter(function(i){ return i.insertion_id !== id; });\n  delete scope.seenIds[id]; delete scope.shapData[id]; delete scope.shapLoading[id];\n  scope.send({topic:'action', payload:{action:'decision', insertion_id:id, decision:decision, notes:scope.notes[id]||''}});\n};\nscope.doAction = function(name) { scope.send({topic:'action', payload:{action:name}}); };\nscope.setSpeed = function() {\n  var s = scope.speedValues[parseInt(scope.speedIdx)||2]||1;\n  scope.send({topic:'action', payload:{action:'set_speed', speed:s}});\n};\n</script>\n",
+    "storeOutMessages": true,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
     "className": "",
-    "style": false,
-    "font": "",
-    "fontSize": 12,
-    "color": "#aaaaaa",
-    "x": 840,
-    "y": 2020,
-    "wires": []
+    "x": 330,
+    "y": 420,
+    "wires": [
+      [
+        "fn-action-router"
+      ]
+    ]
+  },
+  {
+    "id": "fn-build-shap",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Build SHAP Request",
+    "func": "var p = msg.payload || {};\nif (!p.insertion_id) return null;\nmsg.url    = 'http://localhost:8000/admin/shap/' + p.insertion_id;\nmsg.method = 'POST';\nmsg.payload = {};\nmsg.headers = {'Content-Type':'application/json'};\nreturn [\n  msg,\n  {topic:'shap_loading', payload:{insertion_id: p.insertion_id}}\n];",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 600,
+    "wires": [
+      [
+        "http-shap"
+      ],
+      [
+        "link-out-main"
+      ]
+    ]
+  },
+  {
+    "id": "http-shap",
+    "type": "http request",
+    "z": "tab-main",
+    "name": "POST /admin/shap/:id",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "x": 1060,
+    "y": 600,
+    "wires": [
+      [
+        "fn-parse-shap"
+      ]
+    ]
+  },
+  {
+    "id": "fn-parse-shap",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Parse SHAP",
+    "func": "var p = msg.payload || {};\nvar id = p.insertion_id || msg._shap_id;\nif (!id) return null;\nreturn {\n  topic: 'shap',\n  payload: {\n    insertion_id:             id,\n    waterfall_chart_base64:   p.waterfall_chart_base64   || null,\n    top_fraud_indicators:     p.top_fraud_indicators     || [],\n    top_legitimate_indicators:p.top_legitimate_indicators|| [],\n    prediction_value:         p.prediction_value         || null,\n    message:                  p.message                  || null\n  }\n};",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1220,
+    "y": 600,
+    "wires": [
+      [
+        "link-out-main"
+      ]
+    ]
+  },
+  {
+    "id": "fn-future-event",
+    "type": "function",
+    "z": "tab-main",
+    "name": "Future Event",
+    "func": "// Pull an event from 1-2 windows ahead with slight jitter\nvar DIST = [\n  {low:70,med:20,high:10},\n  {low:70,med:20,high:10},\n  {low:65,med:22,high:13},\n  {low:70,med:20,high:10},\n  {low:65,med:22,high:13},\n  {low:60,med:25,high:15},\n  {low:50,med:28,high:22},\n  {low:65,med:22,high:13},\n  {low:67,med:20,high:13}\n];\nvar cur = flow.get('current_window') || 0;\nvar ahead = Math.min(cur + 1 + Math.floor(Math.random() * 2), DIST.length - 1);\nvar d = DIST[ahead];\n// ±15% jitter on each bucket then renormalise\nfunction jit(v){ return Math.max(1, v + (Math.random()-0.5)*30); }\nvar lo=jit(d.low), me=jit(d.med), hi=jit(d.high);\nvar tot=lo+me+hi; lo/=tot; me/=tot;\nvar r=Math.random();\n// Bias: ensure at least a chance of MEDIUM so it reaches the queue\n// If future window is stable this will still occasionally be LOW/HIGH\nvar scenario = r < lo ? 'LOW_RISK' : (r < lo+me ? 'MEDIUM_RISK' : 'HIGH_RISK');\nreturn {payload:{scenario:scenario}, headers:{'Content-Type':'application/json'}};",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 860,
+    "y": 440,
+    "wires": [
+      [
+        "http-simulate"
+      ]
+    ]
   }
 ]

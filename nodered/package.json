@@ -8,7 +8,6 @@
   "dependencies": {
     "@node-red/nodes": "^4.0.0",
     "node-red": "^4.0.0",
-    "node-red-dashboard": "^2.30.0",
-    "node-red-node-ui-table": "^0.4.5"
+    "node-red-dashboard": "^2.30.0"
   }
 }
