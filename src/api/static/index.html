@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPA Fraud Detection</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.spa-root{
+  position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;
+  display:flex;flex-direction:column;
+  background:#f8fafc;color:#0f172a;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  font-size:13px;line-height:1.5;overflow:hidden;
+}
+
+/* chips & badges */
+.chip{display:inline-flex;align-items:center;padding:3px 12px;border-radius:999px;font-size:11px;font-weight:500;border:1px solid}
+.chip-date{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;font-size:13px;font-weight:700;letter-spacing:.3px}
+.chip-win{background:#f0f9ff;color:#0369a1;border-color:#bae6fd}
+.chip-auc{background:#f0fdf4;color:#166534;border-color:#bbf7d0}
+.chip-speed{background:#fafafa;color:#64748b;border-color:#e2e8f0}
+.status-badge{margin-left:auto;padding:4px 14px;border-radius:999px;font-size:12px;font-weight:700;border:1.5px solid;transition:background .3s,color .3s,border-color .3s}
+.badge-live{background:#f0fdf4;color:#16a34a;border-color:#86efac}
+.badge-paused{background:#fffbeb;color:#d97706;border-color:#fde68a}
+.badge-retrain{background:#faf5ff;color:#7c3aed;border-color:#ddd6fe}
+
+/* pipeline steps */
+.pipe-track{display:flex;align-items:stretch;height:60px}
+.pipe-step{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;margin:0 3px;padding:4px;
+  transition:border-color .2s ease,background .2s ease,box-shadow .2s ease;
+}
+.step-low{border-color:#22c55e;background:#f0fdf4;box-shadow:0 0 0 3px rgba(34,197,94,.1),0 2px 8px rgba(34,197,94,.2);animation:stepPop .25s ease}
+.step-medium{border-color:#f97316;background:#fff7ed;box-shadow:0 0 0 3px rgba(249,115,22,.1),0 2px 8px rgba(249,115,22,.2);animation:stepPop .25s ease}
+.step-high{border-color:#ef4444;background:#fef2f2;box-shadow:0 0 0 3px rgba(239,68,68,.1),0 2px 8px rgba(239,68,68,.2);animation:stepPop .25s ease}
+@keyframes stepPop{0%{transform:scale(.9);opacity:.5}60%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}
+.step-icon{font-size:16px;line-height:1}
+.step-lbl{font-size:9px;color:#94a3b8;margin-top:2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600;text-align:center}
+.pipe-arrow{color:#cbd5e1;font-size:16px;flex-shrink:0;align-self:center;margin:0 -4px;z-index:1}
+
+/* timeline */
+.tl-header{display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;font-weight:500;margin-bottom:4px}
+.tl-track{position:relative;height:30px}
+.tl-segs-inner{position:absolute;inset:0;display:flex;border-radius:6px;overflow:hidden}
+.tl-seg{flex:none;height:100%;display:flex;align-items:center;justify-content:center;position:relative;transition:background .35s;border-right:1px solid rgba(255,255,255,.5)}
+.tl-seg:last-child{border-right:none}
+.tl-seg.tl-cur{box-shadow:inset 0 0 0 2px rgba(99,102,241,.6)}
+.tl-seg-lbl{font-size:9px;font-weight:700;color:rgba(0,0,0,.4);white-space:nowrap;overflow:hidden;pointer-events:none;user-select:none}
+.tl-train-bar{position:absolute;bottom:-4px;left:0;height:4px;background:#6366f1;border-radius:999px;transition:width 1s ease;pointer-events:none;z-index:4}
+.tl-retrain-mark{position:absolute;top:-16px;transform:translateX(-50%);font-size:12px;z-index:6;pointer-events:none;line-height:1}
+.tl-cursor-wrap{position:absolute;top:-4px;bottom:-8px;width:2px;transform:translateX(-1px);pointer-events:none;z-index:5;transition:left 1s ease}
+.tl-cursor-line{width:2px;height:100%;background:#0f172a;border-radius:2px}
+.tl-cursor-dot{width:8px;height:8px;background:#0f172a;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.25);position:absolute;bottom:-4px;left:50%;transform:translateX(-50%)}
+.tl-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;margin-top:6px}
+.tl-train-lbl{color:#6366f1;font-weight:700}
+.tl-prog-lbl{color:#0f172a;font-weight:700}
+.tl-win-info{font-size:10px;color:#64748b;text-align:center}
+
+/* cards */
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px}
+.sec-title{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:#94a3b8;font-weight:700;margin-bottom:8px}
+.psi-track{width:100%;height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden;margin:6px 0}
+.psi-fill{height:100%;border-radius:999px;transition:width .7s ease,background .5s ease}
+.psi-label{font-size:18px;font-weight:800;text-align:center;margin-top:4px;transition:color .4s}
+.cnt-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.cnt-cell{background:#f8fafc;border:1px solid #f1f5f9;border-radius:10px;padding:8px 6px;text-align:center}
+.cnt-num{font-size:22px;font-weight:800;line-height:1}
+.cnt-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;margin-top:3px;font-weight:600}
+.c-green{color:#16a34a}.c-orange{color:#d97706}.c-red{color:#dc2626}
+.feat-list{display:flex;flex-wrap:wrap;gap:4px}
+.feat-chip{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:2px 8px;font-size:11px;color:#dc2626;font-family:monospace;font-weight:500;animation:chipIn .2s ease}
+@keyframes chipIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+.feat-none{color:#22c55e;font-size:12px}
+.rtrain-info{font-size:12px;color:#64748b;line-height:2}
+
+/* queue */
+.q-sec-hdr{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:#94a3b8;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.q-empty{color:#94a3b8;text-align:center;padding:40px 20px;font-size:13px}
+.q-item{margin-bottom:6px;animation:itemIn .2s ease}
+@keyframes itemIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+.q-row{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;transition:box-shadow .15s,border-color .15s}
+.q-row:hover{box-shadow:0 2px 12px rgba(0,0,0,.08);border-color:#c7d2fe}
+.score-bd{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;flex-shrink:0;min-width:50px;text-align:center}
+.sc-high{background:#fef2f2;color:#dc2626}
+.sc-med{background:#fff7ed;color:#ea580c}
+.sc-low{background:#f0fdf4;color:#16a34a}
+.id-mono{color:#6366f1;font-family:monospace;font-size:11px;font-weight:600;flex-shrink:0}
+.q-meta{color:#64748b;font-size:12px}
+.q-tag{font-size:10px;padding:2px 6px;border-radius:999px;font-weight:600;flex-shrink:0;border:1px solid}
+.tag-tor{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+.tag-vpn{background:#fff7ed;color:#ea580c;border-color:#fed7aa}
+.tag-disp{background:#eff6ff;color:#2563eb;border-color:#bfdbfe}
+.sub-badge{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;margin-left:auto;flex-shrink:0;border:1px solid}
+.sb-first{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}
+.sb-update{background:#fffbeb;color:#d97706;border-color:#fde68a}
+.chevron{font-size:10px;color:#cbd5e1;transition:transform .2s;flex-shrink:0}
+.chevron.open{transform:rotate(90deg)}
+
+/* SHAP */
+.shap-panel{background:#fff;border:1.5px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:12px;margin-bottom:6px;animation:fadeDown .18s ease}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.shap-meta{font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6}
+.shap-loading{text-align:center;padding:14px;color:#94a3b8;font-size:12px;animation:breathe 1.2s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.4}50%{opacity:1}}
+.shap-feat-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.shap-feat-nm{font-family:monospace;font-size:11px;color:#475569;min-width:140px}
+.shap-feat-bg{flex:1;background:#f1f5f9;border-radius:999px;height:7px;overflow:hidden}
+.shap-feat-fill{height:100%;border-radius:999px;width:0;transition:width .5s ease}
+.shap-feat-val{font-size:11px;color:#94a3b8;min-width:46px;text-align:right;font-family:monospace}
+.notes-inp{background:#f8fafc;color:#0f172a;border:1.5px solid #e2e8f0;padding:7px 11px;border-radius:8px;font-size:13px;width:100%;margin-bottom:8px;outline:none;transition:border-color .15s;font-family:inherit}
+.notes-inp:focus{border-color:#6366f1;background:#fff}
+.act-row{display:flex;gap:8px}
+.qbtn{border:none;border-radius:8px;padding:7px 20px;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;font-family:inherit}
+.qbtn:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.15)}
+.qbtn:active{transform:scale(.97)}
+.qbtn-app{background:#22c55e;color:#fff}
+.qbtn-dec{background:#ef4444;color:#fff}
+
+/* action bar */
+.ftbtn{border-radius:8px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;font-family:inherit;border:1.5px solid}
+.ftbtn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.1)}
+.ftbtn:active{transform:scale(.97)}
+.ft-pause{background:#eff6ff;color:#2563eb;border-color:#bfdbfe}
+.ft-send{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}
+.ft-reset{background:#f8fafc;color:#64748b;border-color:#e2e8f0}
+.spd-wrap{display:flex;align-items:center;gap:8px;margin-left:auto}
+.spd-lbl{font-size:11px;color:#94a3b8;font-weight:500}
+.spd-val{font-size:13px;font-weight:700;color:#6366f1;min-width:32px;text-align:right}
+input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
+.retrain-banner{background:#faf5ff;border:1.5px solid #ddd6fe;border-radius:8px;padding:6px 12px;color:#7c3aed;font-size:12px;font-weight:600;text-align:center;animation:blink 1.5s ease-in-out infinite}
+.done-banner{background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:6px 12px;color:#16a34a;font-size:12px;text-align:center}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* 2-column landscape layout */
+.main-cols{display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden}
+.col-left{display:flex;flex-direction:column;flex:0 0 58%;border-right:1px solid #e2e8f0;overflow:hidden}
+.col-right{display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden}
+#pipe-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 16px 8px;box-shadow:0 1px 3px rgba(0,0,0,.04);flex-shrink:0}
+.meta-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+#timeline{margin-top:8px}
+#monitor-pane{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:#f8fafc}
+#queue-pane{flex:1;overflow-y:auto;padding:12px;background:#f8fafc}
+#action-bar{background:#fff;border-top:1px solid #e2e8f0;padding:8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;box-shadow:0 -1px 4px rgba(0,0,0,.04)}
+.action-btns{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<div class="spa-root">
+  <div class="main-cols">
+
+    <!-- LEFT: pipeline + monitor -->
+    <div class="col-left">
+      <div id="pipe-bar">
+        <div class="meta-row">
+          <span id="chip-date" class="chip chip-date">2025-03-21</span>
+          <span id="chip-win" class="chip chip-win">W0 Training</span>
+          <span id="chip-auc" class="chip chip-auc" style="display:none">AUC-PR --</span>
+          <span id="chip-speed" class="chip chip-speed">1x</span>
+          <span id="status-badge" class="status-badge badge-live">LIVE</span>
+        </div>
+        <div class="pipe-track">
+          <div class="pipe-step" id="ps0"><span class="step-icon">&#x1F4E5;</span><span class="step-lbl">Event</span></div>
+          <span class="pipe-arrow">&#x203A;</span>
+          <div class="pipe-step" id="ps1"><span class="step-icon">&#x2699;</span><span class="step-lbl">Features</span></div>
+          <span class="pipe-arrow">&#x203A;</span>
+          <div class="pipe-step" id="ps2"><span class="step-icon">&#x1F517;</span><span class="step-lbl">Graph</span></div>
+          <span class="pipe-arrow">&#x203A;</span>
+          <div class="pipe-step" id="ps3"><span class="step-icon">&#x1F916;</span><span class="step-lbl">Model</span></div>
+          <span class="pipe-arrow">&#x203A;</span>
+          <div class="pipe-step" id="ps4"><span class="step-icon">&#x2696;</span><span class="step-lbl">Decision</span></div>
+          <span class="pipe-arrow">&#x203A;</span>
+          <div class="pipe-step" id="ps5"><span class="step-icon">&#x1F4BE;</span><span class="step-lbl">Stored</span></div>
+        </div>
+        <div id="timeline">
+          <div class="tl-header"><span>Mar 2025</span><span>Feb 2026</span></div>
+          <div class="tl-track">
+            <div class="tl-segs-inner" id="tl-segs"></div>
+            <div class="tl-train-bar" id="tl-train-bar"></div>
+            <div id="tl-retrain-marks"></div>
+            <div class="tl-cursor-wrap" id="tl-cursor">
+              <div class="tl-cursor-line"><div class="tl-cursor-dot"></div></div>
+            </div>
+          </div>
+          <div class="tl-footer">
+            <span>&#x25A0; Train: <span id="tl-train-lbl" class="tl-train-lbl">0.0%</span></span>
+            <span id="tl-win-info" class="tl-win-info"></span>
+            <span>Elapsed: <span id="tl-prog-lbl" class="tl-prog-lbl">0%</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="monitor-pane">
+        <div class="card">
+          <div class="sec-title">Drift Monitor</div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:2px">
+            <span>PSI Score</span><span id="psi-val" style="font-weight:600;color:#475569">0.000</span>
+          </div>
+          <div class="psi-track"><div class="psi-fill" id="psi-fill"></div></div>
+          <div class="psi-label" id="psi-label">COLLECTING</div>
+        </div>
+        <div class="card">
+          <div class="sec-title">Decisions</div>
+          <div class="cnt-grid">
+            <div class="cnt-cell"><div class="cnt-num c-green" id="cnt-approved">0</div><div class="cnt-lbl">Approved</div></div>
+            <div class="cnt-cell"><div class="cnt-num c-red" id="cnt-rejected">0</div><div class="cnt-lbl">Rejected</div></div>
+            <div class="cnt-cell"><div class="cnt-num c-orange" id="cnt-pending">0</div><div class="cnt-lbl">Pending</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sec-title">Drifted Features</div>
+          <div class="feat-list" id="feat-list">
+            <span class="feat-none">None detected</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sec-title">Retrain</div>
+          <div class="rtrain-info" id="rtrain-info">
+            Status: <strong>idle</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: queue + actions -->
+    <div class="col-right">
+      <div id="queue-pane">
+        <div class="q-sec-hdr">
+          Pending Review
+          <span id="q-count" style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:1px 8px;color:#64748b;font-size:11px">0</span>
+        </div>
+        <div id="q-list">
+          <div class="q-empty">No items pending review</div>
+        </div>
+      </div>
+
+      <div id="action-bar">
+        <div id="retrain-banner" class="retrain-banner" style="display:none">&#x21BA; RETRAINING IN PROGRESS &#x2014; simulation paused</div>
+        <div id="done-banner" class="done-banner" style="display:none">&#x2713; Timeline complete &#x2014; replayed</div>
+        <div class="action-btns">
+          <button class="ftbtn ft-pause" id="btn-pause">&#x23F8; Pause</button>
+          <button class="ftbtn ft-send" id="btn-future">&#x21AA; Pull Future Event</button>
+          <button class="ftbtn ft-reset" id="btn-reset">&#x21BA; Reset</button>
+          <div class="spd-wrap">
+            <span class="spd-lbl">Speed</span>
+            <input type="range" class="spd-sl" id="spd-slider" min="0" max="5" step="1" value="2"/>
+            <span class="spd-val" id="spd-val">1x</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // --- State ---
+  var simState = {};
+  var driftState = {};
+  var retrainState = {};
+  var queueItems = [];
+  var expanded = {};
+  var notes = {};
+  var seenIds = {};
+  var shapData = {};
+  var shapLoading = {};
+  var pipeStage = -1;
+  var pipeRisk = 'low';
+  var _pipeAnimating = false;
+  var _pipeIv = null;
+  var _simTick = 0;
+
+  var speedLabels = ['0.25x','0.5x','1x','2x','4x','8x'];
+  var speedValues = [0.25, 0.5, 1, 2, 4, 8];
+
+  // --- DOM refs ---
+  var $ = function(id) { return document.getElementById(id); };
+
+  // --- Helpers ---
+  function segColor(w) {
+    if (!w.passed && !w.current) return '#f1f5f9';
+    if (w.auc === null) return '#c7d2fe';
+    if (w.auc >= 0.70) return '#bbf7d0';
+    if (w.auc >= 0.62) return '#d1fae5';
+    if (w.auc >= 0.57) return '#fef9c3';
+    if (w.auc >= 0.50) return '#fde68a';
+    return '#fecaca';
+  }
+
+  function scoreCls(prob) {
+    return prob >= 0.7 ? 'sc-high' : prob >= 0.4 ? 'sc-med' : 'sc-low';
+  }
+
+  function psiWidth(psi) {
+    return Math.min((psi || 0) / 0.3 * 100, 100) + '%';
+  }
+
+  function psiColor(psi) {
+    return (psi || 0) < 0.1 ? '#4ade80' : (psi || 0) < 0.2 ? '#f59e0b' : '#ef4444';
+  }
+
+  function psiCls(label) {
+    var l = (label || '').toLowerCase();
+    return l.indexOf('stable') >= 0 || l.indexOf('collect') >= 0 ? 'c-green'
+         : l.indexOf('moderate') >= 0 ? 'c-orange' : 'c-red';
+  }
+
+  // --- Pipeline Animation ---
+  function animatePipe() {
+    if (_pipeAnimating) return;
+    _pipeAnimating = true;
+    var stage = 0;
+    setPipeStage(0);
+    _pipeIv = setInterval(function() {
+      stage++;
+      setPipeStage(stage);
+      if (stage >= 5) {
+        clearInterval(_pipeIv);
+        _pipeIv = null;
+        setTimeout(function() {
+          setPipeStage(-1);
+          _pipeAnimating = false;
+        }, 700);
+      }
+    }, 170);
+  }
+
+  function setPipeStage(stage) {
+    pipeStage = stage;
+    for (var i = 0; i <= 5; i++) {
+      var el = $('ps' + i);
+      el.className = 'pipe-step';
+      if (stage >= 0 && i <= stage) {
+        el.classList.add('step-' + pipeRisk);
+      }
+    }
+  }
+
+  // --- Render: Sim State ---
+  function renderSimState(s) {
+    simState = s;
+    $('chip-date').textContent = s.virtual_date || '2025-03-21';
+    $('chip-win').textContent = s.window_label || 'W0 Training';
+
+    var aucEl = $('chip-auc');
+    if (s.window_auc) {
+      aucEl.style.display = '';
+      aucEl.textContent = 'AUC-PR ' + s.window_auc;
+    } else {
+      aucEl.style.display = 'none';
+    }
+
+    $('chip-speed').textContent = (s.speed || 1) + 'x';
+
+    // Status badge
+    var badge = $('status-badge');
+    if (s.retraining) {
+      badge.className = 'status-badge badge-retrain';
+      badge.textContent = 'RETRAINING';
+    } else if (s.paused) {
+      badge.className = 'status-badge badge-paused';
+      badge.textContent = 'PAUSED';
+    } else {
+      badge.className = 'status-badge badge-live';
+      badge.textContent = 'LIVE';
+    }
+
+    // Counters
+    $('cnt-approved').textContent = s.approved || 0;
+    $('cnt-rejected').textContent = s.rejected || 0;
+    $('cnt-pending').textContent = s.pending || 0;
+
+    // Timeline segments
+    renderTimeline(s);
+
+    // Train bar
+    $('tl-train-bar').style.width = (s.train_pct || 0) + '%';
+    $('tl-train-lbl').textContent = (s.train_pct || 0).toFixed(1) + '%';
+    $('tl-prog-lbl').textContent = Math.round(s.cursor_pct || 0) + '%';
+    $('tl-cursor').style.left = (s.cursor_pct || 0) + '%';
+
+    var winInfo = $('tl-win-info');
+    winInfo.textContent = s.window_auc ? (s.window_label + ' \u00B7 AUC-PR ' + s.window_auc) : '';
+
+    // Pause button label
+    $('btn-pause').innerHTML = s.paused ? '&#x25BA; Resume' : '&#x23F8; Pause';
+
+    // Speed slider
+    var si = speedValues.indexOf(s.speed);
+    if (si >= 0) {
+      $('spd-slider').value = si;
+      $('spd-val').textContent = speedLabels[si];
+    }
+
+    // Banners
+    $('retrain-banner').style.display = s.retraining ? '' : 'none';
+    $('done-banner').style.display = s.sim_done ? '' : 'none';
+
+    // Animate pipeline on active ticks
+    if (!s.paused && !s.retraining && !s.sim_done) {
+      _simTick++;
+      if (_simTick % 3 === 0) {
+        var r = Math.random();
+        pipeRisk = r < 0.7 ? 'low' : r < 0.9 ? 'medium' : 'high';
+        animatePipe();
+      }
+    }
+  }
+
+  function renderTimeline(s) {
+    var detail = s.windows_detail || [];
+    var segs = $('tl-segs');
+    var marks = $('tl-retrain-marks');
+
+    // Only rebuild if window count changed
+    if (segs.children.length !== detail.length) {
+      segs.innerHTML = '';
+      marks.innerHTML = '';
+      detail.forEach(function(w, i) {
+        var seg = document.createElement('div');
+        seg.className = 'tl-seg' + (w.current ? ' tl-cur' : '');
+        seg.style.width = w.width_pct + '%';
+        seg.style.background = segColor(w);
+        seg.title = w.label + (w.auc ? ' \u2014 AUC-PR ' + w.auc : '');
+        if (w.width_pct > 7) {
+          var lbl = document.createElement('span');
+          lbl.className = 'tl-seg-lbl';
+          lbl.textContent = 'W' + i;
+          seg.appendChild(lbl);
+        }
+        segs.appendChild(seg);
+
+        if (w.retrain_entry) {
+          var mark = document.createElement('div');
+          mark.className = 'tl-retrain-mark';
+          mark.style.left = w.start_pct + '%';
+          mark.textContent = '\u26A1';
+          marks.appendChild(mark);
+        }
+      });
+    } else {
+      // Update existing segments
+      for (var i = 0; i < detail.length; i++) {
+        var seg = segs.children[i];
+        var w = detail[i];
+        seg.className = 'tl-seg' + (w.current ? ' tl-cur' : '');
+        seg.style.background = segColor(w);
+      }
+    }
+  }
+
+  // --- Render: Drift ---
+  function renderDrift(d) {
+    driftState = d;
+    var psi = d.psi || d.prediction_psi || 0;
+    $('psi-val').textContent = psi.toFixed(3);
+    $('psi-fill').style.width = psiWidth(psi);
+    $('psi-fill').style.background = psiColor(psi);
+
+    var label = d.drift_label || 'COLLECTING';
+    var labelEl = $('psi-label');
+    labelEl.textContent = label;
+    labelEl.className = 'psi-label ' + psiCls(label);
+
+    var featEl = $('feat-list');
+    var feats = d.drifted_features || [];
+    if (feats.length === 0) {
+      featEl.innerHTML = '<span class="feat-none">None detected</span>';
+    } else {
+      featEl.innerHTML = feats.map(function(f) {
+        return '<span class="feat-chip">' + escHtml(f) + '</span>';
+      }).join('');
+    }
+  }
+
+  // --- Render: Retrain ---
+  function renderRetrain(r) {
+    retrainState = r;
+    var html = 'Status: <strong style="color:#0f172a">' + escHtml(r.status || 'idle') + '</strong>';
+    if (r.training_rows) html += '<br>Rows: ' + r.training_rows;
+    if (r.error) html += '<br><span style="color:#dc2626;font-size:11px">' + escHtml(r.error) + '</span>';
+    $('rtrain-info').innerHTML = html;
+  }
+
+  // --- Render: Queue ---
+  function renderQueue(data) {
+    var items = Array.isArray(data) ? data : (data && data.items ? data.items : []);
+
+    // Build queue items with proper fields
+    queueItems = items.map(function(it) {
+      var s = it.event_summary || {};
+      var prob = (it.fraud_probability !== undefined) ? it.fraud_probability : ((s.score || 0) / 100);
+      return {
+        insertion_id: it.insertion_id || '',
+        fraud_probability: prob,
+        score_pct: (prob * 100).toFixed(1),
+        category: s.category || s.listing_category || '-',
+        price: s.price || s.listing_price || '-',
+        ip_country: s.ip_country || s.seon_ip_country || '-',
+        tor: !!(s.tor || s.seon_tor),
+        vpn: !!(s.vpn || s.seon_vpn),
+        disposable: !!(s.disposable || s.seon_email_disposable),
+        queued_at: (s.queued_at || it.queued_at || '').slice(0, 19)
+      };
+    });
+
+    // Track seen IDs
+    queueItems.forEach(function(it) {
+      if (!seenIds.hasOwnProperty(it.insertion_id)) seenIds[it.insertion_id] = false;
+      else seenIds[it.insertion_id] = true;
+    });
+
+    $('q-count').textContent = queueItems.length;
+    renderQueueLocal();
+  }
+
+  function buildQueueItemHtml(item) {
+    var id = item.insertion_id;
+    var isExpanded = expanded[id];
+    var html = '<div class="q-item" data-id="' + escAttr(id) + '">';
+    html += '<div class="q-row" data-action="toggle" data-id="' + escAttr(id) + '">';
+    html += '<span class="score-bd ' + scoreCls(item.fraud_probability) + '">' + item.score_pct + '%</span>';
+    html += '<span class="id-mono">' + escHtml(id.slice(0, 10)) + '\u2026</span>';
+    html += '<span class="q-meta">' + escHtml(item.category) + '</span>';
+    html += '<span class="q-meta">CHF\u00A0' + escHtml(String(item.price)) + '</span>';
+    html += '<span class="q-meta">' + escHtml(item.ip_country) + '</span>';
+    if (item.tor) html += '<span class="q-tag tag-tor">TOR</span>';
+    if (item.vpn) html += '<span class="q-tag tag-vpn">VPN</span>';
+    if (item.disposable) html += '<span class="q-tag tag-disp">DISPOSABLE</span>';
+    html += '<span class="sub-badge ' + (seenIds[id] ? 'sb-update' : 'sb-first') + '">';
+    html += seenIds[id] ? 'UPDATE' : 'FIRST SUBMIT';
+    html += '</span>';
+    html += '<span class="chevron' + (isExpanded ? ' open' : '') + '">&#x25BA;</span>';
+    html += '</div>';
+
+    if (isExpanded) {
+      html += '<div class="shap-panel">';
+      html += '<div class="shap-meta">';
+      html += 'Fraud probability: <strong style="color:#ea580c">' + (item.fraud_probability * 100).toFixed(1) + '%</strong>';
+      html += ' \u00B7 ' + escHtml(item.category) + ' \u00B7 CHF ' + escHtml(String(item.price));
+      html += ' \u00B7 IP: ' + escHtml(item.ip_country);
+      if (item.queued_at) html += ' \u00B7 ' + escHtml(item.queued_at);
+      html += '</div>';
+
+      if (shapLoading[id] && !shapData[id]) {
+        html += '<div class="shap-loading">\u23F3 Computing SHAP explanation\u2026</div>';
+      }
+      if (shapData[id]) {
+        var sd = shapData[id];
+        if (sd.message) {
+          html += '<div style="font-size:11px;color:#94a3b8;font-style:italic;margin-bottom:8px">' + escHtml(sd.message) + '</div>';
+        }
+        if (sd.waterfall_chart_base64) {
+          html += '<img src="data:image/png;base64,' + sd.waterfall_chart_base64 + '" style="width:100%;border-radius:8px;margin-bottom:10px;border:1px solid #e2e8f0"/>';
+        } else if (sd.top_fraud_indicators && sd.top_fraud_indicators.length) {
+          html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;font-weight:700;margin-bottom:8px">SHAP Feature Contributions</div>';
+          sd.top_fraud_indicators.slice(0, 8).forEach(function(f) {
+            var barW = Math.min(Math.abs(f.shap_value) * 200, 100);
+            var barC = f.shap_value > 0 ? '#ef4444' : '#22c55e';
+            html += '<div class="shap-feat-row">';
+            html += '<span class="shap-feat-nm">' + escHtml(f.feature) + '</span>';
+            html += '<div class="shap-feat-bg"><div class="shap-feat-fill" style="width:' + barW + '%;background:' + barC + '"></div></div>';
+            html += '<span class="shap-feat-val">' + (f.shap_value > 0 ? '+' : '') + f.shap_value.toFixed(3) + '</span>';
+            html += '</div>';
+          });
+        }
+      }
+
+      html += '<input class="notes-inp" id="notes-' + escAttr(id) + '" placeholder="Add notes\u2026" value="' + escAttr(notes[id] || '') + '"/>';
+      html += '<div class="act-row">';
+      html += '<button class="qbtn qbtn-app" data-action="approve" data-id="' + escAttr(id) + '">&#x2713; Approve</button>';
+      html += '<button class="qbtn qbtn-dec" data-action="decline" data-id="' + escAttr(id) + '">&#x2715; Decline</button>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // Re-render queue from cached local items (after toggle/decide/shap)
+  function renderQueueLocal() {
+    // Skip the API data parsing, just re-render the UI from queueItems
+    $('q-count').textContent = queueItems.length;
+    var list = $('q-list');
+    if (queueItems.length === 0) {
+      list.innerHTML = '<div class="q-empty">No items pending review</div>';
+      return;
+    }
+    list.innerHTML = queueItems.map(function(item) { return buildQueueItemHtml(item); }).join('');
+  }
+
+  // --- Event Delegation ---
+  $('q-list').addEventListener('click', function(e) {
+    var target = e.target.closest('[data-action]');
+    if (!target) return;
+    var action = target.dataset.action;
+    var id = target.dataset.id;
+
+    if (action === 'toggle') {
+      toggleItem(id);
+    } else if (action === 'approve') {
+      decide(id, 'APPROVE');
+    } else if (action === 'decline') {
+      decide(id, 'DECLINE');
+    }
+  });
+
+  // Save notes on input
+  $('q-list').addEventListener('input', function(e) {
+    if (e.target.classList.contains('notes-inp')) {
+      var id = e.target.id.replace('notes-', '');
+      notes[id] = e.target.value;
+    }
+  });
+
+  function toggleItem(id) {
+    expanded[id] = !expanded[id];
+    if (expanded[id] && !shapData[id] && !shapLoading[id]) {
+      shapLoading[id] = true;
+      requestShap(id);
+    }
+    renderQueueLocal();
+  }
+
+  function decide(id, decision) {
+    // Read notes before removing item
+    var notesEl = document.getElementById('notes-' + id);
+    var noteText = notesEl ? notesEl.value : (notes[id] || '');
+
+    expanded[id] = false;
+    queueItems = queueItems.filter(function(i) { return i.insertion_id !== id; });
+    delete seenIds[id]; delete shapData[id]; delete shapLoading[id]; delete notes[id];
+
+    // Re-render immediately
+    renderQueueLocal();
+
+    fetch('/admin/decision/' + id, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({decision: decision, admin_id: 'admin-1', notes: noteText})
+    }).catch(function(err) { console.warn('Decision failed:', err); });
+  }
+
+  function requestShap(id) {
+    fetch('/admin/shap/' + id, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        shapLoading[id] = false;
+        shapData[id] = data;
+        // Re-render queue to show SHAP data
+        renderQueueLocal();
+      })
+      .catch(function(err) {
+        shapLoading[id] = false;
+        console.warn('SHAP failed:', err);
+      });
+  }
+
+  // --- Action Buttons ---
+  $('btn-pause').addEventListener('click', function() {
+    fetch('/admin/sim/pause', {method: 'POST'}).catch(function(e) { console.warn(e); });
+  });
+
+  $('btn-future').addEventListener('click', function() {
+    fetch('/admin/sim/force-event', {method: 'POST'}).catch(function(e) { console.warn(e); });
+  });
+
+  $('btn-reset').addEventListener('click', function() {
+    // Reset local state
+    seenIds = {};
+    shapData = {};
+    shapLoading = {};
+    expanded = {};
+    notes = {};
+    _simTick = 0;
+    fetch('/admin/sim/reset', {method: 'POST'}).catch(function(e) { console.warn(e); });
+  });
+
+  $('spd-slider').addEventListener('input', function() {
+    var idx = parseInt(this.value) || 2;
+    var speed = speedValues[idx] || 1;
+    $('spd-val').textContent = speedLabels[idx];
+    fetch('/admin/sim/speed', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({speed: speed})
+    }).catch(function(e) { console.warn(e); });
+  });
+
+  // --- Polling ---
+  function poll(url, callback, interval) {
+    function tick() {
+      fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(callback)
+        .catch(function(err) { /* silent */ });
+    }
+    tick();
+    setInterval(tick, interval);
+  }
+
+  poll('/admin/sim/state', renderSimState, 1000);
+  poll('/admin/queue', renderQueue, 3000);
+  poll('/admin/drift/status', renderDrift, 5000);
+  poll('/admin/retrain/status', renderRetrain, 3000);
+
+  // --- Escape helpers ---
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function escAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+})();
+</script>
+
+</body>
+</html>

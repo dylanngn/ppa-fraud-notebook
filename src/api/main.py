@@ -32,6 +32,7 @@ Startup
 import json
 import logging
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -41,6 +42,8 @@ import mlflow.xgboost
 import xgboost as xgb
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 
 from src.api.models import (
     EventPayload,
@@ -180,7 +183,18 @@ async def lifespan(app: FastAPI):
     app.include_router(admin_router, prefix="/admin")
     logger.info("Admin router mounted at /admin")
 
+    # Mount simulator router and start background simulation
+    from src.api.routers.simulator import router as sim_router
+    app.include_router(sim_router, prefix="/admin/sim")
+    logger.info("Simulator router mounted at /admin/sim")
+
+    from src.api.simulator import simulator
+    await simulator.start()
+
     yield
+
+    # Stop the simulator
+    await simulator.stop()
 
     # Graceful shutdown: flush the event store to disk
     logger.info("Shutting down Fraud Detection Service …")
@@ -466,6 +480,21 @@ def _generate_risk_factors(event: EventPayload) -> list[RiskFactor]:
 
     factors.sort(key=lambda x: abs(x.impact), reverse=True)
     return factors[:5]
+
+
+# ---------------------------------------------------------------------------
+# Dashboard — serve standalone HTML dashboard
+# ---------------------------------------------------------------------------
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    return RedirectResponse("/dashboard/")
+
+
+# Mount static files LAST so API routes take priority
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/dashboard", StaticFiles(directory=str(_static_dir), html=True), name="dashboard")
 
 
 if __name__ == "__main__":
