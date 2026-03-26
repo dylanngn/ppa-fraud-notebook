@@ -163,7 +163,7 @@ async def simulate(req: SimulateRequest):
     Generate a synthetic listing-submission event matching the requested
     risk scenario and run it through the complete prediction pipeline.
 
-    Used as the demo heartbeat in the Node-RED Pipeline Simulator tab.
+    Used as the demo heartbeat by the simulator background loop.
     """
     event_store, feature_engineer, admin_store, drift_state, model = _get_state()
 

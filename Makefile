@@ -20,8 +20,7 @@ TEST_END    := 2026-02-01
 	hpo hpo-quick hpo-high-recall \
 	hpo-gnn hpo-gnn-quick hpo-gnn-with-best-xgb hpo-hgt \
 	register-model api api-dev api-docs \
-	nodered nodered-install demo \
-	mlflow thesis thesis-clean clean
+	demo mlflow thesis thesis-clean clean
 
 help:
 	@echo "Available commands:"
@@ -66,10 +65,8 @@ help:
 	@echo "    make api                   - Start Fraud Detection API (port 8000)"
 	@echo "    make api-dev               - Start API with hot reload"
 	@echo ""
-	@echo "  Node-RED Demo:"
-	@echo "    make nodered-install       - Install Node-RED dependencies"
-	@echo "    make nodered               - Start Node-RED dashboard (port 1880)"
-	@echo "    make demo                  - Print instructions to run full demo"
+	@echo "  Demo:"
+	@echo "    make demo                  - Print instructions to run the demo"
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    make mlflow                - Start MLflow UI"
@@ -416,17 +413,8 @@ api-docs:
 	@echo "  ReDoc      : http://localhost:8000/redoc"
 
 # ---------------------------------------------------------------------------
-# Node-RED Demo
+# Demo
 # ---------------------------------------------------------------------------
-
-nodered-install:
-	cd nodered && npm install
-
-nodered:
-	@echo "Starting Node-RED dashboard …"
-	@echo "Dashboard : http://localhost:1880/dashboard"
-	@echo "Flow editor: http://localhost:1880/"
-	cd nodered && npm install --silent && npm start
 
 demo:
 	@echo ""
