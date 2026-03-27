@@ -102,12 +102,17 @@ class DriftState:
             }
 
             if self._last_result:
+                # Per-feature PSI values (if available from BatchDriftMonitor)
+                raw_fpsi = self._last_result.get("feature_psi", {})
+                feature_psi = {str(k): round(float(v), 4) for k, v in raw_fpsi.items()} if raw_fpsi else {}
+
                 base.update({
                     "prediction_psi": round(float(self._last_result.get("prediction_psi", 0.0)), 4),
                     "prediction_ks_drift": bool(self._last_result.get("prediction_ks_drift", False)),
                     "overall_drift": bool(self._last_result.get("overall_drift", False)),
                     "drifted_features": [str(f) for f in self._last_result.get("drifted_features", [])],
                     "drift_label": self._drift_label(float(self._last_result.get("prediction_psi", 0.0))),
+                    "feature_psi": feature_psi,
                 })
             else:
                 base.update({
@@ -116,6 +121,7 @@ class DriftState:
                     "overall_drift": False,
                     "drifted_features": [],
                     "drift_label": "COLLECTING DATA",
+                    "feature_psi": {},
                 })
 
             return base

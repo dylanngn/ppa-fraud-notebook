@@ -133,6 +133,32 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
 .done-banner{background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:6px 12px;color:#16a34a;font-size:12px;text-align:center}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
+/* score distribution histogram */
+.dist-hist{display:flex;align-items:flex-end;gap:4px;height:56px;padding:0 2px}
+.dist-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;height:100%}
+.dist-bar{width:100%;border-radius:4px 4px 0 0;background:#22c55e;transition:height .5s ease;min-height:2px;margin-top:auto}
+.dist-bar-ml{background:#84cc16}
+.dist-bar-m{background:#f59e0b}
+.dist-bar-mh{background:#f97316}
+.dist-bar-h{background:#ef4444}
+.dist-bar-lbl{font-size:8px;color:#94a3b8;margin-top:3px;white-space:nowrap;font-weight:500}
+.dist-bar-n{font-size:9px;color:#475569;font-weight:700;margin-top:1px;min-height:12px}
+
+/* metrics grid */
+.metrics-grid{display:flex;flex-direction:column;gap:4px}
+.met-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #f1f5f9;font-size:12px}
+.met-row:last-child{border-bottom:none}
+.met-lbl{color:#94a3b8;font-weight:500}
+.met-val{color:#0f172a;font-weight:700;font-family:monospace;font-size:11px}
+
+/* drifted features table */
+.feat-tbl{width:100%;font-size:11px;border-collapse:collapse}
+.feat-tbl th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;font-weight:600;padding:3px 4px;border-bottom:1px solid #e2e8f0}
+.feat-tbl td{padding:4px;border-bottom:1px solid #f1f5f9}
+.feat-tbl .feat-nm{font-family:monospace;color:#475569;font-weight:500}
+.feat-psi-bar{height:6px;border-radius:999px;background:#f1f5f9;overflow:hidden;min-width:60px}
+.feat-psi-fill{height:100%;border-radius:999px;transition:width .4s}
+
 /* 2-column landscape layout */
 .main-cols{display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden}
 .col-left{display:flex;flex-direction:column;flex:0 0 58%;border-right:1px solid #e2e8f0;overflow:hidden}
@@ -193,14 +219,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       </div>
 
       <div id="monitor-pane">
-        <div class="card">
-          <div class="sec-title">Drift Monitor</div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-bottom:2px">
-            <span>PSI Score</span><span id="psi-val" style="font-weight:600;color:#475569">0.000</span>
-          </div>
-          <div class="psi-track"><div class="psi-fill" id="psi-fill"></div></div>
-          <div class="psi-label" id="psi-label">COLLECTING</div>
-        </div>
+        <!-- Decisions -->
         <div class="card">
           <div class="sec-title">Decisions</div>
           <div class="cnt-grid">
@@ -209,16 +228,70 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
             <div class="cnt-cell"><div class="cnt-num c-orange" id="cnt-pending">0</div><div class="cnt-lbl">Pending</div></div>
           </div>
         </div>
+
+        <!-- Drift Monitor (enhanced) -->
+        <div class="card">
+          <div class="sec-title">Drift Monitor</div>
+          <!-- PSI gauge row -->
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#94a3b8;margin-bottom:2px">
+            <span>PSI Score</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="ks-chip" class="chip" style="font-size:10px;padding:1px 8px;display:none">KS: PASS</span>
+              <span id="psi-val" style="font-weight:600;color:#475569">0.000</span>
+            </div>
+          </div>
+          <div class="psi-track"><div class="psi-fill" id="psi-fill"></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
+            <div class="psi-label" id="psi-label" style="font-size:14px">COLLECTING</div>
+            <span id="drift-samples" style="font-size:10px;color:#94a3b8">Ref: 0 | Cur: 0</span>
+          </div>
+
+          <!-- Score Distribution Histogram -->
+          <div style="margin-top:12px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;font-weight:600;margin-bottom:6px">Score Distribution</div>
+            <div id="dist-hist" class="dist-hist">
+              <div class="dist-bar-wrap"><div class="dist-bar" id="dist-b0" style="height:0"></div><div class="dist-bar-lbl">0-0.1</div><div class="dist-bar-n" id="dist-n0">0</div></div>
+              <div class="dist-bar-wrap"><div class="dist-bar dist-bar-ml" id="dist-b1" style="height:0"></div><div class="dist-bar-lbl">0.1-0.3</div><div class="dist-bar-n" id="dist-n1">0</div></div>
+              <div class="dist-bar-wrap"><div class="dist-bar dist-bar-m" id="dist-b2" style="height:0"></div><div class="dist-bar-lbl">0.3-0.5</div><div class="dist-bar-n" id="dist-n2">0</div></div>
+              <div class="dist-bar-wrap"><div class="dist-bar dist-bar-mh" id="dist-b3" style="height:0"></div><div class="dist-bar-lbl">0.5-0.7</div><div class="dist-bar-n" id="dist-n3">0</div></div>
+              <div class="dist-bar-wrap"><div class="dist-bar dist-bar-h" id="dist-b4" style="height:0"></div><div class="dist-bar-lbl">0.7-1.0</div><div class="dist-bar-n" id="dist-n4">0</div></div>
+            </div>
+          </div>
+
+          <!-- PSI History Sparkline -->
+          <div style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;font-weight:600">PSI Trend</span>
+              <span id="psi-trend-val" style="font-size:10px;color:#94a3b8"></span>
+            </div>
+            <canvas id="psi-sparkline" width="320" height="40" style="width:100%;height:40px;border-radius:6px;background:#f8fafc"></canvas>
+          </div>
+        </div>
+
+        <!-- Drifted Features (enhanced) -->
         <div class="card">
           <div class="sec-title">Drifted Features</div>
-          <div class="feat-list" id="feat-list">
+          <div id="feat-list">
             <span class="feat-none">None detected</span>
           </div>
         </div>
+
+        <!-- Retrain -->
         <div class="card">
           <div class="sec-title">Retrain</div>
           <div class="rtrain-info" id="rtrain-info">
             Status: <strong>idle</strong>
+          </div>
+        </div>
+
+        <!-- Pipeline Metrics -->
+        <div class="card">
+          <div class="sec-title">Pipeline Metrics</div>
+          <div class="metrics-grid" id="metrics-grid">
+            <div class="met-row"><span class="met-lbl">Events in Store</span><span class="met-val" id="met-events">-</span></div>
+            <div class="met-row"><span class="met-lbl">Graph Nodes</span><span class="met-val" id="met-nodes">-</span></div>
+            <div class="met-row"><span class="met-lbl">Graph Edges</span><span class="met-val" id="met-edges">-</span></div>
+            <div class="met-row"><span class="met-lbl">Model</span><span class="met-val" id="met-model">-</span></div>
           </div>
         </div>
       </div>
@@ -453,9 +526,13 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   }
 
   // --- Render: Drift ---
+  var _psiHistory = [];
+
   function renderDrift(d) {
     driftState = d;
     var psi = d.psi || d.prediction_psi || 0;
+
+    // PSI gauge
     $('psi-val').textContent = psi.toFixed(3);
     $('psi-fill').style.width = psiWidth(psi);
     $('psi-fill').style.background = psiColor(psi);
@@ -465,15 +542,124 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     labelEl.textContent = label;
     labelEl.className = 'psi-label ' + psiCls(label);
 
+    // KS chip
+    var ksChip = $('ks-chip');
+    if (d.reference_set) {
+      ksChip.style.display = '';
+      if (d.prediction_ks_drift) {
+        ksChip.textContent = 'KS: DRIFT';
+        ksChip.style.background = '#fef2f2'; ksChip.style.color = '#dc2626'; ksChip.style.borderColor = '#fecaca';
+      } else {
+        ksChip.textContent = 'KS: PASS';
+        ksChip.style.background = '#f0fdf4'; ksChip.style.color = '#16a34a'; ksChip.style.borderColor = '#bbf7d0';
+      }
+    }
+
+    // Sample counts
+    $('drift-samples').textContent = 'Ref: ' + (d.reference_size || 0) + ' | Cur: ' + (d.current_size || 0);
+
+    // Score distribution histogram
+    var dist = d.score_distribution || {};
+    var buckets = ['0.0-0.1','0.1-0.3','0.3-0.5','0.5-0.7','0.7-1.0'];
+    var vals = buckets.map(function(k) { return dist[k] || 0; });
+    var maxVal = Math.max.apply(null, vals) || 1;
+    for (var i = 0; i < 5; i++) {
+      $('dist-b' + i).style.height = Math.max(vals[i] / maxVal * 100, 4) + '%';
+      $('dist-n' + i).textContent = vals[i];
+    }
+
+    // PSI history sparkline
+    if (d.reference_set && psi > 0) {
+      _psiHistory.push(psi);
+      if (_psiHistory.length > 30) _psiHistory.shift();
+      drawSparkline();
+      var trend = _psiHistory.length >= 3
+        ? (_psiHistory[_psiHistory.length-1] > _psiHistory[_psiHistory.length-3] ? '\u2197 Rising' : '\u2198 Falling')
+        : '';
+      $('psi-trend-val').textContent = trend;
+    }
+
+    // Drifted features with PSI severity
     var featEl = $('feat-list');
     var feats = d.drifted_features || [];
-    if (feats.length === 0) {
+    var fpsi = d.feature_psi || {};
+    if (feats.length === 0 && Object.keys(fpsi).length === 0) {
       featEl.innerHTML = '<span class="feat-none">None detected</span>';
     } else {
-      featEl.innerHTML = feats.map(function(f) {
-        return '<span class="feat-chip">' + escHtml(f) + '</span>';
-      }).join('');
+      // Show all features with PSI > 0.1, sorted by PSI descending
+      var entries = [];
+      if (Object.keys(fpsi).length > 0) {
+        Object.keys(fpsi).forEach(function(f) {
+          if (fpsi[f] > 0.1) entries.push({name: f, psi: fpsi[f], drifted: feats.indexOf(f) >= 0});
+        });
+        entries.sort(function(a, b) { return b.psi - a.psi; });
+      } else {
+        feats.forEach(function(f) { entries.push({name: f, psi: null, drifted: true}); });
+      }
+
+      if (entries.length === 0) {
+        featEl.innerHTML = '<span class="feat-none">None detected</span>';
+      } else {
+        var html = '<table class="feat-tbl"><tr><th>Feature</th><th>PSI</th><th style="width:40%">Severity</th></tr>';
+        entries.slice(0, 8).forEach(function(e) {
+          var psiVal = e.psi !== null ? e.psi.toFixed(3) : '-';
+          var barW = e.psi !== null ? Math.min(e.psi / 0.5 * 100, 100) : 0;
+          var barC = e.drifted ? '#ef4444' : '#f59e0b';
+          html += '<tr>';
+          html += '<td class="feat-nm">' + escHtml(e.name) + '</td>';
+          html += '<td style="font-family:monospace;font-size:10px;color:' + (e.drifted ? '#dc2626' : '#d97706') + ';font-weight:600">' + psiVal + '</td>';
+          html += '<td><div class="feat-psi-bar"><div class="feat-psi-fill" style="width:' + barW + '%;background:' + barC + '"></div></div></td>';
+          html += '</tr>';
+        });
+        html += '</table>';
+        featEl.innerHTML = html;
+      }
     }
+  }
+
+  function drawSparkline() {
+    var canvas = $('psi-sparkline');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (_psiHistory.length < 2) return;
+
+    var maxP = Math.max.apply(null, _psiHistory);
+    var minP = Math.min.apply(null, _psiHistory);
+    var range = maxP - minP || 0.01;
+    var pad = 4;
+
+    // Draw threshold lines
+    [0.1, 0.2].forEach(function(thresh) {
+      if (thresh >= minP && thresh <= maxP) {
+        var y = h - pad - ((thresh - minP) / range) * (h - 2 * pad);
+        ctx.strokeStyle = thresh === 0.1 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+
+    // Draw line
+    ctx.beginPath();
+    ctx.strokeStyle = '#6366f1';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    for (var i = 0; i < _psiHistory.length; i++) {
+      var x = (i / (_psiHistory.length - 1)) * (w - 2 * pad) + pad;
+      var y = h - pad - ((_psiHistory[i] - minP) / range) * (h - 2 * pad);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw fill
+    ctx.lineTo(w - pad, h - pad);
+    ctx.lineTo(pad, h - pad);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(99,102,241,0.08)';
+    ctx.fill();
   }
 
   // --- Render: Retrain ---
@@ -782,6 +968,21 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   poll('/admin/queue', renderQueue, 3000);
   poll('/admin/drift/status', renderDrift, 5000);
   poll('/admin/retrain/status', renderRetrain, 3000);
+  poll('/health', renderHealth, 10000);
+
+  function renderHealth(h) {
+    $('met-events').textContent = (h.events_in_store || 0).toLocaleString();
+    $('met-nodes').textContent = (h.graph_nodes || 0).toLocaleString();
+    $('met-edges').textContent = (h.graph_edges || 0).toLocaleString();
+    var modelEl = $('met-model');
+    if (h.model_loaded) {
+      modelEl.textContent = 'loaded';
+      modelEl.style.color = '#16a34a';
+    } else {
+      modelEl.textContent = 'degraded';
+      modelEl.style.color = '#d97706';
+    }
+  }
 
   // --- Escape helpers ---
   function escHtml(s) {
