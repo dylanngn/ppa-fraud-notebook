@@ -23,6 +23,7 @@ import random
 import string
 import subprocess
 import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -331,6 +332,32 @@ async def record_decision(insertion_id: str, req: AdminDecisionRequest):
         "decided_at": record.decided_at,
         "parquet_flushed": True,
     }
+
+
+# ---------------------------------------------------------------------------
+# Decisions history
+# ---------------------------------------------------------------------------
+
+@router.get("/decisions", summary="Recent approved/declined events")
+async def list_decisions(bucket: str = "all", limit: int = 50):
+    """
+    Return recent decisions (both auto and human).
+
+    Query params:
+      - bucket: "approved", "declined", or "all" (default)
+      - limit: max items to return (default 50)
+    """
+    _, _, admin_store, _, _ = _get_state()
+    if admin_store is None:
+        raise HTTPException(status_code=503, detail="Service not initialised")
+
+    records = admin_store.get_recent_decisions(limit)
+    items = [asdict(r) for r in records]
+    if bucket != "all":
+        items = [d for d in items if d["bucket"] == bucket]
+    # Return most recent first
+    items.reverse()
+    return {"items": items, "count": len(items)}
 
 
 # ---------------------------------------------------------------------------

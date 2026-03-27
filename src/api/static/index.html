@@ -118,6 +118,18 @@
 .qbtn-app{background:#22c55e;color:#fff}
 .qbtn-dec{background:#ef4444;color:#fff}
 
+/* tabs */
+.tab-bar{display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:10px}
+.tab-btn{padding:6px 14px;font-size:12px;font-weight:600;color:#94a3b8;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;transition:all .15s;font-family:inherit;white-space:nowrap}
+.tab-btn:hover{color:#475569}
+.tab-btn.active{color:#6366f1;border-bottom-color:#6366f1}
+.tab-count{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:0 6px;font-size:10px;color:#64748b;margin-left:4px;font-weight:500}
+.tab-btn.active .tab-count{background:#eff6ff;border-color:#c7d2fe;color:#6366f1}
+.decision-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;border:1px solid}
+.db-approved{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}
+.db-declined{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+.db-auto{font-style:italic;opacity:.7}
+
 /* action bar */
 .ftbtn{border-radius:8px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;font-family:inherit;border:1.5px solid}
 .ftbtn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.1)}
@@ -309,9 +321,10 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     <!-- RIGHT: queue + actions -->
     <div class="col-right">
       <div id="queue-pane">
-        <div class="q-sec-hdr">
-          Pending Review
-          <span id="q-count" style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:1px 8px;color:#64748b;font-size:11px">0</span>
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="pending" id="tab-pending">Pending<span class="tab-count" id="tc-pending">0</span></button>
+          <button class="tab-btn" data-tab="approved" id="tab-approved">Approved<span class="tab-count" id="tc-approved">0</span></button>
+          <button class="tab-btn" data-tab="rejected" id="tab-rejected">Rejected<span class="tab-count" id="tc-rejected">0</span></button>
         </div>
         <div id="q-list">
           <div class="q-empty">No items pending review</div>
@@ -360,6 +373,11 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
 
   var speedLabels = ['0.25x','0.5x','1x','2x','4x','8x'];
   var speedValues = [0.25, 0.5, 1, 2, 4, 8];
+
+  // Tab state
+  var activeTab = 'pending';  // 'pending' | 'approved' | 'rejected'
+  var approvedItems = [];
+  var rejectedItems = [];
 
   // --- DOM refs ---
   var $ = function(id) { return document.getElementById(id); };
@@ -759,11 +777,47 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       if (!seenIds.hasOwnProperty(it.insertion_id)) seenIds[it.insertion_id] = false;
     });
 
-    $('q-count').textContent = queueItems.length;
-    renderQueueDiff();
+    $('tc-pending').textContent = queueItems.length;
+    renderPendingDiff();
   }
 
-  function buildQueueItemHtml(item) {
+  // --- Render: Decisions (Approved/Rejected tabs) ---
+  function normalizeDecisionItem(it) {
+    var s = it.event_summary || {};
+    var prob = it.fraud_probability || 0;
+    return {
+      insertion_id: it.insertion_id || '',
+      fraud_probability: prob,
+      score_pct: (prob * 100).toFixed(1),
+      category: s.category || s.listing_category || '-',
+      price: s.price || s.listing_price || '-',
+      ip_country: s.ip_country || s.seon_ip_country || '-',
+      tor: !!(s.tor || s.seon_tor),
+      vpn: !!(s.vpn || s.seon_vpn),
+      disposable: !!(s.disposable || s.seon_email_disposable),
+      _decision: it.admin_decision || 'APPROVE',
+      _admin_id: it.admin_id || 'auto',
+      _decided_at: it.decided_at || '',
+      _notes: it.notes || ''
+    };
+  }
+
+  function renderDecisions(data, bucket) {
+    var items = (data && data.items ? data.items : []).map(normalizeDecisionItem);
+    if (bucket === 'approved') {
+      approvedItems = items;
+      $('tc-approved').textContent = items.length;
+    } else {
+      rejectedItems = items;
+      $('tc-rejected').textContent = items.length;
+    }
+    // Only re-render if this is the active tab
+    if (activeTab === bucket) renderTabFull();
+  }
+
+  // opts: {showActions:bool, decision:string|null, decidedBy:string|null, decidedAt:string|null}
+  function buildEventItemHtml(item, opts) {
+    opts = opts || {};
     var id = item.insertion_id;
     var isExpanded = expanded[id];
     var html = '<div class="q-item" data-id="' + escAttr(id) + '">';
@@ -776,9 +830,17 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     if (item.tor) html += '<span class="q-tag tag-tor">TOR</span>';
     if (item.vpn) html += '<span class="q-tag tag-vpn">VPN</span>';
     if (item.disposable) html += '<span class="q-tag tag-disp">DISPOSABLE</span>';
-    html += '<span class="sub-badge ' + (seenIds[id] ? 'sb-update' : 'sb-first') + '">';
-    html += seenIds[id] ? 'UPDATE' : 'FIRST SUBMIT';
-    html += '</span>';
+    // Show decision badge or submission badge
+    if (opts.decision) {
+      var dbCls = opts.decision === 'APPROVE' ? 'db-approved' : 'db-declined';
+      var dbLbl = opts.decision === 'APPROVE' ? '\u2713 Approved' : '\u2715 Declined';
+      var autoTag = opts.decidedBy === 'auto' ? ' <span class="db-auto">(auto)</span>' : '';
+      html += '<span class="decision-badge ' + dbCls + '">' + dbLbl + autoTag + '</span>';
+    } else {
+      html += '<span class="sub-badge ' + (seenIds[id] ? 'sb-update' : 'sb-first') + '">';
+      html += seenIds[id] ? 'UPDATE' : 'FIRST SUBMIT';
+      html += '</span>';
+    }
     html += '<span class="chevron' + (isExpanded ? ' open' : '') + '">&#x25BA;</span>';
     html += '</div>';
 
@@ -886,11 +948,19 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         }
       }
 
-      html += '<input class="notes-inp" id="notes-' + escAttr(id) + '" placeholder="Add notes\u2026" value="' + escAttr(notes[id] || '') + '"/>';
-      html += '<div class="act-row">';
-      html += '<button class="qbtn qbtn-app" data-action="approve" data-id="' + escAttr(id) + '">&#x2713; Approve</button>';
-      html += '<button class="qbtn qbtn-dec" data-action="decline" data-id="' + escAttr(id) + '">&#x2715; Decline</button>';
-      html += '</div>';
+      if (opts.showActions !== false) {
+        html += '<input class="notes-inp" id="notes-' + escAttr(id) + '" placeholder="Add notes\u2026" value="' + escAttr(notes[id] || '') + '"/>';
+        html += '<div class="act-row">';
+        html += '<button class="qbtn qbtn-app" data-action="approve" data-id="' + escAttr(id) + '">&#x2713; Approve</button>';
+        html += '<button class="qbtn qbtn-dec" data-action="decline" data-id="' + escAttr(id) + '">&#x2715; Decline</button>';
+        html += '</div>';
+      } else if (opts.decidedAt) {
+        html += '<div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:6px">';
+        html += 'Decided: ' + escHtml(opts.decidedAt.slice(0, 19));
+        if (opts.decidedBy && opts.decidedBy !== 'auto') html += ' by ' + escHtml(opts.decidedBy);
+        if (opts.notes) html += ' \u2014 ' + escHtml(opts.notes);
+        html += '</div>';
+      }
       html += '</div>';
     }
 
@@ -898,39 +968,52 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     return html;
   }
 
-  // Full rebuild — used after toggle/decide/shap where structure changed
-  function renderQueueFull() {
-    $('q-count').textContent = queueItems.length;
-    var list = $('q-list');
-    if (queueItems.length === 0) {
-      list.innerHTML = '<div class="q-empty">No items pending review</div>';
-      return;
-    }
-    list.innerHTML = queueItems.map(function(item) { return buildQueueItemHtml(item); }).join('');
+  // Get items + options for current active tab
+  function getActiveItems() {
+    if (activeTab === 'approved') return {items: approvedItems, opts: function(it) {
+      return {showActions: false, decision: it._decision, decidedBy: it._admin_id, decidedAt: it._decided_at, notes: it._notes};
+    }};
+    if (activeTab === 'rejected') return {items: rejectedItems, opts: function(it) {
+      return {showActions: false, decision: it._decision, decidedBy: it._admin_id, decidedAt: it._decided_at, notes: it._notes};
+    }};
+    return {items: queueItems, opts: function() { return {showActions: true}; }};
   }
 
-  // Smart diff — used on poll to avoid flashing.  Only adds new items
-  // and removes stale ones; leaves existing non-expanded items untouched.
-  // If any item's expanded state differs from the DOM, falls back to full re-render.
-  function renderQueueDiff() {
-    $('q-count').textContent = queueItems.length;
+  // Full rebuild — used after toggle/decide/shap where structure changed
+  function renderTabFull() {
+    var active = getActiveItems();
+    var list = $('q-list');
+    if (active.items.length === 0) {
+      var emptyMsg = activeTab === 'pending' ? 'No items pending review'
+        : activeTab === 'approved' ? 'No approved events yet'
+        : 'No rejected events yet';
+      list.innerHTML = '<div class="q-empty">' + emptyMsg + '</div>';
+      return;
+    }
+    list.innerHTML = active.items.map(function(item) {
+      return buildEventItemHtml(item, active.opts(item));
+    }).join('');
+  }
+
+  // Smart diff for pending tab poll — avoid flashing
+  function renderPendingDiff() {
+    if (activeTab !== 'pending') return;  // only diff the active tab
     var list = $('q-list');
     if (queueItems.length === 0) {
       list.innerHTML = '<div class="q-empty">No items pending review</div>';
       return;
     }
 
-    // Build set of current IDs
     var newIds = {};
     queueItems.forEach(function(it) { newIds[it.insertion_id] = it; });
 
-    // Check if any expanded state differs from DOM — if so, full re-render
+    // Check expanded state matches DOM — if not, full re-render
     var existing = list.querySelectorAll('.q-item[data-id]');
     for (var i = 0; i < existing.length; i++) {
       var eid = existing[i].dataset.id;
       var hasPanel = !!existing[i].querySelector('.shap-panel');
       if (hasPanel !== !!expanded[eid]) {
-        renderQueueFull();
+        renderTabFull();
         return;
       }
     }
@@ -940,22 +1023,17 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     existing = list.querySelectorAll('.q-item[data-id]');
     for (var i = 0; i < existing.length; i++) {
       var eid = existing[i].dataset.id;
-      if (!newIds[eid]) {
-        existing[i].remove();
-      } else {
-        existingIds[eid] = true;
-      }
+      if (!newIds[eid]) { existing[i].remove(); }
+      else { existingIds[eid] = true; }
     }
 
-    // Remove the empty placeholder if present
     var emptyEl = list.querySelector('.q-empty');
     if (emptyEl) emptyEl.remove();
 
-    // Append new items that don't exist yet
     queueItems.forEach(function(item) {
       if (!existingIds[item.insertion_id]) {
         var tmp = document.createElement('div');
-        tmp.innerHTML = buildQueueItemHtml(item);
+        tmp.innerHTML = buildEventItemHtml(item, {showActions: true});
         if (tmp.firstChild) list.appendChild(tmp.firstChild);
       }
     });
@@ -1000,19 +1078,27 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         fetchRawEvent(id);
       }
     }
-    renderQueueFull();
+    renderTabFull();
   }
 
   function fetchRawEvent(id) {
+    // Try queue endpoint first (for pending items), then fall back to event_summary
     fetch('/admin/queue/' + id)
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(data) {
         if (data && data.raw_event) {
           rawEventData[id] = data.raw_event;
-          renderQueueFull();
+          renderTabFull();
         }
       })
       .catch(function() {});
+    // For decided items, build raw event data from the event_summary if available
+    var allItems = queueItems.concat(approvedItems).concat(rejectedItems);
+    var match = allItems.find(function(it) { return it.insertion_id === id; });
+    if (match && !rawEventData[id]) {
+      // Use what we have from the summary — it won't have all 60 fields but covers the basics
+      rawEventData[id] = match;
+    }
   }
 
   function decide(id, decision) {
@@ -1025,7 +1111,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     delete seenIds[id]; delete shapData[id]; delete shapLoading[id]; delete notes[id];
 
     // Re-render immediately
-    renderQueueFull();
+    renderTabFull();
 
     fetch('/admin/decision/' + id, {
       method: 'POST',
@@ -1041,13 +1127,28 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         shapLoading[id] = false;
         shapData[id] = data;
         // Re-render queue to show SHAP data
-        renderQueueFull();
+        renderTabFull();
       })
       .catch(function(err) {
         shapLoading[id] = false;
         console.warn('SHAP failed:', err);
       });
   }
+
+  // --- Tab Switching ---
+  document.querySelector('.tab-bar').addEventListener('click', function(e) {
+    var btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    var tab = btn.dataset.tab;
+    if (tab === activeTab) return;
+    activeTab = tab;
+    // Update active class
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    // Clear expanded state when switching tabs
+    expanded = {};
+    renderTabFull();
+  });
 
   // --- Action Buttons ---
   $('btn-pause').addEventListener('click', function() {
@@ -1097,6 +1198,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   poll('/admin/drift/status', renderDrift, 5000);
   poll('/admin/retrain/status', renderRetrain, 3000);
   poll('/health', renderHealth, 10000);
+  poll('/admin/decisions?bucket=approved&limit=50', function(d) { renderDecisions(d, 'approved'); }, 5000);
+  poll('/admin/decisions?bucket=declined&limit=50', function(d) { renderDecisions(d, 'rejected'); }, 5000);
 
   function renderHealth(h) {
     $('met-events').textContent = (h.events_in_store || 0).toLocaleString();
