@@ -273,7 +273,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   var pipeRisk = 'low';
   var _pipeAnimating = false;
   var _pipeIv = null;
-  var _simTick = 0;
+  var _lastEventSeq = 0;   // track which event we last animated
 
   var speedLabels = ['0.25x','0.5x','1x','2x','4x','8x'];
   var speedValues = [0.25, 0.5, 1, 2, 4, 8];
@@ -401,14 +401,12 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     $('retrain-banner').style.display = s.retraining ? '' : 'none';
     $('done-banner').style.display = s.sim_done ? '' : 'none';
 
-    // Animate pipeline on active ticks
-    if (!s.paused && !s.retraining && !s.sim_done) {
-      _simTick++;
-      if (_simTick % 3 === 0) {
-        var r = Math.random();
-        pipeRisk = r < 0.7 ? 'low' : r < 0.9 ? 'medium' : 'high';
-        animatePipe();
-      }
+    // Animate pipeline when a new event arrives (driven by real data)
+    if (s.event_seq && s.event_seq !== _lastEventSeq && s.last_event) {
+      _lastEventSeq = s.event_seq;
+      var tier = (s.last_event.risk || 'LOW').toUpperCase();
+      pipeRisk = tier === 'HIGH' ? 'high' : tier === 'MEDIUM' ? 'medium' : 'low';
+      animatePipe();
     }
   }
 
@@ -678,7 +676,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     shapLoading = {};
     expanded = {};
     notes = {};
-    _simTick = 0;
+    _lastEventSeq = 0;
     fetch('/admin/sim/reset', {method: 'POST'}).catch(function(e) { console.warn(e); });
   });
 

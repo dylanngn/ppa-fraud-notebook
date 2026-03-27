@@ -87,6 +87,11 @@ class Simulator:
         self.current_window: int = 0
         self.last_retrain_ms: int = 0
         self._retrain_poll_active: bool = False
+        # Last event info — consumed by the dashboard for pipeline animation
+        self._event_seq: int = 0           # monotonic counter
+        self._last_event_risk: str = ""    # LOW / MEDIUM / HIGH
+        self._last_event_prob: float = 0.0
+        self._last_event_id: str = ""
 
     async def start(self) -> None:
         """Launch the background tick loop."""
@@ -194,6 +199,13 @@ class Simulator:
             "windows_detail": windows_detail,
             "train_pct": round(train_pct, 2),
             "cursor_pct": round(cursor_pct, 2),
+            # Last event — drives pipeline animation in the dashboard
+            "event_seq": self._event_seq,
+            "last_event": {
+                "risk": self._last_event_risk,
+                "prob": self._last_event_prob,
+                "id": self._last_event_id,
+            } if self._last_event_risk else None,
         }
 
     # ------------------------------------------------------------------
@@ -251,6 +263,11 @@ class Simulator:
                 self.pending_count += 1
             else:
                 self.approved_count += 1
+            # Record for dashboard animation
+            self._event_seq += 1
+            self._last_event_risk = tier
+            self._last_event_prob = result.get("fraud_probability", 0.0)
+            self._last_event_id = result.get("insertion_id", "")
             return result
         except Exception as exc:
             logger.warning(f"Simulate failed: {exc}")
