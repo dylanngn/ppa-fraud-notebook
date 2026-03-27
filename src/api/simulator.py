@@ -258,14 +258,22 @@ class Simulator:
                         scenario = "HIGH_RISK"
                     await self._fire_event(scenario)
 
-                # Auto-trigger retrain at window boundaries
-                if new_win != prev_win and new_win in _RETRAIN_AT:
-                    elapsed_since_retrain = self.virtual_ms - self.last_retrain_ms
-                    if elapsed_since_retrain > 25 * 86_400_000:
-                        self.last_retrain_ms = self.virtual_ms
-                        self.retraining = True
-                        self.paused = True
-                        asyncio.create_task(self._trigger_retrain())
+                # Auto-trigger retrain when significant drift is detected
+                # (checks every tick but only triggers if not recently retrained)
+                try:
+                    import src.api.main as m
+                    if m.drift_state and not self.retraining:
+                        status = m.drift_state.get_status()
+                        if status.get("overall_drift") or status.get("drift_label") == "SIGNIFICANT DRIFT":
+                            elapsed_since_retrain = self.virtual_ms - self.last_retrain_ms
+                            if elapsed_since_retrain > 25 * 86_400_000:
+                                logger.info(f"Drift detected (PSI={status.get('prediction_psi', 0):.3f}) — triggering retrain")
+                                self.last_retrain_ms = self.virtual_ms
+                                self.retraining = True
+                                self.paused = True
+                                asyncio.create_task(self._trigger_retrain())
+                except Exception:
+                    pass
 
             except asyncio.CancelledError:
                 raise

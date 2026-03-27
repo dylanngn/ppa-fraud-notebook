@@ -123,7 +123,7 @@
 .ftbtn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.1)}
 .ftbtn:active{transform:scale(.97)}
 .ft-pause{background:#eff6ff;color:#2563eb;border-color:#bfdbfe}
-.ft-send{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}
+.ft-retrain{background:#faf5ff;color:#7c3aed;border-color:#ddd6fe}
 .ft-reset{background:#f8fafc;color:#64748b;border-color:#e2e8f0}
 .spd-wrap{display:flex;align-items:center;gap:8px;margin-left:auto}
 .spd-lbl{font-size:11px;color:#94a3b8;font-weight:500}
@@ -323,7 +323,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         <div id="done-banner" class="done-banner" style="display:none">&#x2713; Timeline complete &#x2014; replayed</div>
         <div class="action-btns">
           <button class="ftbtn ft-pause" id="btn-pause">&#x23F8; Pause</button>
-          <button class="ftbtn ft-send" id="btn-future">&#x21AA; Pull Future Event</button>
+          <button class="ftbtn ft-retrain" id="btn-retrain">&#x21BA; Trigger Retrain</button>
           <button class="ftbtn ft-reset" id="btn-reset">&#x21BA; Reset</button>
           <div class="spd-wrap">
             <span class="spd-lbl">Speed</span>
@@ -1054,8 +1054,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     fetch('/admin/sim/pause', {method: 'POST'}).catch(function(e) { console.warn(e); });
   });
 
-  $('btn-future').addEventListener('click', function() {
-    fetch('/admin/sim/force-event', {method: 'POST'}).catch(function(e) { console.warn(e); });
+  $('btn-retrain').addEventListener('click', function() {
+    fetch('/admin/retrain/trigger', {method: 'POST'}).catch(function(e) { console.warn(e); });
   });
 
   $('btn-reset').addEventListener('click', function() {
