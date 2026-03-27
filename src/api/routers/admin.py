@@ -214,9 +214,13 @@ async def simulate(req: SimulateRequest):
             proba = lo
         proba = round(proba, 4)
 
-    # Drift tracking
+    # Drift tracking (with feature vector for feature-level drift detection)
     if drift_state:
-        drift_state.record_prediction(proba)
+        drift_state.record_prediction(
+            proba,
+            features=features_df.values[0].tolist(),
+            feature_names=list(features_df.columns),
+        )
 
     if proba >= THRESHOLD_HIGH:
         risk_tier = RiskTier.HIGH

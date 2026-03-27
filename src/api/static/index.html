@@ -351,6 +351,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   var seenIds = {};
   var shapData = {};
   var shapLoading = {};
+  var rawEventData = {};  // Cache: id → raw EventPayload from /admin/queue/{id}
   var pipeStage = -1;
   var pipeRisk = 'low';
   var _pipeAnimating = false;
@@ -594,8 +595,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       $('dist-n' + i).textContent = vals[i];
     }
 
-    // PSI history sparkline
-    if (d.reference_set && psi > 0) {
+    // PSI history sparkline — track even PSI=0 to show flat-then-rising pattern
+    if (d.reference_set) {
       _psiHistory.push(psi);
       if (_psiHistory.length > 30) _psiHistory.shift();
       drawSparkline();
@@ -753,10 +754,9 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       };
     });
 
-    // Track seen IDs
+    // Track seen IDs — only mark as first-seen on first encounter, don't flip on re-poll
     queueItems.forEach(function(it) {
       if (!seenIds.hasOwnProperty(it.insertion_id)) seenIds[it.insertion_id] = false;
-      else seenIds[it.insertion_id] = true;
     });
 
     $('q-count').textContent = queueItems.length;
@@ -790,6 +790,57 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       html += ' \u00B7 IP: ' + escHtml(item.ip_country);
       if (item.queued_at) html += ' \u00B7 ' + escHtml(item.queued_at);
       html += '</div>';
+
+      // Raw event attributes grid
+      if (rawEventData[id]) {
+        var ev = rawEventData[id];
+        var groups = [
+          {label:'IP & Network', fields:[
+            ['IP Country', ev.seon_ip_country], ['IP Type', ev.seon_ip_type], ['ISP', ev.seon_ip_isp],
+            ['TOR', ev.seon_tor], ['VPN', ev.seon_vpn], ['Proxy', ev.seon_proxy], ['Datacenter', ev.seon_datacenter]
+          ]},
+          {label:'Email', fields:[
+            ['Disposable', ev.seon_email_disposable], ['Deliverable', ev.seon_email_deliverable],
+            ['Free', ev.seon_email_free], ['Breaches', ev.seon_email_breaches]
+          ]},
+          {label:'Phone', fields:[
+            ['Valid', ev.seon_phone_valid], ['Type', ev.seon_phone_type],
+            ['Carrier', ev.seon_phone_carrier], ['Country', ev.seon_phone_country]
+          ]},
+          {label:'Device & Session', fields:[
+            ['Device', ev.seon_device_type], ['Browser', ev.seon_browser],
+            ['OS', ev.seon_os], ['Screen', ev.seon_screen_resolution],
+            ['Adblock', ev.seon_adblock], ['Private', ev.seon_private_mode]
+          ]},
+          {label:'Listing', fields:[
+            ['Category', ev.listing_category], ['Price', ev.listing_price],
+            ['Country', ev.listing_country], ['Rooms', ev.listing_rooms],
+            ['Living Space', ev.listing_living_space]
+          ]},
+          {label:'SEON Scores', fields:[
+            ['Fraud', ev.seon_fraud_score], ['Email', ev.seon_email_score],
+            ['Phone', ev.seon_phone_score], ['Proxy', ev.seon_proxy_score]
+          ]}
+        ];
+        html += '<div style="margin-bottom:10px">';
+        groups.forEach(function(g) {
+          var visible = g.fields.filter(function(f) { return f[1] !== null && f[1] !== undefined && f[1] !== ''; });
+          if (!visible.length) return;
+          html += '<div style="font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;font-weight:600;margin:8px 0 4px">' + g.label + '</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px">';
+          visible.forEach(function(f) {
+            var val = f[1];
+            var valStr = typeof val === 'boolean' ? (val ? 'Yes' : 'No') : typeof val === 'number' ? (val >= 100 ? Math.round(val).toLocaleString() : String(val)) : String(val);
+            var flagClr = (val === true && (f[0] === 'TOR' || f[0] === 'VPN' || f[0] === 'Proxy' || f[0] === 'Disposable' || f[0] === 'Datacenter')) ? '#dc2626' : '#0f172a';
+            html += '<div style="display:flex;justify-content:space-between;padding:1px 0;font-size:11px">';
+            html += '<span style="color:#64748b">' + escHtml(f[0]) + '</span>';
+            html += '<span style="font-family:monospace;font-weight:600;color:' + flagClr + '">' + escHtml(valStr) + '</span>';
+            html += '</div>';
+          });
+          html += '</div>';
+        });
+        html += '</div>';
+      }
 
       if (shapLoading[id] && !shapData[id]) {
         html += '<div class="shap-loading">\u23F3 Computing SHAP explanation\u2026</div>';
@@ -940,11 +991,28 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     Object.keys(expanded).forEach(function(k) { expanded[k] = false; });
     // Toggle the clicked item
     expanded[id] = !wasOpen;
-    if (expanded[id] && !shapData[id] && !shapLoading[id]) {
-      shapLoading[id] = true;
-      requestShap(id);
+    if (expanded[id]) {
+      if (!shapData[id] && !shapLoading[id]) {
+        shapLoading[id] = true;
+        requestShap(id);
+      }
+      if (!rawEventData[id]) {
+        fetchRawEvent(id);
+      }
     }
     renderQueueFull();
+  }
+
+  function fetchRawEvent(id) {
+    fetch('/admin/queue/' + id)
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (data && data.raw_event) {
+          rawEventData[id] = data.raw_event;
+          renderQueueFull();
+        }
+      })
+      .catch(function() {});
   }
 
   function decide(id, decision) {

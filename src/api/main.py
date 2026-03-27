@@ -281,9 +281,13 @@ async def predict(event: EventPayload, background_tasks: BackgroundTasks):
         risk_tier = RiskTier.LOW
         decision = Decision.APPROVE
 
-    # Record prediction for drift tracking
+    # Record prediction for drift tracking (with feature vector for feature-level drift)
     if drift_state is not None:
-        drift_state.record_prediction(proba)
+        drift_state.record_prediction(
+            proba,
+            features=features_df.values[0].tolist(),
+            feature_names=list(features_df.columns),
+        )
 
     # Route into admin store for queue / auto-decision
     if admin_store is not None:

@@ -49,7 +49,10 @@ class DriftState:
         self.check_interval = check_interval
 
         self._all_predictions: Deque[float] = deque(maxlen=reference_window + current_window)
+        self._all_features: Deque[List[float]] = deque(maxlen=reference_window + current_window)
         self._reference_predictions: List[float] = []
+        self._reference_features: Optional[np.ndarray] = None
+        self._feature_names: List[str] = []
         self._reference_set: bool = False
         self._predictions_since_check: int = 0
 
@@ -61,15 +64,21 @@ class DriftState:
     # Public API
     # ------------------------------------------------------------------
 
-    def record_prediction(self, fraud_probability: float) -> None:
-        """Record a new model prediction for drift tracking."""
+    def record_prediction(self, fraud_probability: float, features: Optional[List[float]] = None, feature_names: Optional[List[str]] = None) -> None:
+        """Record a new model prediction (and optionally its feature vector) for drift tracking."""
         with self._lock:
             self._all_predictions.append(fraud_probability)
+            if features is not None:
+                self._all_features.append(features)
+                if feature_names and not self._feature_names:
+                    self._feature_names = feature_names
             self._predictions_since_check += 1
 
             # Set reference once we have enough data
             if not self._reference_set and len(self._all_predictions) >= self.reference_window:
                 self._reference_predictions = list(self._all_predictions)[: self.reference_window]
+                if len(self._all_features) >= self.reference_window:
+                    self._reference_features = np.array(list(self._all_features)[: self.reference_window])
                 self._reference_set = True
                 logger.info(
                     f"Drift reference set from {self.reference_window} predictions "
@@ -130,7 +139,9 @@ class DriftState:
         """Reset the reference distribution (useful for demo resets)."""
         with self._lock:
             self._all_predictions.clear()
+            self._all_features.clear()
             self._reference_predictions = []
+            self._reference_features = None
             self._reference_set = False
             self._last_check = None
             self._last_result = None
@@ -150,15 +161,22 @@ class DriftState:
             if len(current) < 10:
                 return
 
+            # Build feature arrays if available
+            ref_features = self._reference_features
+            cur_features = None
+            feat_names = self._feature_names or []
+            if ref_features is not None and len(self._all_features) >= self.current_window:
+                cur_features = np.array(list(self._all_features)[-self.current_window:])
+
             monitor = BatchDriftMonitor()
             monitor.set_reference(
                 np.array(self._reference_predictions),
-                features=None,
-                feature_names=[],
+                features=ref_features,
+                feature_names=feat_names,
             )
             result = monitor.check_drift(
                 np.array(current),
-                current_features=None,
+                current_features=cur_features,
             )
             self._last_result = result
             self._last_check = datetime.now(timezone.utc)
