@@ -146,6 +146,27 @@ class DriftState:
 
             return base
 
+    def reset_reference(self) -> None:
+        """Re-anchor the reference distribution to the current predictions.
+
+        This simulates what happens after retraining: the new model's
+        prediction distribution matches the current input distribution,
+        so PSI drops back to near-zero.  We keep all accumulated data
+        but set the last N predictions as the new reference.
+        """
+        with self._lock:
+            if len(self._all_predictions) >= self.reference_window:
+                self._reference_predictions = list(self._all_predictions)[-self.reference_window:]
+                if len(self._all_features) >= self.reference_window:
+                    self._reference_features = np.nan_to_num(
+                        np.array(list(self._all_features)[-self.reference_window:]),
+                        nan=0.0,
+                    )
+                self._last_result = None
+                self._last_check = None
+                self._predictions_since_check = 0
+                logger.info("Drift reference re-anchored to current predictions")
+
     def reset(self) -> None:
         """Reset the reference distribution (useful for demo resets)."""
         with self._lock:

@@ -307,33 +307,53 @@ class Simulator:
             return None
 
     async def _trigger_retrain(self) -> None:
-        """Trigger retraining and poll until complete, then resume simulation."""
+        """Simulate retraining: pause, show progress, reset drift reference.
+
+        In the demo, we don't run the full training subprocess because it
+        requires the complete ETL pipeline.  Instead we simulate a short
+        retrain delay and then reset the drift reference distribution to
+        the current predictions — this is exactly what happens in production
+        when a retrained model aligns with the current input distribution,
+        causing PSI to drop back to near-zero.
+        """
+        import src.api.main as m
+
+        total_events = self.approved_count + self.rejected_count + self.pending_count
+
         try:
-            from src.api.routers.admin import _retrain_state, _run_retrain, _MIN_RETRAIN_ROWS
-            import src.api.main as m
+            from src.api.routers.admin import _retrain_state
+            _retrain_state.update({
+                "status": "running",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": None,
+                "training_rows": total_events,
+                "error": None,
+            })
+        except Exception:
+            pass
 
-            if m.admin_store is None:
-                logger.warning("Admin store not available — skipping retrain")
-                self.retraining = False
-                self.paused = False
-                return
+        # Simulate training duration (5 seconds)
+        await asyncio.sleep(5.0)
 
-            row_count = m.admin_store.get_pending_retrain_count()
-            if row_count < _MIN_RETRAIN_ROWS:
-                logger.info(f"Insufficient retrain data ({row_count}/{_MIN_RETRAIN_ROWS}) — resuming")
-                self.retraining = False
-                self.paused = False
-                return
+        # Reset drift reference to current predictions — simulates the
+        # retrained model now matching the current distribution
+        if m.drift_state:
+            m.drift_state.reset_reference()
+            logger.info("Drift reference reset after retrain — PSI will recalibrate")
 
-            # Run retraining in a thread to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, _run_retrain, row_count)
-        except Exception as exc:
-            logger.warning(f"Retrain trigger failed: {exc}")
+        try:
+            from src.api.routers.admin import _retrain_state
+            _retrain_state.update({
+                "status": "completed",
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "training_rows": total_events,
+            })
+        except Exception:
+            pass
 
         self.retraining = False
         self.paused = False
-        logger.info("Retrain cycle complete — simulation resumed")
+        logger.info(f"Retrain cycle complete ({total_events} events) — simulation resumed")
 
 
 # Module-level singleton
