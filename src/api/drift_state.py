@@ -69,7 +69,15 @@ class DriftState:
         with self._lock:
             self._all_predictions.append(fraud_probability)
             if features is not None:
-                self._all_features.append(features)
+                # Replace NaN/NA/inf at record time to avoid downstream histogram errors
+                # pandas.NA raises on bool(), so use try/except for safety
+                def _safe_float(x):
+                    try:
+                        v = float(x)
+                        return 0.0 if (v != v or v == float('inf') or v == float('-inf')) else v
+                    except (TypeError, ValueError):
+                        return 0.0
+                self._all_features.append([_safe_float(x) for x in features])
                 if feature_names and not self._feature_names:
                     self._feature_names = feature_names
             self._predictions_since_check += 1
@@ -78,7 +86,10 @@ class DriftState:
             if not self._reference_set and len(self._all_predictions) >= self.reference_window:
                 self._reference_predictions = list(self._all_predictions)[: self.reference_window]
                 if len(self._all_features) >= self.reference_window:
-                    self._reference_features = np.array(list(self._all_features)[: self.reference_window])
+                    self._reference_features = np.nan_to_num(
+                        np.array(list(self._all_features)[: self.reference_window]),
+                        nan=0.0,
+                    )
                 self._reference_set = True
                 logger.info(
                     f"Drift reference set from {self.reference_window} predictions "
@@ -161,12 +172,16 @@ class DriftState:
             if len(current) < 10:
                 return
 
-            # Build feature arrays if available
+            # Build feature arrays if available (replace NaN with 0 for PSI stability)
             ref_features = self._reference_features
             cur_features = None
             feat_names = self._feature_names or []
             if ref_features is not None and len(self._all_features) >= self.current_window:
-                cur_features = np.array(list(self._all_features)[-self.current_window:])
+                ref_features = np.nan_to_num(ref_features, nan=0.0)
+                cur_features = np.nan_to_num(
+                    np.array(list(self._all_features)[-self.current_window:]),
+                    nan=0.0,
+                )
 
             monitor = BatchDriftMonitor()
             monitor.set_reference(
