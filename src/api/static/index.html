@@ -514,7 +514,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     });
 
     $('q-count').textContent = queueItems.length;
-    renderQueueLocal();
+    renderQueueDiff();
   }
 
   function buildQueueItemHtml(item) {
@@ -581,9 +581,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     return html;
   }
 
-  // Re-render queue from cached local items (after toggle/decide/shap)
-  function renderQueueLocal() {
-    // Skip the API data parsing, just re-render the UI from queueItems
+  // Full rebuild — used after toggle/decide/shap where structure changed
+  function renderQueueFull() {
     $('q-count').textContent = queueItems.length;
     var list = $('q-list');
     if (queueItems.length === 0) {
@@ -591,6 +590,46 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       return;
     }
     list.innerHTML = queueItems.map(function(item) { return buildQueueItemHtml(item); }).join('');
+  }
+
+  // Smart diff — used on poll to avoid flashing.  Only adds new items
+  // and removes stale ones; leaves existing items untouched.
+  function renderQueueDiff() {
+    $('q-count').textContent = queueItems.length;
+    var list = $('q-list');
+    if (queueItems.length === 0) {
+      list.innerHTML = '<div class="q-empty">No items pending review</div>';
+      return;
+    }
+
+    // Build set of current IDs
+    var newIds = {};
+    queueItems.forEach(function(it) { newIds[it.insertion_id] = it; });
+
+    // Remove items no longer in queue (unless expanded — user is interacting)
+    var existing = list.querySelectorAll('.q-item[data-id]');
+    var existingIds = {};
+    for (var i = 0; i < existing.length; i++) {
+      var eid = existing[i].dataset.id;
+      if (!newIds[eid]) {
+        if (!expanded[eid]) existing[i].remove();
+      } else {
+        existingIds[eid] = true;
+      }
+    }
+
+    // Remove the empty placeholder if present
+    var emptyEl = list.querySelector('.q-empty');
+    if (emptyEl) emptyEl.remove();
+
+    // Append new items that don't exist yet
+    queueItems.forEach(function(item) {
+      if (!existingIds[item.insertion_id]) {
+        var tmp = document.createElement('div');
+        tmp.innerHTML = buildQueueItemHtml(item);
+        if (tmp.firstChild) list.appendChild(tmp.firstChild);
+      }
+    });
   }
 
   // --- Event Delegation ---
@@ -623,7 +662,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       shapLoading[id] = true;
       requestShap(id);
     }
-    renderQueueLocal();
+    renderQueueFull();
   }
 
   function decide(id, decision) {
@@ -636,7 +675,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     delete seenIds[id]; delete shapData[id]; delete shapLoading[id]; delete notes[id];
 
     // Re-render immediately
-    renderQueueLocal();
+    renderQueueFull();
 
     fetch('/admin/decision/' + id, {
       method: 'POST',
@@ -652,7 +691,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         shapLoading[id] = false;
         shapData[id] = data;
         // Re-render queue to show SHAP data
-        renderQueueLocal();
+        renderQueueFull();
       })
       .catch(function(err) {
         shapLoading[id] = false;
