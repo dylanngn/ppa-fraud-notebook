@@ -213,7 +213,11 @@ class Simulator:
     # ------------------------------------------------------------------
 
     async def _tick_loop(self) -> None:
-        """Background loop — fires every 1 second."""
+        """Background loop — fires every 1 second.
+
+        At higher speeds, multiple events fire per tick to maintain
+        realistic event density (~1 event per virtual day).
+        """
         while True:
             try:
                 await asyncio.sleep(1.0)
@@ -222,20 +226,25 @@ class Simulator:
 
                 prev_win = self.current_window
                 self.virtual_ms += int(self.speed * 86_400_000)
+                if self.virtual_ms > SIM_END:
+                    self.virtual_ms = SIM_END
                 new_win = _find_window(self.virtual_ms)
                 self.current_window = new_win
 
-                # Pick scenario based on current window distribution
+                # Fire events proportional to speed so event density stays
+                # consistent: ~1 event per virtual day, capped at 8 per tick
+                # to avoid overwhelming the API
+                events_this_tick = max(1, min(int(self.speed), 8))
                 w = WINDOWS[new_win]
-                r = random.random() * 100
-                if r < w["low"]:
-                    scenario = "LOW_RISK"
-                elif r < w["low"] + w["med"]:
-                    scenario = "MEDIUM_RISK"
-                else:
-                    scenario = "HIGH_RISK"
-
-                await self._fire_event(scenario)
+                for _ in range(events_this_tick):
+                    r = random.random() * 100
+                    if r < w["low"]:
+                        scenario = "LOW_RISK"
+                    elif r < w["low"] + w["med"]:
+                        scenario = "MEDIUM_RISK"
+                    else:
+                        scenario = "HIGH_RISK"
+                    await self._fire_event(scenario)
 
                 # Auto-trigger retrain at window boundaries
                 if new_win != prev_win and new_win in _RETRAIN_AT:
