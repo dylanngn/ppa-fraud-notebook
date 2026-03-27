@@ -132,6 +132,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
 .retrain-banner{background:#faf5ff;border:1.5px solid #ddd6fe;border-radius:8px;padding:6px 12px;color:#7c3aed;font-size:12px;font-weight:600;text-align:center;animation:blink 1.5s ease-in-out infinite}
 .done-banner{background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:6px 12px;color:#16a34a;font-size:12px;text-align:center}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes retrainPulse{0%,100%{opacity:.4;width:30%}50%{opacity:1;width:100%}}
 
 /* score distribution histogram */
 .dist-hist{display:flex;align-items:flex-end;gap:4px;height:56px;padding:0 2px}
@@ -211,7 +212,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
             </div>
           </div>
           <div class="tl-footer">
-            <span>&#x25A0; Train: <span id="tl-train-lbl" class="tl-train-lbl">0.0%</span></span>
+            <span>&#x25A0; <span style="color:#6366f1">Train</span> | <span style="color:#0ea5e9">Test</span></span>
             <span id="tl-win-info" class="tl-win-info"></span>
             <span>Elapsed: <span id="tl-prog-lbl" class="tl-prog-lbl">0%</span></span>
           </div>
@@ -357,6 +358,13 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   // --- Helpers ---
   function segColor(w) {
     if (!w.passed && !w.current) return '#f1f5f9';
+    if (w.phase === 'train') return '#c7d2fe';       // Indigo tint for training
+    if (w.phase === 'drift') {                       // Warm tints for drift windows
+      if (w.auc !== null && w.auc < 0.55) return '#fecaca';
+      return '#fde68a';
+    }
+    if (w.phase === 'retrain') return '#dbeafe';     // Blue tint for post-retrain
+    // Default: AUC-based coloring for test windows
     if (w.auc === null) return '#c7d2fe';
     if (w.auc >= 0.70) return '#bbf7d0';
     if (w.auc >= 0.62) return '#d1fae5';
@@ -452,8 +460,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     renderTimeline(s);
 
     // Train bar
-    $('tl-train-bar').style.width = (s.train_pct || 0) + '%';
-    $('tl-train-lbl').textContent = (s.train_pct || 0).toFixed(1) + '%';
+    $('tl-train-bar').style.width = (s.train_end_pct || 0) + '%';
     $('tl-prog-lbl').textContent = Math.round(s.cursor_pct || 0) + '%';
     $('tl-cursor').style.left = (s.cursor_pct || 0) + '%';
 
@@ -497,7 +504,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
         seg.className = 'tl-seg' + (w.current ? ' tl-cur' : '');
         seg.style.width = w.width_pct + '%';
         seg.style.background = segColor(w);
-        seg.title = w.label + (w.auc ? ' \u2014 AUC-PR ' + w.auc : '');
+        var phaseTag = w.phase === 'train' ? '[TRAIN]' : w.phase === 'drift' ? '[DRIFT]' : w.phase === 'retrain' ? '[POST-RETRAIN]' : '[TEST]';
+        seg.title = w.label + ' ' + phaseTag + (w.auc ? ' \u2014 AUC-PR ' + w.auc : '');
         if (w.width_pct > 7) {
           var lbl = document.createElement('span');
           lbl.className = 'tl-seg-lbl';
@@ -665,9 +673,33 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
   // --- Render: Retrain ---
   function renderRetrain(r) {
     retrainState = r;
-    var html = 'Status: <strong style="color:#0f172a">' + escHtml(r.status || 'idle') + '</strong>';
-    if (r.training_rows) html += '<br>Rows: ' + r.training_rows;
-    if (r.error) html += '<br><span style="color:#dc2626;font-size:11px">' + escHtml(r.error) + '</span>';
+    var status = (r.status || 'idle').toLowerCase();
+    var html = '';
+
+    if (status === 'running') {
+      // Show animated progress bar
+      var elapsed = '';
+      if (r.started_at) {
+        var secs = Math.round((Date.now() - new Date(r.started_at).getTime()) / 1000);
+        elapsed = secs < 60 ? secs + 's' : Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+      }
+      html += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#7c3aed;font-weight:600;margin-bottom:4px">';
+      html += '<span>Training\u2026</span>';
+      html += '<span>' + (r.training_rows ? r.training_rows.toLocaleString() + ' rows' : '') + (elapsed ? ' \u00B7 ' + elapsed : '') + '</span>';
+      html += '</div>';
+      html += '<div class="psi-track" style="height:6px"><div style="height:100%;border-radius:999px;background:linear-gradient(90deg,#a78bfa,#7c3aed);animation:retrainPulse 1.5s ease-in-out infinite;width:100%"></div></div>';
+    } else if (status === 'completed') {
+      html += '<div style="display:flex;align-items:center;gap:6px;font-size:12px">';
+      html += '<span style="color:#16a34a;font-weight:700">&#x2713; Completed</span>';
+      if (r.training_rows) html += '<span style="color:#94a3b8">\u00B7 ' + r.training_rows.toLocaleString() + ' rows</span>';
+      html += '</div>';
+    } else if (status === 'failed') {
+      html += '<div style="color:#dc2626;font-size:12px;font-weight:600">&#x2717; Failed</div>';
+      if (r.error) html += '<div style="color:#dc2626;font-size:10px;margin-top:2px">' + escHtml(r.error.slice(0, 100)) + '</div>';
+    } else {
+      html += '<span style="font-size:12px;color:#94a3b8">Idle</span>';
+    }
+
     $('rtrain-info').innerHTML = html;
   }
 

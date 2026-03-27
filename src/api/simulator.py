@@ -26,15 +26,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _WINDOWS = [
-    {"start": "2025-03-21", "end": "2025-05-20", "low": 70, "med": 20, "high": 10, "auc": None,  "label": "W0 Training"},
-    {"start": "2025-05-21", "end": "2025-06-20", "low": 70, "med": 20, "high": 10, "auc": 0.64, "label": "W1 Stable"},
-    {"start": "2025-06-21", "end": "2025-07-20", "low": 65, "med": 22, "high": 13, "auc": 0.59, "label": "W2 Declining"},
-    {"start": "2025-07-21", "end": "2025-08-20", "low": 70, "med": 20, "high": 10, "auc": 0.73, "label": "W3 Peak"},
-    {"start": "2025-08-21", "end": "2025-09-20", "low": 65, "med": 22, "high": 13, "auc": 0.64, "label": "W4 Stable"},
-    {"start": "2025-09-21", "end": "2025-10-20", "low": 60, "med": 25, "high": 15, "auc": 0.58, "label": "W5 Drift!"},
-    {"start": "2025-10-21", "end": "2025-11-20", "low": 50, "med": 28, "high": 22, "auc": 0.49, "label": "W6 Severe!"},
-    {"start": "2025-11-21", "end": "2025-12-20", "low": 65, "med": 22, "high": 13, "auc": 0.63, "label": "W7 Recovery"},
-    {"start": "2025-12-21", "end": "2026-02-01", "low": 67, "med": 20, "high": 13, "auc": 0.54, "label": "W8 Stabilizing"},
+    {"start": "2025-03-21", "end": "2025-05-20", "low": 70, "med": 20, "high": 10, "auc": None,  "label": "W0 Train",     "phase": "train"},
+    {"start": "2025-05-21", "end": "2025-06-20", "low": 70, "med": 20, "high": 10, "auc": 0.64, "label": "W1 Stable",    "phase": "test"},
+    {"start": "2025-06-21", "end": "2025-07-20", "low": 65, "med": 22, "high": 13, "auc": 0.59, "label": "W2 Decline",   "phase": "test"},
+    {"start": "2025-07-21", "end": "2025-08-20", "low": 70, "med": 20, "high": 10, "auc": 0.73, "label": "W3 Peak",      "phase": "test"},
+    {"start": "2025-08-21", "end": "2025-09-20", "low": 65, "med": 22, "high": 13, "auc": 0.64, "label": "W4 Stable",    "phase": "test"},
+    {"start": "2025-09-21", "end": "2025-10-20", "low": 60, "med": 25, "high": 15, "auc": 0.58, "label": "W5 Drift",     "phase": "drift"},
+    {"start": "2025-10-21", "end": "2025-11-20", "low": 50, "med": 28, "high": 22, "auc": 0.49, "label": "W6 Severe",    "phase": "drift"},
+    {"start": "2025-11-21", "end": "2025-12-20", "low": 65, "med": 22, "high": 13, "auc": 0.63, "label": "W7 Retrained", "phase": "retrain"},
+    {"start": "2025-12-21", "end": "2026-02-01", "low": 67, "med": 20, "high": 13, "auc": 0.54, "label": "W8 Stable",    "phase": "retrain"},
 ]
 
 _RETRAIN_AT: Set[int] = {6, 7}
@@ -163,13 +163,10 @@ class Simulator:
         win = WINDOWS[cur_win]
         sim_done = self.virtual_ms >= SIM_END
 
-        # Train bar: shows how far the training data extends
-        if cur_win > 0:
-            t_end = WINDOWS[cur_win - 1]["end_ms"]
-        else:
-            t_end = min(self.virtual_ms, WINDOWS[0]["end_ms"])
-        train_pct = min((t_end - SIM_START) / SIM_RANGE * 100, 100)
-        cursor_pct = min((self.virtual_ms - SIM_START) / SIM_RANGE * 100, 100)
+        # W0 is the training period — its end boundary marks the train/test split
+        train_end_pct = (WINDOWS[0]["end_ms"] - SIM_START) / SIM_RANGE * 100
+        # Clamp cursor to [0, 99.5] so it never visually overflows the track
+        cursor_pct = min(max((self.virtual_ms - SIM_START) / SIM_RANGE * 100, 0), 99.5)
 
         windows_detail = []
         for i, w in enumerate(WINDOWS):
@@ -177,6 +174,7 @@ class Simulator:
             windows_detail.append({
                 "label": w["label"],
                 "auc": w["auc"],
+                "phase": w.get("phase", "test"),
                 "start_pct": (w["start_ms"] - SIM_START) / SIM_RANGE * 100,
                 "width_pct": (w_end - w["start_ms"]) / SIM_RANGE * 100,
                 "passed": self.virtual_ms > w["end_ms"],
@@ -197,7 +195,7 @@ class Simulator:
             "rejected": self.rejected_count,
             "pending": self.pending_count,
             "windows_detail": windows_detail,
-            "train_pct": round(train_pct, 2),
+            "train_end_pct": round(train_end_pct, 2),
             "cursor_pct": round(cursor_pct, 2),
             # Last event — drives pipeline animation in the dashboard
             "event_seq": self._event_seq,
