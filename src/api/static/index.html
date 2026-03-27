@@ -211,6 +211,8 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
             <div class="tl-cursor-wrap" id="tl-cursor">
               <div class="tl-cursor-line"><div class="tl-cursor-dot"></div></div>
             </div>
+            <!-- phase bar strip -->
+            <div id="tl-phase-bar" style="position:absolute;bottom:-8px;left:0;right:0;height:4px;display:flex;border-radius:2px;overflow:hidden"></div>
           </div>
           <div class="tl-footer">
             <span style="display:flex;gap:8px;font-size:10px">
@@ -502,9 +504,12 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     var marks = $('tl-retrain-marks');
 
     // Only rebuild if window count changed
+    var phaseBar = $('tl-phase-bar');
     if (segs.children.length !== detail.length) {
       segs.innerHTML = '';
       marks.innerHTML = '';
+      phaseBar.innerHTML = '';
+      var phaseColors = {train:'#c7d2fe', test:'#bbf7d0', drift:'#fde68a', retrain:'#dbeafe'};
       detail.forEach(function(w, i) {
         var seg = document.createElement('div');
         seg.className = 'tl-seg' + (w.current ? ' tl-cur' : '');
@@ -519,6 +524,13 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
           seg.appendChild(lbl);
         }
         segs.appendChild(seg);
+
+        // Phase bar segment
+        var pb = document.createElement('div');
+        pb.style.width = w.width_pct + '%';
+        pb.style.background = phaseColors[w.phase] || phaseColors.test;
+        pb.style.height = '100%';
+        phaseBar.appendChild(pb);
 
         if (w.retrain_entry) {
           var mark = document.createElement('div');
@@ -544,7 +556,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
 
   function renderDrift(d) {
     driftState = d;
-    var psi = d.psi || d.prediction_psi || 0;
+    var psi = d.prediction_psi || 0;
 
     // PSI gauge
     $('psi-val').textContent = psi.toFixed(3);
@@ -608,10 +620,11 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
 
       // PSI
       var psiStatus = psiVal < 0.1 ? 'STABLE' : psiVal < 0.25 ? 'MODERATE' : 'SIGNIFICANT';
-      var psiColor = psiVal < 0.1 ? '#16a34a' : psiVal < 0.25 ? '#d97706' : '#dc2626';
+      var psiClr = psiVal < 0.1 ? '#16a34a' : psiVal < 0.25 ? '#d97706' : '#dc2626';
       html += '<tr><td class="feat-nm">PSI (prediction)</td>';
       html += '<td style="font-family:monospace;font-size:11px;font-weight:600">' + psiVal.toFixed(3) + '</td>';
-      html += '<td style="color:' + psiColor + ';font-weight:700;font-size:11px">' + psiStatus + '</td></tr>';
+      html += '<td style="color:' + psiClr + ';font-weight:700;font-size:11px">' + psiStatus + '</td></tr>';
+
 
       // KS test
       html += '<tr><td class="feat-nm">KS test</td>';
