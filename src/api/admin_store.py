@@ -123,6 +123,12 @@ class AdminStore:
         with self._lock:
             return list(self._queue.values())
 
+    def clear_queue(self) -> None:
+        """Remove all items from the review queue (used on simulation reset)."""
+        with self._lock:
+            self._queue.clear()
+        logger.info("Review queue cleared")
+
     def get_queue_item(self, insertion_id: str) -> Optional[ReviewItem]:
         with self._lock:
             return self._queue.get(insertion_id)

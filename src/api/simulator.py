@@ -126,15 +126,28 @@ class Simulator:
         return self.speed
 
     async def reset(self) -> None:
-        """Reset all state and the drift reference distribution."""
+        """Reset all state, drift, queue, and retrain status."""
         self.reset_state()
-        # Reset drift state in the API
         try:
             import src.api.main as m
             if m.drift_state:
                 m.drift_state.reset()
+            if m.admin_store:
+                m.admin_store.clear_queue()
         except Exception as exc:
-            logger.warning(f"Could not reset drift state: {exc}")
+            logger.warning(f"Could not reset state: {exc}")
+        # Reset retrain status
+        try:
+            from src.api.routers.admin import _retrain_state
+            _retrain_state.update({
+                "status": "idle",
+                "started_at": None,
+                "finished_at": None,
+                "training_rows": None,
+                "error": None,
+            })
+        except Exception as exc:
+            logger.warning(f"Could not reset retrain state: {exc}")
 
     async def force_future_event(self) -> Optional[Dict[str, Any]]:
         """Pull an event from 1-2 windows ahead (port of fn-future-event)."""
