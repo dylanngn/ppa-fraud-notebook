@@ -205,14 +205,20 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
           <div class="tl-header"><span>Mar 2025</span><span>Feb 2026</span></div>
           <div class="tl-track">
             <div class="tl-segs-inner" id="tl-segs"></div>
-            <div class="tl-train-bar" id="tl-train-bar"></div>
+            <!-- train/test split line -->
+            <div id="tl-train-bar" style="position:absolute;top:-2px;bottom:-6px;width:2px;background:#6366f1;z-index:5;border-radius:1px;pointer-events:none;transition:left 1s ease"></div>
             <div id="tl-retrain-marks"></div>
             <div class="tl-cursor-wrap" id="tl-cursor">
               <div class="tl-cursor-line"><div class="tl-cursor-dot"></div></div>
             </div>
           </div>
           <div class="tl-footer">
-            <span>&#x25A0; <span style="color:#6366f1">Train</span> | <span style="color:#0ea5e9">Test</span></span>
+            <span style="display:flex;gap:8px;font-size:10px">
+              <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#c7d2fe;vertical-align:middle"></span> Train</span>
+              <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#bbf7d0;vertical-align:middle"></span> Test</span>
+              <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#fde68a;vertical-align:middle"></span> Drift</span>
+              <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#dbeafe;vertical-align:middle"></span> Retrained</span>
+            </span>
             <span id="tl-win-info" class="tl-win-info"></span>
             <span>Elapsed: <span id="tl-prog-lbl" class="tl-prog-lbl">0%</span></span>
           </div>
@@ -269,11 +275,11 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
           </div>
         </div>
 
-        <!-- Drifted Features (enhanced) -->
+        <!-- Drift Signals -->
         <div class="card">
-          <div class="sec-title">Drifted Features</div>
-          <div id="feat-list">
-            <span class="feat-none">None detected</span>
+          <div class="sec-title">Drift Signals</div>
+          <div id="drift-signals">
+            <span class="feat-none">Collecting data\u2026</span>
           </div>
         </div>
 
@@ -460,7 +466,7 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
     renderTimeline(s);
 
     // Train bar
-    $('tl-train-bar').style.width = (s.train_end_pct || 0) + '%';
+    $('tl-train-bar').style.left = (s.train_end_pct || 0) + '%';
     $('tl-prog-lbl').textContent = Math.round(s.cursor_pct || 0) + '%';
     $('tl-cursor').style.left = (s.cursor_pct || 0) + '%';
 
@@ -587,41 +593,50 @@ input[type=range].spd-sl{width:90px;accent-color:#6366f1;cursor:pointer}
       $('psi-trend-val').textContent = trend;
     }
 
-    // Drifted features with PSI severity
-    var featEl = $('feat-list');
-    var feats = d.drifted_features || [];
-    var fpsi = d.feature_psi || {};
-    if (feats.length === 0 && Object.keys(fpsi).length === 0) {
-      featEl.innerHTML = '<span class="feat-none">None detected</span>';
+    // Drift signals — show prediction-level drift indicators
+    var sigEl = $('drift-signals');
+    if (!d.reference_set) {
+      sigEl.innerHTML = '<span class="feat-none">Collecting reference data (' + (d.reference_size || 0) + '/100)\u2026</span>';
     } else {
-      // Show all features with PSI > 0.1, sorted by PSI descending
-      var entries = [];
-      if (Object.keys(fpsi).length > 0) {
-        Object.keys(fpsi).forEach(function(f) {
-          if (fpsi[f] > 0.1) entries.push({name: f, psi: fpsi[f], drifted: feats.indexOf(f) >= 0});
-        });
-        entries.sort(function(a, b) { return b.psi - a.psi; });
-      } else {
-        feats.forEach(function(f) { entries.push({name: f, psi: null, drifted: true}); });
-      }
+      var psiVal = d.prediction_psi || 0;
+      var ks = d.prediction_ks_drift;
+      var overall = d.overall_drift;
 
-      if (entries.length === 0) {
-        featEl.innerHTML = '<span class="feat-none">None detected</span>';
-      } else {
-        var html = '<table class="feat-tbl"><tr><th>Feature</th><th>PSI</th><th style="width:40%">Severity</th></tr>';
-        entries.slice(0, 8).forEach(function(e) {
-          var psiVal = e.psi !== null ? e.psi.toFixed(3) : '-';
-          var barW = e.psi !== null ? Math.min(e.psi / 0.5 * 100, 100) : 0;
-          var barC = e.drifted ? '#ef4444' : '#f59e0b';
-          html += '<tr>';
-          html += '<td class="feat-nm">' + escHtml(e.name) + '</td>';
-          html += '<td style="font-family:monospace;font-size:10px;color:' + (e.drifted ? '#dc2626' : '#d97706') + ';font-weight:600">' + psiVal + '</td>';
-          html += '<td><div class="feat-psi-bar"><div class="feat-psi-fill" style="width:' + barW + '%;background:' + barC + '"></div></div></td>';
-          html += '</tr>';
-        });
-        html += '</table>';
-        featEl.innerHTML = html;
-      }
+      // Build signal rows
+      var html = '<table class="feat-tbl">';
+      html += '<tr><th>Signal</th><th>Value</th><th>Status</th></tr>';
+
+      // PSI
+      var psiStatus = psiVal < 0.1 ? 'STABLE' : psiVal < 0.25 ? 'MODERATE' : 'SIGNIFICANT';
+      var psiColor = psiVal < 0.1 ? '#16a34a' : psiVal < 0.25 ? '#d97706' : '#dc2626';
+      html += '<tr><td class="feat-nm">PSI (prediction)</td>';
+      html += '<td style="font-family:monospace;font-size:11px;font-weight:600">' + psiVal.toFixed(3) + '</td>';
+      html += '<td style="color:' + psiColor + ';font-weight:700;font-size:11px">' + psiStatus + '</td></tr>';
+
+      // KS test
+      html += '<tr><td class="feat-nm">KS test</td>';
+      html += '<td style="font-family:monospace;font-size:11px;font-weight:600">' + (ks ? 'p < 0.05' : 'p \u2265 0.05') + '</td>';
+      html += '<td style="color:' + (ks ? '#dc2626' : '#16a34a') + ';font-weight:700;font-size:11px">' + (ks ? 'DRIFT' : 'PASS') + '</td></tr>';
+
+      // Score shift — compare distribution skew
+      var dist = d.score_distribution || {};
+      var lowBucket = (dist['0.0-0.1'] || 0) + (dist['0.1-0.3'] || 0);
+      var highBucket = (dist['0.5-0.7'] || 0) + (dist['0.7-1.0'] || 0);
+      var total = lowBucket + (dist['0.3-0.5'] || 0) + highBucket;
+      var highPct = total > 0 ? (highBucket / total * 100) : 0;
+      var shiftLabel = highPct < 5 ? 'NORMAL' : highPct < 15 ? 'ELEVATED' : 'HIGH';
+      var shiftColor = highPct < 5 ? '#16a34a' : highPct < 15 ? '#d97706' : '#dc2626';
+      html += '<tr><td class="feat-nm">High-risk ratio</td>';
+      html += '<td style="font-family:monospace;font-size:11px;font-weight:600">' + highPct.toFixed(1) + '%</td>';
+      html += '<td style="color:' + shiftColor + ';font-weight:700;font-size:11px">' + shiftLabel + '</td></tr>';
+
+      // Overall verdict
+      html += '<tr style="border-top:2px solid #e2e8f0"><td class="feat-nm" style="font-weight:700">Overall</td>';
+      html += '<td></td>';
+      html += '<td style="color:' + (overall ? '#dc2626' : '#16a34a') + ';font-weight:800;font-size:12px">' + (overall ? '\u26A0 DRIFT DETECTED' : '\u2713 STABLE') + '</td></tr>';
+
+      html += '</table>';
+      sigEl.innerHTML = html;
     }
   }
 

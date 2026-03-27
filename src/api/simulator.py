@@ -229,10 +229,11 @@ class Simulator:
                 new_win = _find_window(self.virtual_ms)
                 self.current_window = new_win
 
-                # Fire events proportional to speed so event density stays
-                # consistent: ~1 event per virtual day, capped at 8 per tick
-                # to avoid overwhelming the API
-                events_this_tick = max(1, min(int(self.speed), 8))
+                # Fire multiple events per tick: base rate of 3 events per
+                # virtual day, scaled by speed. At 1x → 3 events/tick,
+                # at 4x → 12, at 8x → 24. Capped at 24 to avoid overload.
+                base_rate = 3
+                events_this_tick = max(1, min(int(self.speed * base_rate), 24))
                 w = WINDOWS[new_win]
                 for _ in range(events_this_tick):
                     r = random.random() * 100
