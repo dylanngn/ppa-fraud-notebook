@@ -76,15 +76,19 @@ class Simulator:
         self.reset_state()
 
     def reset_state(self) -> None:
-        """Reset all simulation state to initial values."""
-        self.virtual_ms: int = SIM_START
+        """Reset all simulation state to initial values.
+
+        Simulation starts at W1 (first test window) — W0 is the training
+        period and should not receive inference events.
+        """
+        self.virtual_ms: int = WINDOWS[1]["start_ms"]  # Skip W0 (training)
         self.paused: bool = False
         self.retraining: bool = False
         self.speed: float = 1.0
         self.approved_count: int = 0
         self.rejected_count: int = 0
         self.pending_count: int = 0
-        self.current_window: int = 0
+        self.current_window: int = 1
         self.last_retrain_ms: int = 0
         self._retrain_poll_active: bool = False
         # Last event info — consumed by the dashboard for pipeline animation
