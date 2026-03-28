@@ -243,9 +243,9 @@ async def simulate(req: SimulateRequest):
         if risk_tier == RiskTier.MEDIUM:
             admin_store.enqueue(event.insertion_id, prediction, event_dict)
         elif risk_tier == RiskTier.LOW:
-            admin_store.auto_decide(event.insertion_id, "APPROVE", event_dict)
+            admin_store.auto_decide(event.insertion_id, "APPROVE", event_dict, fraud_probability=proba)
         else:
-            admin_store.auto_decide(event.insertion_id, "DECLINE", event_dict)
+            admin_store.auto_decide(event.insertion_id, "DECLINE", event_dict, fraud_probability=proba)
 
     return {
         "insertion_id": event.insertion_id,
