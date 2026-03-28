@@ -300,9 +300,9 @@ async def predict(event: EventPayload, background_tasks: BackgroundTasks):
         if risk_tier == RiskTier.MEDIUM:
             admin_store.enqueue(event.insertion_id, prediction_dict, event_dict)
         elif risk_tier == RiskTier.LOW:
-            background_tasks.add_task(admin_store.auto_decide, event.insertion_id, "APPROVE", event_dict)
+            background_tasks.add_task(admin_store.auto_decide, event.insertion_id, "APPROVE", event_dict, proba)
         else:
-            background_tasks.add_task(admin_store.auto_decide, event.insertion_id, "DECLINE", event_dict)
+            background_tasks.add_task(admin_store.auto_decide, event.insertion_id, "DECLINE", event_dict, proba)
 
     risk_factors = _generate_risk_factors(event)
     confidence = abs(proba - 0.5) * 2  # Maps [0.5, 1] → [0, 1]

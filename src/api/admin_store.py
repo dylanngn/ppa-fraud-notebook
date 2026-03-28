@@ -180,7 +180,13 @@ class AdminStore:
             self._append_retrain(record)
             return record
 
-    def auto_decide(self, insertion_id: str, decision: str, event: Optional[Dict] = None) -> DecisionRecord:
+    def auto_decide(
+        self,
+        insertion_id: str,
+        decision: str,
+        event: Optional[Dict] = None,
+        fraud_probability: float = 0.0,
+    ) -> DecisionRecord:
         """
         Record an automatic decision (LOW → APPROVE, HIGH → DECLINE).
 
@@ -197,12 +203,16 @@ class AdminStore:
                         "listing_category": event.get("listing_category"),
                         "listing_platform": event.get("listing_platform"),
                         "listing_price": event.get("listing_price"),
+                        "listing_country": event.get("listing_country"),
                         "seon_tor": event.get("seon_tor"),
                         "seon_vpn": event.get("seon_vpn"),
+                        "seon_datacenter": event.get("seon_datacenter"),
+                        "seon_ip_country": event.get("seon_ip_country"),
+                        "user_id": event.get("user_id"),
                     }
                 item = ReviewItem(
                     insertion_id=insertion_id,
-                    fraud_probability=0.0,
+                    fraud_probability=fraud_probability,
                     risk_tier="HIGH" if decision == "DECLINE" else "LOW",
                     event_summary=summary,
                     queued_at=datetime.now(timezone.utc).isoformat(),
@@ -230,29 +240,32 @@ class AdminStore:
 
     def _write_parquet(self, record: DecisionRecord) -> None:
         """Append a single record to the appropriate date-partitioned parquet file."""
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        path = self.storage_dir / record.bucket / f"{date_str}.parquet"
+        try:
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            path = self.storage_dir / record.bucket / f"{date_str}.parquet"
 
-        row = {
-            "insertion_id": record.insertion_id,
-            "fraud_probability": record.fraud_probability,
-            "risk_tier": record.risk_tier,
-            "admin_decision": record.admin_decision,
-            "admin_id": record.admin_id,
-            "notes": record.notes,
-            "decided_at": record.decided_at,
-            "bucket": record.bucket,
-            **{f"evt_{k}": str(v) for k, v in (record.event_summary or {}).items()},
-        }
-        df = pd.DataFrame([row])
-        table = pa.Table.from_pandas(df)
+            row = {
+                "insertion_id": record.insertion_id,
+                "fraud_probability": record.fraud_probability,
+                "risk_tier": record.risk_tier,
+                "admin_decision": record.admin_decision,
+                "admin_id": record.admin_id,
+                "notes": record.notes,
+                "decided_at": record.decided_at,
+                "bucket": record.bucket,
+                **{f"evt_{k}": str(v) for k, v in (record.event_summary or {}).items()},
+            }
+            df = pd.DataFrame([row])
+            table = pa.Table.from_pandas(df)
 
-        if path.exists():
-            existing = pq.read_table(str(path))
-            combined = pa.concat_tables([existing, table])
-            pq.write_table(combined, str(path))
-        else:
-            pq.write_table(table, str(path))
+            if path.exists():
+                existing = pq.read_table(str(path))
+                combined = pa.concat_tables([existing, table], promote_options="default")
+                pq.write_table(combined, str(path))
+            else:
+                pq.write_table(table, str(path))
+        except Exception as exc:
+            logger.warning(f"Parquet write failed ({record.bucket}): {exc}")
 
     def _append_retrain(self, record: DecisionRecord) -> None:
         """
@@ -263,24 +276,27 @@ class AdminStore:
           APPROVE → is_fraud = 0
           DECLINE → is_fraud = 1
         """
-        path = self.storage_dir / "retrain" / "pending.parquet"
-        row = {
-            "insertion_id": record.insertion_id,
-            "fraud_probability": record.fraud_probability,
-            "is_fraud": 0 if record.admin_decision == "APPROVE" else 1,
-            "admin_decision": record.admin_decision,
-            "decided_at": record.decided_at,
-            **{f"evt_{k}": str(v) for k, v in (record.event_summary or {}).items()},
-        }
-        df = pd.DataFrame([row])
-        table = pa.Table.from_pandas(df)
+        try:
+            path = self.storage_dir / "retrain" / "pending.parquet"
+            row = {
+                "insertion_id": record.insertion_id,
+                "fraud_probability": record.fraud_probability,
+                "is_fraud": 0 if record.admin_decision == "APPROVE" else 1,
+                "admin_decision": record.admin_decision,
+                "decided_at": record.decided_at,
+                **{f"evt_{k}": str(v) for k, v in (record.event_summary or {}).items()},
+            }
+            df = pd.DataFrame([row])
+            table = pa.Table.from_pandas(df)
 
-        if path.exists():
-            existing = pq.read_table(str(path))
-            combined = pa.concat_tables([existing, table])
-            pq.write_table(combined, str(path))
-        else:
-            pq.write_table(table, str(path))
+            if path.exists():
+                existing = pq.read_table(str(path))
+                combined = pa.concat_tables([existing, table], promote_options="default")
+                pq.write_table(combined, str(path))
+            else:
+                pq.write_table(table, str(path))
+        except Exception as exc:
+            logger.warning(f"Retrain parquet write failed: {exc}")
 
     # ------------------------------------------------------------------
     # Stats
